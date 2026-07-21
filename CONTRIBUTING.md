@@ -1,0 +1,3 @@
+# Contributing
+
+Use Conventional Commits.

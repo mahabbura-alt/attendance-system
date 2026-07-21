@@ -1,3 +1,3 @@
-# Attendance System
+# Attendance Management System
 
-Repository utama proyek.
+Professional project structure.
