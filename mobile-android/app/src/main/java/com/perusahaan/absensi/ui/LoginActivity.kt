@@ -66,7 +66,7 @@ class LoginActivity : AppCompatActivity() {
     private fun bukaDialogSetIp() {
         val input = EditText(this).apply {
             setText(SessionManager.getServerUrl())
-            hint = "http://192.168.1.82:3000/"
+            hint = "https://attendance-system-eta-opal.vercel.app/"
             setPadding(40, 30, 40, 30)
         }
 
