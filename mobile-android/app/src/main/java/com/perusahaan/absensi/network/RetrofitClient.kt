@@ -33,10 +33,14 @@ object RetrofitClient {
 
             val targetHost = uri.host
             if (targetHost != null && targetHost.isNotEmpty()) {
+                val scheme = uri.scheme ?: "https"
+                val defaultPort = if (scheme == "https") 443 else 3000
+                val targetPort = if (uri.port != -1) uri.port else defaultPort
+
                 val newHttpUrl = request.url.newBuilder()
-                    .scheme(uri.scheme ?: "http")
+                    .scheme(scheme)
                     .host(targetHost)
-                    .port(if (uri.port != -1) uri.port else 3000)
+                    .port(targetPort)
                     .build()
 
                 request = request.newBuilder().url(newHttpUrl).build()

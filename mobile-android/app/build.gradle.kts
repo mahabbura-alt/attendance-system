@@ -16,7 +16,7 @@ android {
         // Disuplai dari gradle property API_BASE_URL (CI atau local.properties).
         // Nilai default sengaja tidak dapat dipakai agar konfigurasi produksi tidak terlewat.
         val apiBaseUrl = providers.gradleProperty("API_BASE_URL")
-            .orElse("http://192.168.1.82:3000/")
+            .orElse("https://attendance-system-eta-opal.vercel.app/")
             .get()
             .let { if (it.endsWith('/')) it else "$it/" }
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")

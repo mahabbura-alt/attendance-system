@@ -54,7 +54,7 @@ object SessionManager {
     fun simpanServerUrl(url: String) {
         prefs.edit().putString(KEY_SERVER_URL, url).apply()
     }
-    fun getServerUrl(): String = prefs.getString(KEY_SERVER_URL, "http://192.168.1.82:3000/") ?: "http://192.168.1.82:3000/"
+    fun getServerUrl(): String = prefs.getString(KEY_SERVER_URL, "https://attendance-system-eta-opal.vercel.app/") ?: "https://attendance-system-eta-opal.vercel.app/"
 
     fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
     fun getUserNama(): String? = prefs.getString(KEY_USER_NAMA, null)
