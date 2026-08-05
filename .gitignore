@@ -1,0 +1,27 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+local.properties
+.agents/
+password supabase.txt
+*.txt
+
+# Dependencies and build products
+node_modules/
+build/
+app/build/
+.gradle/
+*.apk
+*.aab
+
+# IDE and operating-system files
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Runtime files
+coverage/
+logs/
+*.log

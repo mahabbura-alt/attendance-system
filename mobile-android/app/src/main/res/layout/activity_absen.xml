@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#050505">
+
+    <!-- 1. Layout Loading & Validasi Lokasi (Tampil pertama kali) -->
+    <LinearLayout
+        android:id="@+id/layoutLoadingLokasi"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp">
+
+        <ProgressBar
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:indeterminateTint="#00E5FF"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="MEMINDAI LOKASI GPS"
+            android:textColor="#00E5FF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Memastikan Anda berada di dalam area radius kantor..."
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:gravity="center" />
+    </LinearLayout>
+
+    <!-- 2. Layout Kamera & Frame (Tampil setelah GPS valid) -->
+    <FrameLayout
+        android:id="@+id/layoutCamera"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <!-- Camera Preview -->
+        <androidx.camera.view.PreviewView
+            android:id="@+id/cameraPreview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- Overlay Gelap Tepi (Opsional untuk estetika) -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#66000000" />
+
+        <!-- Bingkai Pemindaian Wajah -->
+        <ImageView
+            android:layout_width="280dp"
+            android:layout_height="350dp"
+            android:layout_gravity="center"
+            android:src="@drawable/face_frame"
+            android:scaleType="fitXY"
+            android:layout_marginBottom="40dp" />
+
+        <!-- Efek Scan (Garis Bergerak) bisa ditambahkan jika mau, tapi ini sudah futuristik -->
+        
+    </FrameLayout>
+
+    <!-- Status & Progress Bar Bawah (Berlaku untuk Kamera) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="24dp"
+        android:background="@drawable/gradient_bottom">
+
+        <TextView
+            android:id="@+id/textStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Menunggu Izin Kamera..."
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="12dp" />
+
+        <ProgressBar
+            android:id="@+id/progressAbsen"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            android:indeterminateTint="#00E5FF"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</FrameLayout>

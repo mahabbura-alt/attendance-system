@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard Absensi — Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ================= LAYAR LOGIN ================= -->
+  <div id="layarLogin" class="layar-login">
+    <div class="kartu-login">
+      <div class="kartu-login__jam" id="jamLogin">--:--:--</div>
+      <h1 class="kartu-login__judul">Dashboard Absensi</h1>
+      <p class="kartu-login__sub">Masuk sebagai admin untuk mengelola karyawan &amp; absensi</p>
+
+      <form id="formLogin" autocomplete="off">
+        <label class="label">Email Admin</label>
+        <input type="email" id="inputEmail" placeholder="admin@perusahaan.com" required autocomplete="off" />
+
+        <label class="label">Password</label>
+        <input type="password" id="inputPassword" placeholder="••••••••" required autocomplete="off" />
+
+        <button type="submit" class="tombol tombol--utama tombol--lebar">Masuk ke Dashboard</button>
+        <p id="errorLogin" class="teks-error" hidden></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= APLIKASI UTAMA ================= -->
+  <div id="app" class="app" hidden>
+
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <span class="sidebar__brand-mark">●</span> Absensi
+      </div>
+
+      <nav class="sidebar__nav">
+        <button class="sidebar__tab is-aktif" data-tab="absensi">Absensi</button>
+        <button class="sidebar__tab" data-tab="karyawan">Karyawan</button>
+        <button class="sidebar__tab" data-tab="performa">Rekap Performa</button>
+        <button class="sidebar__tab" data-tab="registrasi">Registrasi Pending</button>
+        <button class="sidebar__tab" data-tab="payroll">Database Payroll</button>
+        <button class="sidebar__tab" data-tab="hm">Database HM</button>
+        <button class="sidebar__tab" data-tab="kalkulasiPayroll">Kalkulasi Payroll</button>
+      </nav>
+
+      <div class="sidebar__footer">
+        <div class="sidebar__user" id="namaAdminSidebar">Admin</div>
+        <button id="btnEditProfilSidebar" class="tombol-tautan" style="display:block;margin-bottom:6px;color:#10B981;font-weight:600;text-align:left;padding:0;cursor:pointer;" onclick="bukaModalEditProfilAdmin()">⚙️ Edit Profil</button>
+        <button id="tombolLogout" class="tombol-tautan">Keluar</button>
+      </div>
+    </aside>
+
+    <main class="konten">
+
+      <header class="konten__header">
+        <div class="jam-punch" id="jamUtama">--:--:--</div>
+        <div class="jam-punch__tanggal" id="tanggalUtama">-</div>
+      </header>
+
+      <!-- ===== TAB ABSENSI ===== -->
+      <section id="tabAbsensi" class="tab-panel is-aktif">
+        <div class="tab-panel__head">
+          <h2>Data Absensi</h2>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="date" id="filterTanggalDari" class="input-filter" placeholder="Dari tanggal" />
+            <input type="date" id="filterTanggalSampai" class="input-filter" placeholder="Sampai tanggal" />
+            <button id="btnMuatUlangAbsensi" class="tombol tombol--ghost">Filter</button>
+            <button id="btnExportCsvAbsensi" class="tombol tombol--ghost">Export CSV</button>
+          </div>
+        </div>
+        <div class="tabel-wrap">
+          <table class="tabel">
+            <thead>
+              <tr>
+                <th>Karyawan</th>
+                <th>Tanggal Kerja</th>
+                <th>Shift</th>
+                <th>Datang</th>
+                <th>Status Datang</th>
+                <th>Pulang</th>
+                <th>Status Pulang</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbodyAbsensi">
+              <tr><td colspan="8" class="tabel__kosong">Memuat data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Titik Radius Absensi (Lokasi Kantor) -->
+        <div class="tab-panel__head" style="margin-top:32px;">
+          <div>
+            <h2>Titik Radius Absensi (Lokasi Kantor)</h2>
+            <p style="font-size:13px;color:var(--tinta-lembut);margin-top:2px;">Daftar koordinat GPS & radius geofence untuk titik validasi absensi karyawan.</p>
+          </div>
+          <button id="btnTambahLokasi" class="tombol tombol--utama">+ Tambah Titik Absensi</button>
+        </div>
+        <div class="tabel-wrap">
+          <table class="tabel">
+            <thead>
+              <tr>
+                <th>Nama Titik Lokasi</th>
+                <th>Latitude</th>
+                <th>Longitude</th>
+                <th>Radius (Meter)</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyLokasi">
+              <tr><td colspan="4" class="tabel__kosong">Memuat data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== TAB KARYAWAN ===== -->
+      <section id="tabKaryawan" class="tab-panel">
+        <div class="tab-panel__head">
+          <h2>Database Karyawan</h2>
+          <div style="display:flex;gap:8px;">
+            <button id="btnAuditLogKaryawan" class="tombol tombol--ghost">📋 Audit Log Karyawan</button>
+            <button id="btnTambahKaryawan" class="tombol tombol--utama">+ Tambah karyawan</button>
+          </div>
+        </div>
+        <div class="tabel-wrap">
+          <table class="tabel">
+            <thead>
+              <tr>
+                <th>Nama</th>
+                <th>Employee ID</th>
+                <th>Email</th>
+                <th>Jabatan</th>
+                <th>Departemen</th>
+                <th>Wajah</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyKaryawan">
+              <tr><td colspan="7" class="tabel__kosong">Memuat data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== TAB REKAP PERFORMA ===== -->
+      <section id="tabPerforma" class="tab-panel">
+        <div class="tab-panel__head">
+          <h2>Rekap Performa Individu</h2>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="filterPeriodePerforma" class="input-filter">
+              <option value="harian">Harian</option>
+              <option value="mingguan">Mingguan</option>
+              <option value="bulanan" selected>Bulanan</option>
+              <option value="tahunan">Tahunan</option>
+            </select>
+            <input type="date" id="filterTanggalPerforma" class="input-filter" />
+            <button id="btnMuatPerforma" class="tombol tombol--ghost">Tampilkan</button>
+            <button id="btnExportCsvPerforma" class="tombol tombol--ghost">Export CSV</button>
+            <button id="btnAuditLogPerforma" class="tombol tombol--ghost">Audit Log</button>
+          </div>
+        </div>
+        <p id="infoRentangPerforma" class="info-rentang" style="padding:0 0 12px;color:var(--tinta-lembut);font-size:13px;"></p>
+
+        <!-- Banner Filter Karyawan Terpilih -->
+        <div id="wrapperFilterKaryawanPerforma" style="display:none;align-items:center;gap:8px;background:#e8f5e9;border:1px solid #c8e6c9;padding:10px 14px;border-radius:8px;margin-bottom:14px;">
+          <span style="font-size:13px;color:#2e7d32;font-weight:600;">👤 KPI Individu Karyawan: <b id="labelKaryawanTerpilih"></b></span>
+          <button id="btnResetFilterKaryawan" class="tombol tombol--ghost tombol--kecil" style="margin-left:auto;color:#c62828;border-color:#ef9a9a;">✕ Reset (Tampilkan Semua)</button>
+        </div>
+
+        <!-- KPI Cards Grid (Visual Performance Analytics) -->
+        <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:16px;">
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">RATA-RATA KEHADIRAN</div>
+            <div id="kpiRataHadir" style="font-size:26px;font-weight:bold;color:#2E7D32;margin-top:4px;">0.0%</div>
+            <div id="kpiStatusKehadiran" style="font-size:11px;color:#757575;margin-top:2px;">Memuat data...</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">TOTAL HADIR</div>
+            <div id="kpiTotalHadir" style="font-size:26px;font-weight:bold;color:#1565C0;margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#757575;margin-top:2px;">Presensi Wajah</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">TOTAL TIDAK HADIR</div>
+            <div id="kpiTotalTidakHadir" style="font-size:26px;font-weight:bold;color:#C62828;margin-top:4px;">0</div>
+            <div id="kpiBreakdownTidakHadir" style="font-size:11px;color:#757575;margin-top:2px;">Alpa: 0 | Izin: 0 | Sakit: 0 | Cuti: 0 | Off: 0</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">KETERLAMBATAN</div>
+            <div id="kpiTotalTelat" style="font-size:26px;font-weight:bold;color:#EF6C00;margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#757575;margin-top:2px;">Jam Masuk &gt; Toleransi</div>
+          </div>
+        </div>
+
+        <div class="tabel-wrap">
+          <table class="tabel">
+            <thead>
+              <tr>
+                <th rowspan="2">Nama</th>
+                <th rowspan="2">Jabatan</th>
+                <th rowspan="2">Departemen</th>
+                <th rowspan="2">Hadir</th>
+                <th rowspan="2">% Hadir</th>
+                <th colspan="6" style="text-align:center;border-bottom:1px solid rgba(0,0,0,0.1);">Tidak Hadir</th>
+                <th rowspan="2">Telat</th>
+                <th rowspan="2">Checkout Lewat</th>
+                <th rowspan="2">Percobaan Pulang Awal</th>
+                <th rowspan="2">Keterangan</th>
+              </tr>
+              <tr>
+                <th>Total</th>
+                <th>Alpa</th>
+                <th>Izin</th>
+                <th>Sakit</th>
+                <th>Cuti</th>
+                <th>OFF</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyPerforma">
+              <tr><td colspan="14" class="tabel__kosong">Pilih periode lalu klik Tampilkan</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== TAB REGISTRASI PENDING ===== -->
+      <section id="tabRegistrasi" class="tab-panel">
+        <div class="tab-panel__head">
+          <h2>Registrasi Pending</h2>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="filterStatusRegistrasi" class="input-filter">
+              <option value="menunggu">Menunggu</option>
+              <option value="disetujui">Disetujui</option>
+              <option value="ditolak">Ditolak</option>
+            </select>
+            <button id="btnMuatRegistrasi" class="tombol tombol--ghost">Muat Ulang</button>
+          </div>
+        </div>
+        <div class="tabel-wrap">
+          <table class="tabel">
+            <thead>
+              <tr>
+                <th>Nama</th>
+                <th>Email</th>
+
+                <th>Jabatan</th>
+                <th>Departemen</th>
+                <th>Sampel Wajah</th>
+                <th>Lokasi Dipilih</th>
+                <th>Tanggal Daftar</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbodyRegistrasi">
+              <tr><td colspan="10" class="tabel__kosong">Memuat data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== TAB PAYROLL ===== -->
+      <section id="tabPayroll" class="tab-panel">
+        <div class="tab-panel__head">
+          <div>
+            <h2>Database Payroll Karyawan</h2>
+            <p style="font-size:13px;color:var(--tinta-lembut);margin-top:2px;">Pengelolaan komponen gaji & tunjangan karyawan terhubung via Employee ID.</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="btnAuditLogPayroll" class="tombol tombol--ghost" style="border-color:#7c4dff;color:#651fff;font-weight:600;">📋 Audit Log</button>
+            <button id="btnExportCsvPayroll" class="tombol tombol--ghost">⬇️ Export CSV</button>
+            <button id="btnSinkronPayroll" class="tombol tombol--utama" style="background:#1976D2;">🔄 Sinkron Data</button>
+            <button id="btnImportExcelPayroll" class="tombol tombol--ghost" style="border-color:#2e7d32;color:#2e7d32;font-weight:bold;">🟩 Import Excel</button>
+            <button id="btnTambahPayroll" class="tombol tombol--utama">+ Tambah Manual</button>
+          </div>
+        </div>
+
+        <!-- SUMMARY CARDS PAYROLL -->
+        <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:20px;">
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">TOTAL KARYAWAN PAYROLL</div>
+            <div id="kpiPayrollCount" style="font-size:26px;font-weight:bold;color:var(--tinta);margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#757575;margin-top:2px;">Karyawan Terdaftar</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">TOTAL GAJI POKOK</div>
+            <div id="kpiPayrollTotalGaji" style="font-size:24px;font-weight:bold;color:#2E7D32;margin-top:4px;">Rp 0</div>
+            <div style="font-size:11px;color:#757575;margin-top:2px;">Akumulasi Seluruh Karyawan</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">RATA-RATA GAJI POKOK</div>
+            <div id="kpiPayrollRataGaji" style="font-size:24px;font-weight:bold;color:#1565C0;margin-top:4px;">Rp 0</div>
+            <div style="font-size:11px;color:#757575;margin-top:2px;">Per Karyawan</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;">
+          <input type="text" id="searchPayroll" class="input-filter" placeholder="🔍 Cari Nama, Employee ID, Site, Jabatan..." style="max-width:320px;" />
+        </div>
+
+        <div class="tabel-wrap">
+          <table class="tabel">
+            <thead>
+              <tr>
+                <th>No</th>
+                <th>Employee ID</th>
+                <th>Nama Karyawan</th>
+                <th>Date In</th>
+                <th>Site</th>
+                <th>Kota</th>
+                <th>Jabatan</th>
+                <th>Gaji Pokok</th>
+                <th>Tunj. Kehadiran/Hari</th>
+                <th>Tunj. Jabatan</th>
+                <th>Insentif HM/Jam</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyPayroll">
+              <tr><td colspan="12" class="tabel__kosong">Memuat data payroll...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== TAB HM ===== -->
+      <section id="tabHm" class="tab-panel">
+        <div class="tab-panel__head">
+          <div>
+            <h2>Database HM (Hours Meter Unit Beroperasi)</h2>
+            <p style="font-size:13px;color:var(--tinta-lembut);margin-top:2px;">Pencatatan harian jam operasi unit per karyawan beserta rekapitulasi harian, mingguan, dan bulanan.</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="btnExportCsvHm" class="tombol tombol--ghost">📤 Export CSV</button>
+            <button id="btnSimpanSemuaHm" class="tombol tombol--utama" style="background:#2e7d32;border-color:#2e7d32;font-weight:bold;" title="Simpan seluruh baris HM yang sudah diisi">💾 Simpan Semua HM</button>
+            <button id="btnTambahHm" class="tombol tombol--ghost">+ Tambah Manual</button>
+          </div>
+        </div>
+
+        <!-- FILTER BAR HM -->
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:20px;background:#f9f9f9;padding:12px;border-radius:8px;border:1px solid #e0e0e0;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <label style="font-size:12px;font-weight:bold;color:var(--tinta-lembut);">PERIODE:</label>
+            <select id="filterPeriodeHm" class="input-filter" style="font-weight:bold;">
+              <option value="harian" selected>Harian</option>
+              <option value="mingguan">Mingguan</option>
+              <option value="bulanan">Bulanan</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <label style="font-size:12px;font-weight:bold;color:var(--tinta-lembut);">TANGGAL REF:</label>
+            <input type="date" id="filterTanggalHm" class="input-filter" />
+          </div>
+          <button id="btnMuatHm" class="tombol tombol--utama tombol--kecil" style="padding:6px 16px;">Tampilkan</button>
+          <span id="labelKeteranganPeriodeHm" style="font-size:12px;color:#1565C0;font-weight:600;margin-left:auto;"></span>
+        </div>
+
+        <!-- SUMMARY CARDS HM -->
+        <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:20px;">
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">TOTAL OPERATING HM</div>
+            <div id="kpiHmTotal" style="font-size:26px;font-weight:bold;color:#2E7D32;margin-top:4px;">0 Jam</div>
+            <div style="font-size:11px;color:#757575;margin-top:2px;">Akumulasi Jam Kerja Unit</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">UNIT BEROPERASI</div>
+            <div id="kpiHmUnitCount" style="font-size:26px;font-weight:bold;color:var(--tinta);margin-top:4px;">0 Unit</div>
+            <div style="font-size:11px;color:#757575;margin-top:2px;">Total Unit Aktif</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+            <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">RATA-RATA HM / CATATAN</div>
+            <div id="kpiHmRata" style="font-size:26px;font-weight:bold;color:#1565C0;margin-top:4px;">0 Jam</div>
+            <div style="font-size:11px;color:#757575;margin-top:2px;">Jam Operasi Rata-rata</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;">
+          <input type="text" id="searchHm" class="input-filter" placeholder="🔍 Cari Employee ID, Nama, Kode Unit, Jabatan..." style="max-width:320px;" />
+        </div>
+
+        <div class="tabel-wrap">
+          <table class="tabel">
+            <thead>
+              <tr id="theadRowHm">
+                <th>No</th>
+                <th>Employee ID</th>
+                <th>Nama Karyawan</th>
+                <th>Jabatan</th>
+                <th>Kode Unit</th>
+                <th>HM Awal</th>
+                <th>HM Akhir</th>
+                <th>Total HM</th>
+                <th>Keterangan</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyHm">
+              <tr><td colspan="10" class="tabel__kosong">Pilih periode lalu klik Tampilkan</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== TAB KALKULASI PAYROLL ===== -->
+      <section id="tabKalkulasiPayroll" class="tab-panel">
+        <div class="tab-panel__head">
+          <div>
+            <h2>Dashboard Kalkulasi Payroll Karyawan</h2>
+            <p style="font-size:13px;color:var(--tinta-lembut);margin-top:2px;">Perhitungan otomatis take home pay gaji karyawan per periode tutup buku (Tgl 26 bulan sebelumnya s/d Tgl 25 bulan berjalan).</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="btnExportCsvKalkulasiPayroll" class="tombol tombol--ghost">📤 Export CSV Payroll</button>
+            <button id="btnSimpanConfigPayroll" class="tombol tombol--utama" style="background:#1565C0;border-color:#1565C0;">💾 Simpan Skema Gaji</button>
+          </div>
+        </div>
+
+        <!-- AREA CUSTOM SETUP SKEMA PERHITUNGAN GAJI -->
+        <div style="background:#f0f4f8;padding:16px;border-radius:10px;border:1px solid #d0dbe5;margin-bottom:20px;">
+          <div style="font-weight:bold;font-size:14px;color:#1e3a8a;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+            <span>⚙️ Area Custom Setup Skema Perhitungan Gaji Periode</span>
+          </div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:12px;font-weight:bold;color:#475569;">PERIODE BULAN & TAHUN:</label>
+              <div style="display:flex;gap:6px;">
+                <select id="selectBulanPayroll" class="input-filter" style="font-weight:bold;min-width:130px;">
+                  <option value="1">Januari</option>
+                  <option value="2">Februari</option>
+                  <option value="3">Maret</option>
+                  <option value="4">April</option>
+                  <option value="5">Mei</option>
+                  <option value="6">Juni</option>
+                  <option value="7">Juli</option>
+                  <option value="8" selected>Agustus</option>
+                  <option value="9">September</option>
+                  <option value="10">Oktober</option>
+                  <option value="11">November</option>
+                  <option value="12">Desember</option>
+                </select>
+                <input type="number" id="inputTahunPayroll" class="input-filter" value="2026" style="width:80px;font-weight:bold;" />
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:12px;font-weight:bold;color:#475569;">HARI LIBUR REGULER:</label>
+              <select id="selectHariLiburReguler" class="input-filter" style="font-weight:bold;">
+                <option value="minggu" selected>Minggu (Default)</option>
+                <option value="sabtu-minggu">Sabtu & Minggu</option>
+              </select>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px;">
+              <label style="font-size:12px;font-weight:bold;color:#475569;">HARI LIBUR NASIONAL (INPUT MANUAL):</label>
+              <input type="text" id="inputLiburNasional" class="input-filter" placeholder="Contoh: 2026-08-17 (pisahkan koma bila >1)" style="font-weight:500;" />
+            </div>
+
+            <button id="btnHitungKalkulasiPayroll" class="tombol tombol--utama" style="background:#2e7d32;border-color:#2e7d32;font-weight:bold;">🧮 Hitung Payroll</button>
+          </div>
+
+          <div id="labelInfoCutoffPayroll" style="margin-top:10px;font-size:12px;color:#1e40af;font-weight:600;background:#dbeafe;padding:6px 12px;border-radius:6px;display:inline-block;">
+            📅 Periode Cutoff Tutup Buku: 26 Juli 2026 s/d 25 Agustus 2026 (Tutup Buku Tgl 25)
+          </div>
+        </div>
+
+        <!-- KPI SUMMARY CARDS -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-bottom:20px;">
+          <div style="background:#ffffff;padding:14px;border-radius:10px;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Total Gaji Pokok</div>
+            <div id="kpiSumGajiPokok" style="font-size:18px;font-weight:800;color:#0f172a;margin-top:4px;">Rp 0</div>
+          </div>
+
+          <div style="background:#ffffff;padding:14px;border-radius:10px;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Total Tunj. Kehadiran</div>
+            <div id="kpiSumTunjKehadiran" style="font-size:18px;font-weight:800;color:#2563eb;margin-top:4px;">Rp 0</div>
+          </div>
+
+          <div style="background:#ffffff;padding:14px;border-radius:10px;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Total Insentif HM</div>
+            <div id="kpiSumInsentifHm" style="font-size:18px;font-weight:800;color:#d97706;margin-top:4px;">Rp 0</div>
+          </div>
+
+          <div style="background:#f0fdf4;padding:14px;border-radius:10px;border:1px solid #bbf7d0;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size:11px;font-weight:700;color:#166534;text-transform:uppercase;">Total Take Home Pay</div>
+            <div id="kpiSumTakeHomePay" style="font-size:20px;font-weight:800;color:#15803d;margin-top:4px;">Rp 0</div>
+          </div>
+        </div>
+
+        <!-- SEARCH & FILTER KARYAWAN -->
+        <div style="display:flex;gap:12px;margin-bottom:14px;">
+          <input type="text" id="searchKalkulasiPayroll" placeholder="🔍 Cari Employee ID, nama karyawan, atau jabatan..." class="input-filter" style="flex:1;" />
+          <select id="filterKaryawanKalkulasiPayroll" class="input-filter" style="min-width:200px;">
+            <option value="">-- Semua Karyawan --</option>
+          </select>
+        </div>
+
+        <!-- TABEL KALKULASI PAYROLL -->
+        <div class="tabel-wrap">
+          <table class="tabel">
+            <thead>
+              <tr>
+                <th>No</th>
+                <th>Employee ID</th>
+                <th>Nama Karyawan</th>
+                <th>Jabatan</th>
+                <th>Date In</th>
+                <th>Hari Kerja</th>
+                <th>Gaji Pokok</th>
+                <th>Tunj. Kehadiran</th>
+                <th>Tunj. Jabatan</th>
+                <th>Total HM</th>
+                <th>Insentif HM</th>
+                <th>Take Home Pay</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyKalkulasiPayroll">
+              <tr><td colspan="13" class="tabel__kosong">Memuat data kalkulasi payroll...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ================= MODAL GENERIK ================= -->
+  <div id="modalOverlay" class="modal-overlay" hidden>
+    <div class="modal" id="modalKonten"></div>
+  </div>
+
+  <script src="config.js?v=24"></script>
+  <script src="app.js?v=27"></script>
+</body>
+</html>

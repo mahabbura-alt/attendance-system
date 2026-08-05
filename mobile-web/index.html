@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>Portal Mobile Absensi — PT Prima Indojaya Mandiri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1A1A2E;
+      --primary-accent: #0F3460;
+      --emerald: #10B981;
+      --emerald-dark: #059669;
+      --emerald-light: #D1FAE5;
+      --danger: #EF4444;
+      --danger-light: #FEE2E2;
+      --warning: #F59E0B;
+      --bg: #F8FAFC;
+      --card-bg: #FFFFFF;
+      --text-dark: #0F172A;
+      --text-muted: #64748B;
+      --border: #E2E8F0;
+      --shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.08);
+      --radius: 16dp;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-dark);
+      display: flex;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 480px;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      padding-bottom: 90px;
+    }
+
+    /* -------------------------------------------------------------
+       HEADER & PROFIL
+       ------------------------------------------------------------- */
+    .app-header {
+      background: linear-gradient(135deg, #1A1A2E 0%, #16213E 100%);
+      color: #FFFFFF;
+      padding: 24px 20px 28px 20px;
+      border-bottom-left-radius: 24px;
+      border-bottom-right-radius: 24px;
+      box-shadow: 0 10px 25px -5px rgba(26, 26, 46, 0.3);
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .header-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #94A3B8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-logout {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #FFFFFF;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+    }
+
+    .profile-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .profile-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+      color: #FFFFFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 700;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      border: 2px solid #FFFFFF;
+    }
+
+    .profile-info h2 {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .profile-info p {
+      font-size: 13px;
+      color: #CBD5E1;
+      margin-top: 2px;
+    }
+
+    /* -------------------------------------------------------------
+       DIGITAL CLOCK & GEOFENCE STATUS
+       ------------------------------------------------------------- */
+    .section-clock {
+      background: var(--card-bg);
+      margin: -16px 20px 16px 20px;
+      padding: 16px;
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border: 1px solid var(--border);
+    }
+
+    .clock-time {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: -0.5px;
+    }
+
+    .clock-date {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-top: 2px;
+    }
+
+    .geofence-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .geofence-badge.valid {
+      background: var(--emerald-light);
+      color: var(--emerald-dark);
+    }
+
+    .geofence-badge.invalid {
+      background: var(--danger-light);
+      color: var(--danger);
+    }
+
+    .geofence-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* -------------------------------------------------------------
+       CARDS & CONTENT
+       ------------------------------------------------------------- */
+    .content-area {
+      padding: 0 20px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      color: var(--text-dark);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Status Grid Hari Ini */
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .status-box {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      padding: 14px;
+      border-radius: 14px;
+      text-align: center;
+    }
+
+    .status-box .label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .status-box .value {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--primary);
+    }
+
+    .status-box .sub {
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    /* Tombol Aksi Utama */
+    .btn-action {
+      width: 100%;
+      padding: 16px;
+      border-radius: 14px;
+      border: none;
+      font-size: 15px;
+      font-weight: 700;
+      color: #FFFFFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+      transition: all 0.2s ease;
+      margin-bottom: 12px;
+    }
+
+    .btn-action:active {
+      transform: scale(0.98);
+    }
+
+    .btn-datang {
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    }
+
+    .btn-pulang {
+      background: linear-gradient(135deg, #0F3460 0%, #16213E 100%);
+    }
+
+    .btn-disabled {
+      background: #CBD5E1 !important;
+      color: #64748B !important;
+      box-shadow: none !important;
+      cursor: not-allowed;
+    }
+
+    /* -------------------------------------------------------------
+       BOTTOM NAVIGATION BAR
+       ------------------------------------------------------------- */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 480px;
+      background: #FFFFFF;
+      border-top: 1px solid #E2E8F0;
+      display: flex;
+      justify-content: space-around;
+      padding: 10px 0 14px 0;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.05);
+      z-index: 100;
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      color: #94A3B8;
+      font-size: 11px;
+      font-weight: 600;
+      text-decoration: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      flex: 1;
+    }
+
+    .nav-item.active {
+      color: #10B981;
+    }
+
+    .nav-icon {
+      font-size: 20px;
+    }
+
+    /* -------------------------------------------------------------
+       LOGIN VIEW
+       ------------------------------------------------------------- */
+    #viewLogin {
+      padding: 40px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .login-brand {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .login-brand h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--primary);
+    }
+
+    .login-brand p {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 6px;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1.5px solid #CBD5E1;
+      background: #FFFFFF;
+      font-size: 15px;
+      color: var(--primary);
+      outline: none;
+      transition: border 0.2s;
+    }
+
+    .form-input:focus {
+      border-color: #10B981;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 15px;
+      border-radius: 12px;
+      border: none;
+      background: var(--primary);
+      color: #FFFFFF;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 10px;
+      box-shadow: 0 4px 12px rgba(26, 26, 46, 0.2);
+    }
+
+    .alert-box {
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .alert-error {
+      background: var(--danger-light);
+      color: var(--danger);
+      border: 1px solid #FCA5A5;
+    }
+
+    /* -------------------------------------------------------------
+       CAMERA MODAL / CAPTURE
+       ------------------------------------------------------------- */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-box {
+      background: #FFFFFF;
+      width: 100%;
+      max-width: 420px;
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .camera-preview-container {
+      width: 100%;
+      height: 280px;
+      background: #000;
+      border-radius: 14px;
+      overflow: hidden;
+      position: relative;
+      margin: 14px 0;
+    }
+
+    #webcamVideo, #capturedCanvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .tab-page {
+      display: none;
+    }
+
+    .tab-page.active {
+      display: block;
+    }
+
+    /* Table Riwayat */
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .history-table th {
+      background: #F1F5F9;
+      text-align: left;
+      padding: 10px;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+
+    .history-table td {
+      padding: 12px 10px;
+      border-bottom: 1px solid #E2E8F0;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+
+    <!-- =========================================================
+         VIEW 1: FORM LOGIN KARYAWAN
+         ========================================================= -->
+    <div id="viewLogin">
+      <div class="login-brand">
+        <h1>Absensi PIM</h1>
+        <p>Portal Absensi Mobile PT Prima Indojaya Mandiri</p>
+      </div>
+
+      <div id="loginAlert" class="alert-box alert-error"></div>
+
+      <form id="formLogin">
+        <div class="form-group">
+          <label for="loginEmail">Email Karyawan</label>
+          <input type="email" id="loginEmail" class="form-input" placeholder="contoh@perusahaan.com" required />
+        </div>
+
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" class="form-input" placeholder="••••••••" required />
+        </div>
+
+        <button type="submit" id="btnSubmitLogin" class="btn-submit">MASUK PORTAL</button>
+        
+        <div style="text-align: center; margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+          <div>
+            <span style="font-size: 13px; color: var(--text-muted);">Belum punya akun? </span>
+            <button type="button" style="background: none; border: none; color: #10B981; font-weight: 700; font-size: 13px; cursor: pointer;" onclick="showView('viewDaftar')">DAFTAR AKUN BARU 📝</button>
+          </div>
+          <div>
+            <button type="button" style="background: none; border: none; color: #64748B; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: underline;" onclick="showView('viewLupaSandi')">🔑 Lupa Password / Reset Akun?</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- =========================================================
+         VIEW 3: FORM PENDAFTARAN KARYAWAN BARU
+         ========================================================= -->
+    <div id="viewDaftar" style="display: none; padding: 24px 16px;">
+      <div class="login-brand" style="margin-bottom: 20px;">
+        <h1 style="font-size: 20px;">Pendaftaran Karyawan Baru</h1>
+        <p style="font-size: 13px;">Lengkapi data diri &amp; sampel foto untuk pengajuan akun</p>
+      </div>
+
+      <div id="daftarAlert" class="alert-box alert-error"></div>
+      <div id="daftarSuccessAlert" class="alert-box" style="background:#DCFCE7; color:#15803D; border:1px solid #86EFAC; display:none;"></div>
+
+      <form id="formDaftar" style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="form-group">
+          <label for="daftarNama">Nama Lengkap Karyawan *</label>
+          <input type="text" id="daftarNama" class="form-input" placeholder="Nama sesuai KTP" required />
+        </div>
+
+        <div class="form-group">
+          <label for="daftarEmail">Email Karyawan *</label>
+          <input type="email" id="daftarEmail" class="form-input" placeholder="email@perusahaan.com" required />
+        </div>
+
+        <div class="form-group">
+          <label for="daftarPassword">Password * (min. 8 karakter)</label>
+          <input type="password" id="daftarPassword" class="form-input" placeholder="••••••••" required minlength="8" />
+        </div>
+
+        <div class="form-group">
+          <label for="daftarDept">Departemen *</label>
+          <select id="daftarDept" class="form-input" required onchange="onDeptChanged(this.value)">
+            <option value="">-- Pilih Departemen --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="daftarJabatan">Jabatan *</label>
+          <select id="daftarJabatan" class="form-input" required>
+            <option value="">-- Pilih Jabatan --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="daftarLokasi">Lokasi Penugasan *</label>
+          <select id="daftarLokasi" class="form-input" required>
+            <option value="">-- Pilih Lokasi Kantor/Site --</option>
+          </select>
+        </div>
+
+        <div style="background: #F8FAFC; border: 1px dashed #CBD5E1; padding: 14px; border-radius: 12px;">
+          <label style="font-size: 13px; font-weight: 700; color: #1E293B; display: block; margin-bottom: 6px;">📸 Sampel Foto Wajah Referensi (3 Foto)</label>
+          <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">Foto selfie wajah Anda dari 3 sudut berbeda untuk verifikasi presensi.</p>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div>
+              <label style="font-size: 11px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Foto 1 (Tampak Depan)</label>
+              <input type="file" id="daftarFoto1" accept="image/*" capture="user" class="form-input" style="padding: 6px; font-size: 12px;" required />
+            </div>
+            <div>
+              <label style="font-size: 11px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Foto 2 (Miring Kiri)</label>
+              <input type="file" id="daftarFoto2" accept="image/*" capture="user" class="form-input" style="padding: 6px; font-size: 12px;" required />
+            </div>
+            <div>
+              <label style="font-size: 11px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Foto 3 (Miring Kanan)</label>
+              <input type="file" id="daftarFoto3" accept="image/*" capture="user" class="form-input" style="padding: 6px; font-size: 12px;" required />
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" id="btnSubmitDaftar" class="btn-submit" style="background: #10B981;">KIRIM PENDAFTARAN</button>
+        
+        <button type="button" class="btn-submit" style="background: #64748B; margin-top: 0;" onclick="showView('viewLogin')">Kembali ke Halaman Login</button>
+      </form>
+    </div>
+
+    <!-- =========================================================
+         VIEW 4: FORM LUPA PASSWORD / RESET AKUN
+         ========================================================= -->
+    <div id="viewLupaSandi" style="display: none; padding: 24px 16px;">
+      <div class="login-brand" style="margin-bottom: 20px;">
+        <h1 style="font-size: 20px;">Pemulihan Akun &amp; Reset Password</h1>
+        <p style="font-size: 13px;">Masukkan email terdaftar untuk meminta kode OTP reset</p>
+      </div>
+
+      <div id="lupaAlert" class="alert-box alert-error"></div>
+      <div id="lupaSuccessAlert" class="alert-box" style="background:#DCFCE7; color:#15803D; border:1px solid #86EFAC; display:none;"></div>
+
+      <!-- LANGKAH 1: MINTA OTP -->
+      <form id="formMintaOtp" style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="form-group">
+          <label for="lupaEmail">Email Terdaftar *</label>
+          <input type="email" id="lupaEmail" class="form-input" placeholder="email@perusahaan.com" required />
+        </div>
+
+        <button type="submit" id="btnMintaOtp" class="btn-submit" style="background: #3B82F6;">KIRIM KODE OTP RESET 📩</button>
+      </form>
+
+      <!-- LANGKAH 2: VERIFIKASI OTP & SET PASSWORD BARU -->
+      <form id="formResetPass" style="display: none; flex-direction: column; gap: 14px; margin-top: 16px;">
+        <div style="background: #EFF6FF; border: 1px solid #BFDBFE; padding: 12px; border-radius: 10px; font-size: 12px; color: #1E40AF;">
+          <strong>📩 Kode OTP Dikirim!</strong> Periksa email Anda (atau gunakan OTP yang tertera di bawah).
+        </div>
+
+        <div class="form-group">
+          <label for="resetToken">Kode OTP 6-Angka *</label>
+          <input type="text" id="resetToken" class="form-input" placeholder="Contoh: 123456" maxlength="6" required style="letter-spacing: 4px; font-weight: bold; text-align: center; font-size: 18px;" />
+        </div>
+
+        <div class="form-group">
+          <label for="resetPassBaru">Password Baru * (min. 8 karakter)</label>
+          <input type="password" id="resetPassBaru" class="form-input" placeholder="••••••••" required minlength="8" />
+        </div>
+
+        <button type="submit" id="btnSubmitReset" class="btn-submit" style="background: #10B981;">SIMPAN PASSWORD BARU 🔒</button>
+      </form>
+
+      <button type="button" class="btn-submit" style="background: #64748B; margin-top: 16px;" onclick="showView('viewLogin')">Kembali ke Halaman Login</button>
+    </div>
+
+    <!-- =========================================================
+         VIEW 2: DASHBOARD MAIN PORTAL (TABS)
+         ========================================================= -->
+    <div id="viewMain" style="display: none;">
+
+      <!-- Header Profil Karyawan -->
+      <div class="app-header">
+        <div class="header-top">
+          <span class="header-title">Portal Karyawan</span>
+          <button class="btn-logout" onclick="logout()">Keluar 🚪</button>
+        </div>
+        <div class="profile-card">
+          <div class="profile-avatar" id="userInitial">K</div>
+          <div class="profile-info">
+            <h2 id="userName">Nama Karyawan</h2>
+            <p id="userSub">Jabatan • Departemen</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Jam Digital & Live Geofence Status -->
+      <div class="section-clock">
+        <div>
+          <div class="clock-time" id="digitalClock">00:00:00</div>
+          <div class="clock-date" id="digitalDate">Selasa, 5 Agustus 2026</div>
+        </div>
+        <div id="geofenceBadge" class="geofence-badge invalid" onclick="refreshLocation()">
+          <div class="geofence-dot"></div>
+          <span id="geofenceText">Cek Lokasi...</span>
+        </div>
+      </div>
+
+      <div class="content-area">
+
+        <!-- ================= TAB 1: PRESENSI ================= -->
+        <div id="tabPresensi" class="tab-page active">
+          
+          <!-- Status Grid Presensi Hari Ini -->
+          <div class="card">
+            <div class="card-title">📌 Status Presensi Hari Ini</div>
+            <div class="status-grid">
+              <div class="status-box">
+                <div class="label">📥 Jam Datang</div>
+                <div class="value" id="valJamDatang">--:--</div>
+                <div class="sub" id="subDatang" style="color:var(--text-muted)">Belum Absen</div>
+              </div>
+              <div class="status-box">
+                <div class="label">📤 Jam Pulang</div>
+                <div class="value" id="valJamPulang">--:--</div>
+                <div class="sub" id="subPulang" style="color:var(--text-muted)">Belum Checkout</div>
+              </div>
+            </div>
+
+            <!-- Tombol Absen Datang & Pulang -->
+            <button id="btnTriggerDatang" class="btn-action btn-datang" onclick="openCameraModal('datang')">
+              📸 ABSEN DATANG SEKARANG
+            </button>
+
+            <button id="btnTriggerPulang" class="btn-action btn-pulang btn-disabled" onclick="openCameraModal('pulang')" disabled>
+              📸 ABSEN PULANG SEKARANG
+            </button>
+          </div>
+
+        </div>
+
+        <!-- ================= TAB 2: RIWAYAT ================= -->
+        <div id="tabRiwayat" class="tab-page">
+          <div class="card">
+            <div class="card-title">📅 Riwayat Absensi Bulan Ini</div>
+            <div style="overflow-x: auto;">
+              <table class="history-table">
+                <thead>
+                  <tr>
+                    <th>Tanggal</th>
+                    <th>Datang</th>
+                    <th>Pulang</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyRiwayat">
+                  <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Memuat riwayat...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================= TAB 3: SLIP GAJI ================= -->
+        <div id="tabSlip" class="tab-page">
+          <div class="card">
+            <div class="card-title">📄 Unduh Slip Gaji PDF</div>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+              Pilih bulan dan tahun untuk mengunduh slip gaji terenkripsi password.
+            </p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
+              <div>
+                <label style="font-size: 12px; font-weight: 700;">Bulan</label>
+                <select id="slipBulan" class="form-input" style="padding: 10px;">
+                  <option value="1">Januari</option>
+                  <option value="2">Februari</option>
+                  <option value="3">Maret</option>
+                  <option value="4">April</option>
+                  <option value="5">Mei</option>
+                  <option value="6">Juni</option>
+                  <option value="7" selected>Juli</option>
+                  <option value="8">Agustus</option>
+                  <option value="9">September</option>
+                  <option value="10">Oktober</option>
+                  <option value="11">November</option>
+                  <option value="12">Desember</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 12px; font-weight: 700;">Tahun</label>
+                <input type="number" id="slipTahun" class="form-input" value="2026" style="padding: 10px;" />
+              </div>
+            </div>
+            <button class="btn-action btn-datang" onclick="downloadSlipGaji()">
+              ⬇️ UNDUH SLIP GAJI PDF
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Navigation Bar Bawah -->
+      <nav class="bottom-nav">
+        <button class="nav-item active" onclick="switchTab('tabPresensi', this)">
+          <span class="nav-icon">🏠</span>
+          <span>Presensi</span>
+        </button>
+        <button class="nav-item" onclick="switchTab('tabRiwayat', this)">
+          <span class="nav-icon">📅</span>
+          <span>Riwayat</span>
+        </button>
+        <button class="nav-item" onclick="switchTab('tabSlip', this)">
+          <span class="nav-icon">📄</span>
+          <span>Slip Gaji</span>
+        </button>
+      </nav>
+
+    </div>
+
+    <!-- =========================================================
+         MODAL KAMERA / FOTO ABSEN
+         ========================================================= -->
+    <div id="modalCamera" class="modal-backdrop">
+      <div class="modal-box">
+        <h3 id="modalCameraTitle" style="font-size: 16px; font-weight: 700; color: var(--primary);">Ambil Foto Presensi</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Posisikan wajah Anda dengan jelas di depan kamera.</p>
+        
+        <div class="camera-preview-container">
+          <video id="webcamVideo" autoplay playsinline muted></video>
+          <canvas id="capturedCanvas" style="display: none;"></canvas>
+        </div>
+
+        <input type="file" id="fallbackFileInput" accept="image/*" capture="user" style="display: none;" onchange="onFileFallbackSelected(event)" />
+
+        <div style="display: flex; gap: 10px; margin-top: 14px;">
+          <button type="button" class="btn-action" style="background:#CBD5E1; color:#334155; margin:0;" onclick="closeCameraModal()">Batal</button>
+          <button type="button" id="btnSnapPhoto" class="btn-action btn-datang" style="margin:0;" onclick="takeSnapshotAndSubmit()">📸 AMBIL & KIRIM</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="karyawan.js?v=3"></script>
+</body>
+</html>

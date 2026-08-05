@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F5F5">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- ===== HEADER ===== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/textSelamatDatang"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="16sp"
+                    android:textColor="#424242" />
+
+                <TextView
+                    android:id="@+id/textJamSekarang"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="28sp"
+                    android:textStyle="bold"
+                    android:textColor="#1A237E" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnLogout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Keluar"
+                android:textSize="12sp"
+                android:backgroundTint="#EF5350"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp" />
+        </LinearLayout>
+
+        <!-- ===== TOMBOL ABSEN ===== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2"
+            android:layout_marginBottom="12dp">
+
+            <Button
+                android:id="@+id/btnAbsenDatang"
+                android:layout_width="0dp"
+                android:layout_height="64dp"
+                android:layout_weight="1"
+                android:text="Absen Datang"
+                android:layout_marginEnd="8dp"
+                android:backgroundTint="#1565C0" />
+
+            <Button
+                android:id="@+id/btnAbsenPulang"
+                android:layout_width="0dp"
+                android:layout_height="64dp"
+                android:layout_weight="1"
+                android:text="Absen Pulang"
+                android:backgroundTint="#388E3C" />
+        </LinearLayout>
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/btnMenuRekapHm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            app:strokeColor="#7C4DFF"
+            app:strokeWidth="1dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#F3E5F5"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🚜 Rekap HM (Unit Beroperasi)"
+                    android:textColor="#4A148C"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Lihat &gt;"
+                    android:textColor="#7B1FA2"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== MENU SLIP GAJI ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/btnMenuSlipGaji"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            app:strokeColor="#1a7a4a"
+            app:strokeWidth="1dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#E8F5E9"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📄 Unduh Slip Gaji (PDF)"
+                    android:textColor="#1a7a4a"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Unduh &gt;"
+                    android:textColor="#1a7a4a"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+
+        <TextView
+            android:id="@+id/textSesiPendingWarning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#D32F2F"
+            android:gravity="center"
+            android:layout_marginBottom="12dp"
+            android:visibility="gone"
+            android:text="Selesaikan absen pulang dulu sebelum absen datang." />
+
+        <!-- ===== KALENDER REKAP KEHADIRAN ===== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp"
+            android:elevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="10dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📅 Rekap Kehadiran (30 Hari)"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#212121" />
+
+                <ProgressBar
+                    android:id="@+id/progressRekap"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- Legenda warna -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+                <View android:layout_width="14dp" android:layout_height="14dp"
+                    android:background="#4CAF50" android:layout_marginEnd="4dp"
+                    android:layout_gravity="center_vertical" />
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Hadir" android:textSize="10sp"
+                    android:textColor="#424242" android:layout_marginEnd="8dp" />
+
+                <View android:layout_width="14dp" android:layout_height="14dp"
+                    android:background="#FFC107" android:layout_marginEnd="4dp"
+                    android:layout_gravity="center_vertical" />
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Telat/Lewat" android:textSize="10sp"
+                    android:textColor="#424242" android:layout_marginEnd="8dp" />
+
+                <View android:layout_width="14dp" android:layout_height="14dp"
+                    android:background="#F44336" android:layout_marginEnd="4dp"
+                    android:layout_gravity="center_vertical" />
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Tidak Absen" android:textSize="10sp"
+                    android:textColor="#424242" />
+            </LinearLayout>
+
+            <!-- Grid kalender 5 kolom (tiap baris = 5 hari) -->
+            <GridLayout
+                android:id="@+id/gridKalender"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="5"
+                android:useDefaultMargins="false" />
+
+        </LinearLayout>
+
+        <!-- ===== MINIMAP ===== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="12dp"
+            android:elevation="2dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📍 Lokasi Kantor &amp; Posisi Saya"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#212121" />
+
+                <ProgressBar
+                    android:id="@+id/progressMinimap"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <com.perusahaan.absensi.ui.widget.MinimapView
+                android:id="@+id/minimapView"
+                android:layout_width="match_parent"
+                android:layout_height="240dp"
+                android:background="#E8EAF6" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

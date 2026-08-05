@@ -1,0 +1,33 @@
+# Render Blueprint Spec for 24/7 Cloud Deployment of Attendance System
+services:
+  # 1. Backend Web Service (Node.js API)
+  - type: web
+    name: absensi-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/server.js
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: TZ
+        value: Asia/Jakarta
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
+
+  # 2. Static Web Site (Admin Dashboard & Mobile Web)
+  - type: static
+    name: absensi-dashboard
+    rootDir: admin-dashboard
+    publishDir: .
+    plan: free

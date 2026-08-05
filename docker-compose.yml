@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # ============================================================
+  # DATABASE: PostgreSQL 15
+  # ============================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: absensi_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: attendance_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d attendance_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # STORAGE: MinIO (Object Storage untuk foto absensi)
+  # ============================================================
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    container_name: absensi_minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: Absensi123!
+    ports:
+      - "9000:9000"   # MinIO API
+      - "9001:9001"   # MinIO Web Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  minio_data:

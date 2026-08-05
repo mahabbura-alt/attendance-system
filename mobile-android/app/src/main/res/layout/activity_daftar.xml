@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#F5F7FA">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Daftar Akun Karyawan"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:textColor="#1A1A2E"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Isi data berikut. Akun aktif setelah disetujui admin."
+                android:textSize="13sp"
+                android:textColor="#4A5568"
+                android:layout_marginBottom="24dp" />
+
+            <!-- Nama Lengkap -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Nama Lengkap *" android:textSize="13sp" android:textStyle="bold" android:textColor="#1A1A2E" android:layout_marginBottom="6dp"/>
+            <EditText android:id="@+id/inputNama" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="Masukkan nama lengkap"
+                android:textColor="#1A1A2E" android:textColorHint="#666666"
+                android:inputType="textPersonName" android:padding="12dp"
+                android:background="@drawable/bg_input_field" android:layout_marginBottom="14dp"/>
+
+            <!-- Email -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Email *" android:textSize="13sp" android:textStyle="bold" android:textColor="#1A1A2E" android:layout_marginBottom="6dp"/>
+            <EditText android:id="@+id/inputEmail" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="email@contoh.com"
+                android:textColor="#1A1A2E" android:textColorHint="#666666"
+                android:inputType="textEmailAddress" android:padding="12dp"
+                android:background="@drawable/bg_input_field" android:layout_marginBottom="14dp"/>
+
+            <!-- Departemen -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Departemen *" android:textSize="13sp" android:textStyle="bold" android:textColor="#1A1A2E" android:layout_marginBottom="6dp"/>
+            <Spinner android:id="@+id/spinnerDepartemen" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:padding="10dp"
+                android:background="@drawable/bg_input_field" android:layout_marginBottom="14dp"/>
+
+            <!-- Jabatan -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Jabatan *" android:textSize="13sp" android:textStyle="bold" android:textColor="#1A1A2E" android:layout_marginBottom="6dp"/>
+            <Spinner android:id="@+id/spinnerJabatan" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:padding="10dp"
+                android:background="@drawable/bg_input_field" android:layout_marginBottom="14dp"/>
+
+            <!-- Lokasi Kantor -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Lokasi Kantor *" android:textSize="13sp" android:textStyle="bold" android:textColor="#1A1A2E" android:layout_marginBottom="6dp"/>
+            <Spinner android:id="@+id/spinnerLokasi" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:padding="10dp"
+                android:background="@drawable/bg_input_field" android:layout_marginBottom="14dp"/>
+
+            <!-- Sampel Foto Wajah -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Sampel Foto Wajah (3 Foto) *" android:textSize="13sp" android:textStyle="bold" android:textColor="#1A1A2E" android:layout_marginBottom="6dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:weightSum="3"
+                android:layout_marginBottom="16dp">
+
+                <Button
+                    android:id="@+id/btnFoto1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📷 Foto 1 *"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="4dp"
+                    android:backgroundTint="#1A1A2E"/>
+
+                <Button
+                    android:id="@+id/btnFoto2"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📷 Foto 2 *"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="4dp"
+                    android:backgroundTint="#1A1A2E"/>
+
+                <Button
+                    android:id="@+id/btnFoto3"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📷 Foto 3 *"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold"
+                    android:textSize="11sp"
+                    android:backgroundTint="#1A1A2E"/>
+
+            </LinearLayout>
+
+            <!-- Password -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Password *" android:textSize="13sp" android:textStyle="bold" android:textColor="#1A1A2E" android:layout_marginBottom="6dp"/>
+            <EditText android:id="@+id/inputPassword" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="Min. 8 karakter"
+                android:textColor="#1A1A2E" android:textColorHint="#666666"
+                android:inputType="textPassword" android:padding="12dp"
+                android:background="@drawable/bg_input_field" android:layout_marginBottom="14dp"/>
+
+            <!-- Konfirmasi Password -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Konfirmasi Password *" android:textSize="13sp" android:textStyle="bold" android:textColor="#1A1A2E" android:layout_marginBottom="6dp"/>
+            <EditText android:id="@+id/inputKonfirmasiPassword" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="Ulangi password"
+                android:textColor="#1A1A2E" android:textColorHint="#666666"
+                android:inputType="textPassword" android:padding="12dp"
+                android:background="@drawable/bg_input_field" android:layout_marginBottom="22dp"/>
+
+            <Button android:id="@+id/btnDaftar" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="KIRIM PENDAFTARAN"
+                android:textColor="#FFFFFF" android:textStyle="bold"
+                android:textSize="16sp" android:padding="14dp" android:backgroundTint="#1A1A2E"/>
+
+            <TextView android:id="@+id/textPesan" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="12dp"
+                android:gravity="center" android:visibility="gone" android:textSize="14sp" android:textStyle="bold"/>
+
+            <ProgressBar android:id="@+id/progressDaftar" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:layout_gravity="center"
+                android:layout_marginTop="12dp" android:visibility="gone"/>
+
+            <TextView android:id="@+id/textKembaliLogin" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Sudah punya akun? Masuk"
+                android:textColor="#0D47A1" android:textStyle="bold" android:textSize="14sp"
+                android:layout_gravity="center" android:paddingTop="20dp" android:paddingBottom="24dp"/>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- IN-APP CAMERAX CAMERA OVERLAY -->
+    <RelativeLayout
+        android:id="@+id/layoutCameraOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:visibility="gone">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/cameraPreviewDaftar"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <TextView
+            android:id="@+id/textJudulFoto"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="36dp"
+            android:text="Posisikan Wajah untuk Sampel Foto"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:background="#80000000"
+            android:padding="12dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:orientation="horizontal"
+            android:padding="24dp"
+            android:gravity="center"
+            android:background="#60000000">
+
+            <Button
+                android:id="@+id/btnBatalKamera"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BATAL"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#757575"
+                android:layout_marginEnd="16dp" />
+
+            <Button
+                android:id="@+id/btnAmbilFotoKamera"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📸 AMBIL FOTO"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#10B981"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:padding="12dp" />
+
+        </LinearLayout>
+    </RelativeLayout>
+
+</FrameLayout>

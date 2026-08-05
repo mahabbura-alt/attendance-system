@@ -1,0 +1,387 @@
+:root {
+  --tinta: #1C2333;
+  --tinta-lembut: #5B6478;
+  --kertas: #F6F4EF;
+  --panel: #FFFFFF;
+  --garis: #E4E1D8;
+  --aksen: #2F6F5E;
+  --aksen-lembut: #E6EFEC;
+  --peringatan: #C2410C;
+  --peringatan-lembut: #FBEAE0;
+  --bahaya: #B91C1C;
+  --bahaya-lembut: #FBE9E9;
+
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--kertas);
+  color: var(--tinta);
+}
+
+button, input { font-family: inherit; }
+
+/* ============ LOGIN ============ */
+.layar-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tinta);
+  padding: 24px;
+}
+
+.kartu-login {
+  background: #FFFFFF !important;
+  color: #1C2333 !important;
+  border-radius: 14px;
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  position: relative;
+  z-index: 1;
+}
+
+.kartu-login__jam {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--aksen);
+  letter-spacing: 0.08em;
+  margin-bottom: 18px;
+}
+
+.kartu-login__judul {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: #1C2333 !important;
+  margin: 0 0 6px;
+}
+
+.kartu-login__sub {
+  color: #5B6478 !important;
+  font-size: 14px;
+  margin: 0 0 28px;
+}
+
+.label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #4A5568 !important;
+  margin: 16px 0 6px;
+}
+
+input[type="email"], input[type="password"], input[type="text"], input[type="number"], select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1.5px solid #CBD5E1 !important;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #F8FAFC !important;
+  color: #0F172A !important;
+  box-sizing: border-box;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #F8FAFC inset !important;
+  -webkit-text-fill-color: #0F172A !important;
+  caret-color: #0F172A !important;
+}
+
+input:focus, select:focus {
+  outline: 2px solid var(--aksen);
+  outline-offset: 1px;
+}
+
+.teks-error {
+  color: var(--bahaya);
+  font-size: 13px;
+  margin-top: 14px;
+}
+
+/* ============ TOMBOL ============ */
+.tombol {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tombol--utama {
+  background: var(--aksen);
+  color: #fff;
+}
+.tombol--utama:hover { background: #275C4E; }
+
+.tombol--ghost {
+  background: transparent;
+  border: 1px solid var(--garis);
+  color: var(--tinta);
+}
+.tombol--ghost:hover { background: var(--aksen-lembut); }
+
+.tombol--lebar { width: 100%; margin-top: 24px; }
+
+.tombol-tautan {
+  background: none;
+  border: none;
+  color: var(--tinta-lembut);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.tombol--kecil {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+/* ============ LAYOUT APP ============ */
+.app {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--tinta);
+  color: #fff;
+  padding: 24px 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar__brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  margin-bottom: 32px;
+}
+.sidebar__brand-mark { color: var(--aksen); }
+
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.sidebar__tab {
+  text-align: left;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.65);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.sidebar__tab:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.sidebar__tab.is-aktif { background: var(--aksen); color: #fff; }
+
+.sidebar__footer {
+  border-top: 1px solid rgba(255,255,255,0.12);
+  padding-top: 16px;
+  font-size: 13px;
+}
+.sidebar__user { color: rgba(255,255,255,0.85); margin-bottom: 6px; }
+
+/* ============ KONTEN ============ */
+.konten { padding: 32px 40px; }
+
+.konten__header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--garis);
+  padding-bottom: 20px;
+}
+
+.jam-punch {
+  font-family: var(--font-mono);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--tinta);
+}
+.jam-punch__tanggal {
+  font-size: 14px;
+  color: var(--tinta-lembut);
+}
+
+.tab-panel { display: none; }
+.tab-panel.is-aktif { display: block; }
+
+.tab-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.tab-panel__head h2 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  margin: 0;
+}
+
+/* ============ TABEL ============ */
+.tabel-wrap {
+  background: var(--panel);
+  border: 1px solid var(--garis);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.tabel { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tabel th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tinta-lembut);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--garis);
+}
+.tabel td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--garis);
+}
+.tabel tr:last-child td { border-bottom: none; }
+.tabel__kosong { text-align: center; color: var(--tinta-lembut); padding: 24px !important; }
+
+.pil {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.pil--ok { background: var(--aksen-lembut); color: var(--aksen); }
+.pil--peringatan { background: var(--peringatan-lembut); color: var(--peringatan); }
+.pil--bahaya { background: var(--bahaya-lembut); color: var(--bahaya); }
+.pil--netral { background: #EEE; color: var(--tinta-lembut); }
+
+[hidden] { display: none !important; }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(28,35,51,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.modal-overlay[hidden] {
+  display: none !important;
+}
+
+.modal {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 28px;
+  width: 100%;
+  max-width: 420px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal h3 {
+  font-family: var(--font-display);
+  margin: 0 0 18px;
+}
+
+.modal__aksi {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.modal__pesan {
+  font-size: 13px;
+  margin-top: 10px;
+}
+.modal__pesan--error { color: var(--bahaya); }
+.modal__pesan--sukses { color: var(--aksen); }
+
+@media (max-width: 720px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { flex-direction: row; overflow-x: auto; }
+  .sidebar__footer { display: none; }
+  .konten { padding: 20px; }
+}
+
+/* ============ FILTER INPUT ============ */
+.input-filter {
+  border: 1px solid var(--garis);
+  border-radius: 7px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: var(--font-body);
+  color: var(--tinta);
+  background: var(--panel);
+  height: 34px;
+}
+.input-filter:focus {
+  outline: none;
+  border-color: var(--aksen);
+}
+
+/* ============ PIL TAMBAHAN ============ */
+.pil--error {
+  background: var(--bahaya-lembut);
+  color: var(--bahaya);
+}
+.pil--ok {
+  background: var(--aksen-lembut);
+  color: var(--aksen);
+}
+
+/* ============ TOMBOL TAMBAHAN ============ */
+.tombol--ok {
+  background: var(--aksen);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+.tombol--ok:hover { opacity: 0.85; }
+
+.tombol--error {
+  background: var(--bahaya);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+.tombol--error:hover { opacity: 0.85; }
+
+/* ============ INFO RENTANG PERFORMA ============ */
+.info-rentang {
+  padding: 0 0 12px;
+  color: var(--tinta-lembut);
+  font-size: 13px;
+}
+
+/* ============ TABEL RESPONSIVE ============ */
+.tabel-wrap {
+  overflow-x: auto;
+}
+
