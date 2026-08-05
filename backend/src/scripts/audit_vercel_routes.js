@@ -95,6 +95,30 @@ async function audit() {
     console.error(`❌ [GET /api/admin/hm] Failed: ${e.response?.status || e.message}`, e.response?.data || '');
   }
 
+  // 11. Admin Rekap Performa
+  try {
+    const res = await axios.get(`${BASE_URL}/api/admin/rekap-performa?periode=bulanan`, authHeaders);
+    console.log(`✅ [GET /api/admin/rekap-performa] Status: ${res.status} -> Data: ${res.data.data?.length || res.data.length} items`);
+  } catch (e) {
+    console.error(`❌ [GET /api/admin/rekap-performa] Failed: ${e.response?.status || e.message}`, e.response?.data || '');
+  }
+
+  // 12. Admin Kalkulasi Payroll
+  try {
+    const res = await axios.get(`${BASE_URL}/api/admin/kalkulasi-payroll?bulan=8&tahun=2026`, authHeaders);
+    console.log(`✅ [GET /api/admin/kalkulasi-payroll] Status: ${res.status} -> Total Karyawan: ${res.data.ringkasan?.total_karyawan}`);
+  } catch (e) {
+    console.error(`❌ [GET /api/admin/kalkulasi-payroll] Failed: ${e.response?.status || e.message}`, e.response?.data || '');
+  }
+
+  // 13. Admin Sinkron Karyawan Payroll
+  try {
+    const res = await axios.post(`${BASE_URL}/api/admin/payroll/sinkron`, {}, authHeaders);
+    console.log(`✅ [POST /api/admin/payroll/sinkron] Status: ${res.status} -> Inserted: ${res.data.inserted}, Updated: ${res.data.updated}`);
+  } catch (e) {
+    console.error(`❌ [POST /api/admin/payroll/sinkron] Failed: ${e.response?.status || e.message}`, e.response?.data || '');
+  }
+
   console.log('\n🏁 [AUDIT COMPLETE]');
 }
 

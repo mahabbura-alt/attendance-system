@@ -1413,7 +1413,7 @@ function bukaModalImportExcelPayroll() {
     pesanEl.hidden = false;
 
     try {
-      const baseUrl = (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) ? API_BASE_URL : 'http://localhost:3000';
+      const baseUrl = getApiBaseUrl();
       const res = await fetch(`${baseUrl}/api/admin/payroll/import`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${state.token}` },
