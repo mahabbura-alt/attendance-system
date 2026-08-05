@@ -18,6 +18,9 @@ const DEPARTEMEN_JABATAN_MAP = {
 };
 
 function getApiBaseUrl() {
+  if (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('onrender.com')) {
+    return window.location.origin;
+  }
   const currentHost = window.location.hostname || 'localhost';
   if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
     try {
