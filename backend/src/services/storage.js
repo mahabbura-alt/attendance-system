@@ -14,6 +14,11 @@ async function uploadFoto(buffer, { userId, jenis }) {
   if (!buffer || buffer.length === 0) return null;
 
   const objectKey = `absensi/${userId}/${Date.now()}-${jenis}.jpg`;
+  const SUPABASE_URL_CHECK = process.env.SUPABASE_URL;
+  const SUPABASE_KEY_CHECK = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  console.log(`[Storage] uploadFoto called: userId=${userId}, jenis=${jenis}, bufferLen=${buffer.length}`);
+  console.log(`[Storage] SUPABASE_URL set: ${!!SUPABASE_URL_CHECK}, KEY set: ${!!SUPABASE_KEY_CHECK}`);
 
   // 1. Primary: Upload ke Supabase Storage (Visual Cloud Bucket)
   try {
@@ -29,10 +34,15 @@ async function uploadFoto(buffer, { userId, jenis }) {
         .from('absensi-foto')
         .getPublicUrl(objectKey);
 
+      console.log(`[Storage] ✅ Supabase upload SUCCESS: ${publicUrlData.publicUrl}`);
       return publicUrlData.publicUrl;
     }
+
+    if (error) {
+      console.error(`[Storage] ❌ Supabase upload FAILED: ${error.message} | status: ${error.statusCode} | name: ${error.name}`);
+    }
   } catch (supaErr) {
-    console.warn(`[Supabase Storage Fallback] ${supaErr.message}`);
+    console.error(`[Storage] ❌ Supabase upload EXCEPTION: ${supaErr.message}`);
   }
 
   // 2. Secondary: Fallback ke MinIO (Local Container)
