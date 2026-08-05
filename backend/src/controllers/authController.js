@@ -88,15 +88,19 @@ async function daftar(req, res, next) {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
+    const isUuid = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    const cleanShiftId = isUuid(shift_id) ? shift_id : null;
+    const cleanLokasiId = isUuid(lokasi_kantor_id) ? lokasi_kantor_id : null;
+
     await pool.query(
       `INSERT INTO registrasi_pending
          (nama, email, jabatan, departemen, password_hash, shift_id, lokasi_kantor_id,
           foto_referensi_1_url, foto_referensi_2_url, foto_referensi_3_url)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
-        nama, email.toLowerCase().trim(),
+        nama.trim(), email.toLowerCase().trim(),
         jabatan || null, departemen || null, passwordHash,
-        shift_id || null, lokasi_kantor_id || null,
+        cleanShiftId, cleanLokasiId,
         foto1Url, foto2Url, foto3Url
       ]
     );
