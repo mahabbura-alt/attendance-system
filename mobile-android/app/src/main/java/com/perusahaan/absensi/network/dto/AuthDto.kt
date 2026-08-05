@@ -1,19 +1,23 @@
 package com.perusahaan.absensi.network.dto
 
+import androidx.annotation.Keep
 import com.google.gson.annotations.SerializedName
 
 // ── Auth ──────────────────────────────────────────────────────────────────
 
+@Keep
 data class LoginRequest(
     @SerializedName("email") val email: String,
     @SerializedName("password") val password: String
 )
 
+@Keep
 data class LoginResponse(
     @SerializedName("token") val token: String,
     @SerializedName("user") val user: UserDto
 )
 
+@Keep
 data class UserDto(
     @SerializedName("id") val id: String,
     @SerializedName("nama") val nama: String,

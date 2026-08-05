@@ -1,18 +1,23 @@
 package com.perusahaan.absensi.network.dto
 
+import androidx.annotation.Keep
+import com.google.gson.annotations.SerializedName
+
+@Keep
 data class AbsensiResponse(
-    val message: String,
-    val status: String,
-    val absensi: AbsensiDto
+    @SerializedName("message") val message: String,
+    @SerializedName("status") val status: String,
+    @SerializedName("absensi") val absensi: AbsensiDto
 )
 
+@Keep
 data class AbsensiDto(
-    val id: String,
-    val tanggal_kerja: String,
-    val waktu_datang: String?,
-    val waktu_pulang: String?,
-    val status_datang: String?,
-    val status_pulang: String?
+    @SerializedName("id") val id: String,
+    @SerializedName("tanggal_kerja") val tanggal_kerja: String,
+    @SerializedName("waktu_datang") val waktu_datang: String?,
+    @SerializedName("waktu_pulang") val waktu_pulang: String?,
+    @SerializedName("status_datang") val status_datang: String?,
+    @SerializedName("status_pulang") val status_pulang: String?
 )
 
 /** Status per hari untuk kalender rekap kehadiran */
