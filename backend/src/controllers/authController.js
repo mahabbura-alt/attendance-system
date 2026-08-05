@@ -36,7 +36,7 @@ async function login(req, res) {
 
   const token = jwt.sign(
     { id: user.id, role: user.role, lokasi_kantor_id: user.lokasi_kantor_id },
-    process.env.JWT_SECRET,
+    process.env.JWT_SECRET || 'super_secret_attendance_jwt_key_2026_antigravity_ganti_ini',
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
   );
 
