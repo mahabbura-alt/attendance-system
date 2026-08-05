@@ -1,12 +1,25 @@
 package com.perusahaan.absensi.network.dto
 
+import com.google.gson.annotations.SerializedName
+
 // ── Auth ──────────────────────────────────────────────────────────────────
 
-data class LoginRequest(val email: String, val password: String)
+data class LoginRequest(
+    @SerializedName("email") val email: String,
+    @SerializedName("password") val password: String
+)
 
-data class LoginResponse(val token: String, val user: UserDto)
+data class LoginResponse(
+    @SerializedName("token") val token: String,
+    @SerializedName("user") val user: UserDto
+)
 
-data class UserDto(val id: String, val nama: String, val email: String, val role: String)
+data class UserDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("nama") val nama: String,
+    @SerializedName("email") val email: String,
+    @SerializedName("role") val role: String
+)
 
 data class DaftarRequest(
     val nama: String,
