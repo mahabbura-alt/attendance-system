@@ -15,6 +15,8 @@ app/build/
 *.apk
 !admin-dashboard/Absensi PIM.apk
 !admin-dashboard/Absensi_PIM.apk
+!backend/src/public/Absensi_PIM.apk
+!api/Absensi_PIM.apk
 *.aab
 
 # IDE and operating-system files
