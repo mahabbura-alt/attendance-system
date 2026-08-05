@@ -26,8 +26,10 @@ services:
         value: 8h
 
   # 2. Static Web Site (Admin Dashboard & Mobile Web)
-  - type: static
+  - type: web
     name: absensi-dashboard
+    env: static
     rootDir: admin-dashboard
-    publishDir: .
+    buildCommand: echo "Static Dashboard Ready"
+    staticPublishPath: .
     plan: free
