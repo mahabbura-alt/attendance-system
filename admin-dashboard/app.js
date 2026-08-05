@@ -249,18 +249,25 @@ async function muatAbsensi() {
 
     const daftar = await api(url);
     if (daftar.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="tabel__kosong">Belum ada data absensi</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="tabel__kosong">Belum ada data absensi</td></tr>';
       return;
     }
     tbody.innerHTML = daftar.map((a) => `
       <tr>
-        <td>${escapeHtml(a.nama)}</td>
+        <td><b>${escapeHtml(a.nama)}</b></td>
         <td>${new Date(a.tanggal_kerja).toLocaleDateString('id-ID')}</td>
         <td>${escapeHtml(a.nama_shift || '—')}</td>
         <td>${formatWaktu(a.waktu_datang)}</td>
         <td>${pilStatus(a.status_datang)}</td>
         <td>${formatWaktu(a.waktu_pulang)}</td>
         <td>${pilStatus(a.status_pulang)}</td>
+        <td>
+          <div style="display:flex;gap:4px;">
+            ${a.foto_datang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-datang" data-url="${escapeHtml(a.foto_datang_url)}" data-nama="${escapeHtml(a.nama)}" style="color:#10B981;border-color:#a7f3d0;">📸 Datang</button>` : ''}
+            ${a.foto_pulang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-pulang" data-url="${escapeHtml(a.foto_pulang_url)}" data-nama="${escapeHtml(a.nama)}" style="color:#0284c7;border-color:#bae6fd;">📸 Pulang</button>` : ''}
+            ${!a.foto_datang_url && !a.foto_pulang_url ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : ''}
+          </div>
+        </td>
         <td>
           <button class="tombol tombol--ghost tombol--kecil" data-edit-absensi="${escapeHtml(a.id)}">Edit</button>
           <button class="tombol tombol--ghost tombol--kecil" data-audit-absensi="${escapeHtml(a.id)}">Audit</button>
@@ -273,9 +280,34 @@ async function muatAbsensi() {
     tbody.querySelectorAll('[data-audit-absensi]').forEach((button) => {
       button.addEventListener('click', () => bukaModalAuditLog(button.dataset.auditAbsensi));
     });
+    tbody.querySelectorAll('.btn-lihat-foto-datang').forEach((button) => {
+      button.addEventListener('click', () => bukaModalPratinjauFoto(button.dataset.url, `Foto Absen Datang — ${button.dataset.nama}`));
+    });
+    tbody.querySelectorAll('.btn-lihat-foto-pulang').forEach((button) => {
+      button.addEventListener('click', () => bukaModalPratinjauFoto(button.dataset.url, `Foto Absen Pulang — ${button.dataset.nama}`));
+    });
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+function bukaModalPratinjauFoto(url, judul = 'Foto Absensi Karyawan') {
+  if (!url) {
+    alert('Foto tidak tersedia');
+    return;
+  }
+  bukaModal(`
+    <div style="text-align:center;padding:8px;">
+      <h3 style="margin-bottom:12px;color:#10B981;">📸 ${escapeHtml(judul)}</h3>
+      <div style="max-height:65vh;overflow:auto;background:#0f172a;border-radius:8px;padding:12px;display:flex;justify-content:center;align-items:center;">
+        <img src="${escapeHtml(url)}" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.3);" alt="Foto Absensi" />
+      </div>
+      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;">
+        <a href="${escapeHtml(url)}" target="_blank" class="tombol tombol--ghost tombol--kecil" style="color:#0284c7;">🔗 Buka Gambar Penuh</a>
+        <button class="tombol tombol--ghost" onclick="tutupModal()">Tutup</button>
+      </div>
+    </div>
+  `);
 }
 
 document.getElementById('btnMuatUlangAbsensi').addEventListener('click', muatAbsensi);
