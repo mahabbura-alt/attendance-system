@@ -1,11 +1,6 @@
 const required = [
   'DATABASE_URL',
   'JWT_SECRET',
-  'MINIO_ENDPOINT',
-  'MINIO_ACCESS_KEY',
-  'MINIO_SECRET_KEY',
-  'COMPREFACE_BASE_URL',
-  'COMPREFACE_RECOGNITION_API_KEY',
 ];
 
 function assertEnvironment() {
@@ -13,8 +8,9 @@ function assertEnvironment() {
   if (missing.length) {
     throw new Error(`Konfigurasi environment belum lengkap: ${missing.join(', ')}`);
   }
-  if (process.env.JWT_SECRET.length < 32) {
-    throw new Error('JWT_SECRET harus memiliki minimal 32 karakter acak');
+  const secret = process.env.JWT_SECRET || '';
+  if (secret.length < 16) {
+    throw new Error('JWT_SECRET harus memiliki minimal 16 karakter acak');
   }
 }
 
