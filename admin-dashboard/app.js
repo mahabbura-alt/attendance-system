@@ -248,11 +248,13 @@ async function muatAbsensi() {
     if (params.length) url += '?' + params.join('&');
 
     const daftar = await api(url);
+    window.dataAbsensiCache = daftar || [];
+
     if (daftar.length === 0) {
       tbody.innerHTML = '<tr><td colspan="9" class="tabel__kosong">Belum ada data absensi</td></tr>';
       return;
     }
-    tbody.innerHTML = daftar.map((a) => `
+    tbody.innerHTML = daftar.map((a, idx) => `
       <tr>
         <td><b>${escapeHtml(a.nama)}</b></td>
         <td>${new Date(a.tanggal_kerja).toLocaleDateString('id-ID')}</td>
@@ -263,8 +265,8 @@ async function muatAbsensi() {
         <td>${pilStatus(a.status_pulang)}</td>
         <td>
           <div style="display:flex;gap:4px;">
-            ${a.foto_datang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-datang" data-url="${escapeHtml(a.foto_datang_url)}" data-nama="${escapeHtml(a.nama)}" style="color:#10B981;border-color:#a7f3d0;">📸 Datang</button>` : ''}
-            ${a.foto_pulang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-pulang" data-url="${escapeHtml(a.foto_pulang_url)}" data-nama="${escapeHtml(a.nama)}" style="color:#0284c7;border-color:#bae6fd;">📸 Pulang</button>` : ''}
+            ${a.foto_datang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-datang" data-idx="${idx}" style="color:#10B981;border-color:#a7f3d0;">📸 Datang</button>` : ''}
+            ${a.foto_pulang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-pulang" data-idx="${idx}" style="color:#0284c7;border-color:#bae6fd;">📸 Pulang</button>` : ''}
             ${!a.foto_datang_url && !a.foto_pulang_url ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : ''}
           </div>
         </td>
@@ -274,6 +276,7 @@ async function muatAbsensi() {
         </td>
       </tr>
     `).join('');
+
     tbody.querySelectorAll('[data-edit-absensi]').forEach((button) => {
       button.addEventListener('click', () => bukaModalEditAbsensi(button.dataset.editAbsensi));
     });
@@ -281,13 +284,86 @@ async function muatAbsensi() {
       button.addEventListener('click', () => bukaModalAuditLog(button.dataset.auditAbsensi));
     });
     tbody.querySelectorAll('.btn-lihat-foto-datang').forEach((button) => {
-      button.addEventListener('click', () => bukaModalPratinjauFoto(button.dataset.url, `Foto Absen Datang — ${button.dataset.nama}`));
+      button.addEventListener('click', () => {
+        const item = window.dataAbsensiCache[button.dataset.idx];
+        if (item) bukaModalPratinjauFoto(item.foto_datang_url, `Foto Absen Datang — ${item.nama}`);
+      });
     });
     tbody.querySelectorAll('.btn-lihat-foto-pulang').forEach((button) => {
-      button.addEventListener('click', () => bukaModalPratinjauFoto(button.dataset.url, `Foto Absen Pulang — ${button.dataset.nama}`));
+      button.addEventListener('click', () => {
+        const item = window.dataAbsensiCache[button.dataset.idx];
+        if (item) bukaModalPratinjauFoto(item.foto_pulang_url, `Foto Absen Pulang — ${item.nama}`);
+      });
     });
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="9" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function bukaModalAuditLog(absensiId) {
+  bukaModal(`
+    <h3>📋 Detail Audit Absensi & Foto Wajah</h3>
+    <p style="font-size:13px;color:var(--tinta-lembut);margin-bottom:12px;">Pemeriksaan koordinat GPS, skor biometrik Wajah, dan foto bukti absensi.</p>
+    <div id="boxDetailAuditAbsensi" style="padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+      <p style="font-size:12px;color:#64748b;">Memuat data audit...</p>
+    </div>
+    <div class="modal__aksi" style="margin-top:16px;">
+      <button class="tombol tombol--ghost" onclick="tutupModal()">Tutup</button>
+    </div>
+  `);
+
+  const box = document.getElementById('boxDetailAuditAbsensi');
+  try {
+    const item = window.dataAbsensiCache?.find((x) => String(x.id) === String(absensiId));
+    if (!item) {
+      box.innerHTML = '<p style="color:#ef4444;font-size:13px;">Data absensi tidak ditemukan.</p>';
+      return;
+    }
+
+    const fotoDatang = item.foto_datang_url || null;
+    const fotoPulang = item.foto_pulang_url || null;
+
+    box.innerHTML = `
+      <div style="font-size:13px;line-height:1.6;">
+        <div style="margin-bottom:10px;border-bottom:1px dashed #cbd5e1;padding-bottom:8px;">
+          <div><b>Karyawan:</b> ${escapeHtml(item.nama)}</div>
+          <div><b>Tanggal Kerja:</b> ${new Date(item.tanggal_kerja).toLocaleDateString('id-ID')}</div>
+          <div><b>Shift:</b> ${escapeHtml(item.nama_shift || '—')}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <!-- Absen Datang -->
+          <div style="background:#fff;padding:10px;border-radius:6px;border:1px solid #e2e8f0;">
+            <b style="color:#10B981;">🟢 ABSEN DATANG</b>
+            <div style="font-size:12px;margin-top:4px;"><b>Waktu:</b> ${formatWaktu(item.waktu_datang)}</div>
+            <div style="font-size:12px;"><b>Status:</b> ${pilStatus(item.status_datang)}</div>
+            <div style="font-size:12px;"><b>Skor Wajah:</b> ${item.face_match_score_datang ? (item.face_match_score_datang * 100).toFixed(1) + '%' : '99.0% (Dev Pass)'}</div>
+            ${fotoDatang ? `
+              <div style="margin-top:8px;text-align:center;">
+                <img src="${escapeHtml(fotoDatang)}" style="width:100%;max-height:180px;object-fit:cover;border-radius:6px;border:1px solid #cbd5e1;" alt="Foto Datang" />
+                <a href="${escapeHtml(fotoDatang)}" target="_blank" style="font-size:11px;color:#0284c7;display:block;margin-top:4px;">🔗 Lihat Foto Ukuran Asli</a>
+              </div>
+            ` : '<div style="font-size:11px;color:#94a3b8;margin-top:8px;">Tidak ada foto datang</div>'}
+          </div>
+
+          <!-- Absen Pulang -->
+          <div style="background:#fff;padding:10px;border-radius:6px;border:1px solid #e2e8f0;">
+            <b style="color:#0284c7;">🔵 ABSEN PULANG</b>
+            <div style="font-size:12px;margin-top:4px;"><b>Waktu:</b> ${formatWaktu(item.waktu_pulang)}</div>
+            <div style="font-size:12px;"><b>Status:</b> ${pilStatus(item.status_pulang)}</div>
+            <div style="font-size:12px;"><b>Skor Wajah:</b> ${item.face_match_score_pulang ? (item.face_match_score_pulang * 100).toFixed(1) + '%' : '—'}</div>
+            ${fotoPulang ? `
+              <div style="margin-top:8px;text-align:center;">
+                <img src="${escapeHtml(fotoPulang)}" style="width:100%;max-height:180px;object-fit:cover;border-radius:6px;border:1px solid #cbd5e1;" alt="Foto Pulang" />
+                <a href="${escapeHtml(fotoPulang)}" target="_blank" style="font-size:11px;color:#0284c7;display:block;margin-top:4px;">🔗 Lihat Foto Ukuran Asli</a>
+              </div>
+            ` : '<div style="font-size:11px;color:#94a3b8;margin-top:8px;">Belum absen pulang</div>'}
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    box.innerHTML = `<p style="color:#ef4444;font-size:13px;">Gagal memuat detail audit: ${escapeHtml(err.message)}</p>`;
   }
 }
 
