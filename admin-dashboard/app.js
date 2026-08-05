@@ -233,7 +233,16 @@ function pilStatus(status) {
 
 function formatWaktu(iso) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('id-ID', { hour12: false });
+  return new Date(iso).toLocaleString('id-ID', {
+    hour12: false,
+    timeZone: 'Asia/Jakarta',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }) + ' WIB';
 }
 
 async function muatAbsensi() {
