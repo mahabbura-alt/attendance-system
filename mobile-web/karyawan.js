@@ -109,8 +109,13 @@ async function handleLogin(e) {
       body: JSON.stringify({ email, password })
     });
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Login gagal');
+    let data;
+    try {
+      data = await res.json();
+    } catch (_) {
+      throw new Error('Email atau password salah / Periksa format email');
+    }
+    if (!res.ok) throw new Error(data?.error || 'Login gagal');
 
     userToken = data.token;
     localStorage.setItem('token_karyawan', userToken);
