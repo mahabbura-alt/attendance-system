@@ -1,14 +1,41 @@
+const { createClient } = require('@supabase/supabase-js');
 const { minioClient, BUCKET } = require('../config/minio');
 
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://lpezydpyzvfydbhwimqq.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
 /**
- * Upload buffer foto (hasil capture kamera) ke MinIO / Storage Fallback.
- * @returns {string} object key atau base64 data URL
+ * Upload buffer foto ke Supabase Storage Bucket "absensi-foto".
+ * @returns {string} Direct Public Image URL (Bisa langsung diklik dan dilihat gambarnya di Supabase / Browser / App)
  */
 async function uploadFoto(buffer, { userId, jenis }) {
   if (!buffer || buffer.length === 0) return null;
 
   const objectKey = `absensi/${userId}/${Date.now()}-${jenis}.jpg`;
 
+  // 1. Primary: Upload ke Supabase Storage (Visual Cloud Bucket)
+  try {
+    const { data, error } = await supabase.storage
+      .from('absensi-foto')
+      .upload(objectKey, buffer, {
+        contentType: 'image/jpeg',
+        upsert: true,
+      });
+
+    if (!error && data) {
+      const { data: publicUrlData } = supabase.storage
+        .from('absensi-foto')
+        .getPublicUrl(objectKey);
+
+      return publicUrlData.publicUrl;
+    }
+  } catch (supaErr) {
+    console.warn(`[Supabase Storage Fallback] ${supaErr.message}`);
+  }
+
+  // 2. Secondary: Fallback ke MinIO (Local Container)
   try {
     if (minioClient && typeof minioClient.putObject === 'function') {
       await minioClient.putObject(BUCKET, objectKey, buffer, buffer.length, {
@@ -16,30 +43,34 @@ async function uploadFoto(buffer, { userId, jenis }) {
       });
       return objectKey;
     }
-  } catch (err) {
-    console.warn(`[MinIO Storage Fallback] MinIO not available (${err.message}). Using base64 encoding.`);
+  } catch (minioErr) {
+    console.warn(`[MinIO Storage Fallback] ${minioErr.message}`);
   }
 
-  // Fallback untuk Vercel Cloud / Serverless tanpa MinIO container
+  // 3. Tertiary: Fallback ke Data URI Base64
   return `data:image/jpeg;base64,${buffer.toString('base64')}`;
 }
 
 /**
- * Mengembalikan URL foto (Proxy API URL atau Data URL)
+ * Mengembalikan Public Image URL atau Proxy URL
  */
 async function getUrlFoto(objectKey) {
   if (!objectKey) return null;
-  if (objectKey.startsWith('data:image/') || objectKey.startsWith('http://') || objectKey.startsWith('https://')) {
+  if (objectKey.startsWith('http://') || objectKey.startsWith('https://') || objectKey.startsWith('data:image/')) {
     return objectKey;
   }
   return `/api/storage/view?key=${encodeURIComponent(objectKey)}`;
 }
 
 /**
- * Membaca stream foto dari MinIO / Data URL
+ * Membaca stream / redirect foto
  */
 async function streamFoto(objectKey, res) {
   if (!objectKey) return res.status(404).send('Foto tidak ditemukan');
+
+  if (objectKey.startsWith('http://') || objectKey.startsWith('https://')) {
+    return res.redirect(objectKey);
+  }
 
   if (objectKey.startsWith('data:image/')) {
     const base64Data = objectKey.split(',')[1];
@@ -61,10 +92,11 @@ async function streamFoto(objectKey, res) {
 }
 
 async function hapusFoto(objectKey) {
-  if (!objectKey || objectKey.startsWith('data:image/')) return;
-  try {
-    await minioClient.removeObject(BUCKET, objectKey);
-  } catch (_) {}
+  if (!objectKey) return;
+  if (objectKey.includes('/storage/v1/object/public/absensi-foto/')) {
+    const relativeKey = objectKey.split('/storage/v1/object/public/absensi-foto/')[1];
+    if (relativeKey) await supabase.storage.from('absensi-foto').remove([relativeKey]).catch(() => {});
+  }
 }
 
 module.exports = { uploadFoto, getUrlFoto, hapusFoto, streamFoto };
