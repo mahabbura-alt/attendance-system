@@ -12,6 +12,18 @@
   ],
   "routes": [
     {
+      "src": "/Absensi_PIM.apk",
+      "dest": "api/index.js"
+    },
+    {
+      "src": "/Absensi%20PIM.apk",
+      "dest": "api/index.js"
+    },
+    {
+      "src": "/download-apk",
+      "dest": "api/index.js"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "api/index.js"
     },
