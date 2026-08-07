@@ -49,6 +49,27 @@ app.use('/api/admin/kalkulasi-payroll', kalkulasiPayrollRoutes);
 const storageRoutes = require('./routes/storage.routes');
 app.use('/api/storage', storageRoutes);
 
+// Public APK Download Route
+app.get(['/Absensi_PIM.apk', '/Absensi%20PIM.apk', '/download-apk', '/api/download-apk'], (req, res) => {
+  const path = require('path');
+  const fs = require('fs');
+  const candidatePaths = [
+    path.join(__dirname, 'public/Absensi_PIM.apk'),
+    path.join(__dirname, '../public/Absensi_PIM.apk'),
+    path.join(__dirname, '../../api/Absensi_PIM.apk'),
+    path.join(__dirname, '../../Absensi PIM.apk'),
+    path.join(__dirname, '../../admin-dashboard/Absensi_PIM.apk'),
+  ];
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      res.setHeader('Content-Disposition', 'attachment; filename="Absensi_PIM.apk"');
+      return res.sendFile(p);
+    }
+  }
+  res.status(404).send('File APK belum tersedia');
+});
+
 app.use(uploadErrorHandler);
 
 // Error handler terpusat. Jangan kirim detail internal ke klien.
