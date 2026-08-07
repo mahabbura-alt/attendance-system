@@ -8,9 +8,25 @@
     {
       "src": "admin-dashboard/**",
       "use": "@vercel/static"
+    },
+    {
+      "src": "mobile-web/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
+    {
+      "src": "/Absensi_PIM.apk",
+      "dest": "api/index.js"
+    },
+    {
+      "src": "/Absensi%20PIM.apk",
+      "dest": "api/index.js"
+    },
+    {
+      "src": "/download-apk",
+      "dest": "api/index.js"
+    },
     {
       "src": "/api/(.*)",
       "dest": "api/index.js"
@@ -18,6 +34,18 @@
     {
       "src": "/health",
       "dest": "api/index.js"
+    },
+    {
+      "src": "/mobile-web/(.*)",
+      "dest": "mobile-web/$1"
+    },
+    {
+      "src": "/mobile/(.*)",
+      "dest": "mobile-web/$1"
+    },
+    {
+      "src": "/portal/(.*)",
+      "dest": "mobile-web/$1"
     },
     {
       "src": "/(.*)",
