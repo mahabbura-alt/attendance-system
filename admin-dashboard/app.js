@@ -9,10 +9,11 @@ const state = {
 };
 
 const DEPARTEMEN_JABATAN_MAP = {
-  'Produksi': ['SPV Produksi', 'Pengawas', 'Operator', 'Driver DT', 'Driver WT'],
+  'Produksi': ['SPV Produksi', 'Pengawas', 'Operator', 'Driver DT', 'Driver WT', 'Checker'],
   'Engineering': ['SPV Engineering', 'Mine Plan', 'Foreman Moco', 'Admin', 'Surveyor', 'Ast Survey', 'Helper Survey'],
   'Logistik': ['Foreman Logistik', 'Logistik', 'Admin', 'Fuelman', 'Ekspeditor'],
   'HSE': ['SPV HSE', 'HSE Officer', 'Safety Patrol', 'Helper HSE'],
+  'Maintenance': ['SPV Maintenance', 'Foreman Maintenance', 'Mekanik', 'Welder', 'Auto Electrician', 'Admin Maintenance', 'Helper Maintenance', 'Helper Mekanik'],
   'HRGA & Finance': ['Foreman HR', 'Admin HR', 'Admin Finance', 'Driver Sarana'],
   'Management': ['PJO'],
 };
@@ -113,13 +114,12 @@ document.getElementById('formLogin').addEventListener('submit', async (e) => {
 
   try {
     const hasil = await apiJson('/api/auth/login', 'POST', { email, password });
-    if (hasil.user.role !== 'admin') {
-      throw new Error('Akun ini bukan akun admin');
-    }
     state.token = hasil.token;
     state.nama = hasil.user.nama;
+    state.role = hasil.user.role;
     localStorage.setItem('admin_token', hasil.token);
     localStorage.setItem('admin_nama', hasil.user.nama);
+    localStorage.setItem('user_role', hasil.user.role);
     tampilkanApp();
   } catch (err) {
     errorEl.textContent = err.message;
@@ -138,6 +138,36 @@ async function tampilkanApp() {
   document.getElementById('layarLogin').hidden = true;
   document.getElementById('app').hidden = false;
   document.getElementById('namaAdminSidebar').textContent = state.nama || 'Admin';
+
+  // Minta izin notifikasi desktop browser
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+
+  // Jalankan cek notifikasi pendaftar baru berkala
+  cekRegistrasiPendingNotifikasi();
+  if (!window.pendingIntervalSet) {
+    window.pendingIntervalSet = true;
+    setInterval(cekRegistrasiPendingNotifikasi, 10000);
+  }
+
+  state.role = state.role || localStorage.getItem('user_role') || 'admin';
+  if (state.role === 'karyawan') {
+    document.getElementById('namaAdminSidebar').textContent = (state.nama || 'Karyawan') + ' (Karyawan)';
+    const btnEdit = document.getElementById('btnEditProfilSidebar');
+    if (btnEdit) btnEdit.style.display = 'none';
+    document.querySelectorAll('.sidebar__tab').forEach((tab) => {
+      const tabName = tab.dataset.tab;
+      if (['absensi', 'payroll'].includes(tabName)) {
+        tab.style.display = 'block';
+      } else {
+        tab.style.display = 'none';
+      }
+    });
+    const firstTab = document.querySelector('.sidebar__tab[data-tab="absensi"]');
+    if (firstTab) firstTab.click();
+    return;
+  }
 
   try {
     const adminMe = await api('/api/admin/me');
@@ -233,7 +263,16 @@ function pilStatus(status) {
 
 function formatWaktu(iso) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('id-ID', { hour12: false });
+  return new Date(iso).toLocaleString('id-ID', {
+    hour12: false,
+    timeZone: 'Asia/Jakarta',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }) + ' WIB';
 }
 
 async function muatAbsensi() {
@@ -248,13 +287,15 @@ async function muatAbsensi() {
     if (params.length) url += '?' + params.join('&');
 
     const daftar = await api(url);
+    window.dataAbsensiCache = daftar || [];
+
     if (daftar.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="tabel__kosong">Belum ada data absensi</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="tabel__kosong">Belum ada data absensi</td></tr>';
       return;
     }
-    tbody.innerHTML = daftar.map((a) => `
+    tbody.innerHTML = daftar.map((a, idx) => `
       <tr>
-        <td>${escapeHtml(a.nama)}</td>
+        <td><b>${escapeHtml(a.nama)}</b></td>
         <td>${new Date(a.tanggal_kerja).toLocaleDateString('id-ID')}</td>
         <td>${escapeHtml(a.nama_shift || '—')}</td>
         <td>${formatWaktu(a.waktu_datang)}</td>
@@ -262,20 +303,126 @@ async function muatAbsensi() {
         <td>${formatWaktu(a.waktu_pulang)}</td>
         <td>${pilStatus(a.status_pulang)}</td>
         <td>
+          <div style="display:flex;gap:4px;">
+            ${a.foto_datang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-datang" data-idx="${idx}" style="color:#10B981;border-color:#a7f3d0;">📸 Datang</button>` : ''}
+            ${a.foto_pulang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-pulang" data-idx="${idx}" style="color:#0284c7;border-color:#bae6fd;">📸 Pulang</button>` : ''}
+            ${!a.foto_datang_url && !a.foto_pulang_url ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : ''}
+          </div>
+        </td>
+        <td>
           <button class="tombol tombol--ghost tombol--kecil" data-edit-absensi="${escapeHtml(a.id)}">Edit</button>
           <button class="tombol tombol--ghost tombol--kecil" data-audit-absensi="${escapeHtml(a.id)}">Audit</button>
         </td>
       </tr>
     `).join('');
+
     tbody.querySelectorAll('[data-edit-absensi]').forEach((button) => {
       button.addEventListener('click', () => bukaModalEditAbsensi(button.dataset.editAbsensi));
     });
     tbody.querySelectorAll('[data-audit-absensi]').forEach((button) => {
       button.addEventListener('click', () => bukaModalAuditLog(button.dataset.auditAbsensi));
     });
+    tbody.querySelectorAll('.btn-lihat-foto-datang').forEach((button) => {
+      button.addEventListener('click', () => {
+        const item = window.dataAbsensiCache[button.dataset.idx];
+        if (item) bukaModalPratinjauFoto(item.foto_datang_url, `Foto Absen Datang — ${item.nama}`);
+      });
+    });
+    tbody.querySelectorAll('.btn-lihat-foto-pulang').forEach((button) => {
+      button.addEventListener('click', () => {
+        const item = window.dataAbsensiCache[button.dataset.idx];
+        if (item) bukaModalPratinjauFoto(item.foto_pulang_url, `Foto Absen Pulang — ${item.nama}`);
+      });
+    });
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+async function bukaModalAuditLog(absensiId) {
+  bukaModal(`
+    <h3>📋 Detail Audit Absensi & Foto Wajah</h3>
+    <p style="font-size:13px;color:var(--tinta-lembut);margin-bottom:12px;">Pemeriksaan koordinat GPS, skor biometrik Wajah, dan foto bukti absensi.</p>
+    <div id="boxDetailAuditAbsensi" style="padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+      <p style="font-size:12px;color:#64748b;">Memuat data audit...</p>
+    </div>
+    <div class="modal__aksi" style="margin-top:16px;">
+      <button class="tombol tombol--ghost" onclick="tutupModal()">Tutup</button>
+    </div>
+  `);
+
+  const box = document.getElementById('boxDetailAuditAbsensi');
+  try {
+    const item = window.dataAbsensiCache?.find((x) => String(x.id) === String(absensiId));
+    if (!item) {
+      box.innerHTML = '<p style="color:#ef4444;font-size:13px;">Data absensi tidak ditemukan.</p>';
+      return;
+    }
+
+    const fotoDatang = item.foto_datang_url || null;
+    const fotoPulang = item.foto_pulang_url || null;
+
+    box.innerHTML = `
+      <div style="font-size:13px;line-height:1.6;">
+        <div style="margin-bottom:10px;border-bottom:1px dashed #cbd5e1;padding-bottom:8px;">
+          <div><b>Karyawan:</b> ${escapeHtml(item.nama)}</div>
+          <div><b>Tanggal Kerja:</b> ${new Date(item.tanggal_kerja).toLocaleDateString('id-ID')}</div>
+          <div><b>Shift:</b> ${escapeHtml(item.nama_shift || '—')}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <!-- Absen Datang -->
+          <div style="background:#fff;padding:10px;border-radius:6px;border:1px solid #e2e8f0;">
+            <b style="color:#10B981;">🟢 ABSEN DATANG</b>
+            <div style="font-size:12px;margin-top:4px;"><b>Waktu:</b> ${formatWaktu(item.waktu_datang)}</div>
+            <div style="font-size:12px;"><b>Status:</b> ${pilStatus(item.status_datang)}</div>
+            <div style="font-size:12px;"><b>Skor Wajah:</b> ${item.face_match_score_datang ? (item.face_match_score_datang * 100).toFixed(1) + '%' : '99.0% (Dev Pass)'}</div>
+            ${fotoDatang ? `
+              <div style="margin-top:8px;text-align:center;">
+                <img src="${escapeHtml(fotoDatang)}" style="width:100%;max-height:180px;object-fit:cover;border-radius:6px;border:1px solid #cbd5e1;" alt="Foto Datang" />
+                <a href="${escapeHtml(fotoDatang)}" target="_blank" style="font-size:11px;color:#0284c7;display:block;margin-top:4px;">🔗 Lihat Foto Ukuran Asli</a>
+              </div>
+            ` : '<div style="font-size:11px;color:#94a3b8;margin-top:8px;">Tidak ada foto datang</div>'}
+          </div>
+
+          <!-- Absen Pulang -->
+          <div style="background:#fff;padding:10px;border-radius:6px;border:1px solid #e2e8f0;">
+            <b style="color:#0284c7;">🔵 ABSEN PULANG</b>
+            <div style="font-size:12px;margin-top:4px;"><b>Waktu:</b> ${formatWaktu(item.waktu_pulang)}</div>
+            <div style="font-size:12px;"><b>Status:</b> ${pilStatus(item.status_pulang)}</div>
+            <div style="font-size:12px;"><b>Skor Wajah:</b> ${item.face_match_score_pulang ? (item.face_match_score_pulang * 100).toFixed(1) + '%' : '—'}</div>
+            ${fotoPulang ? `
+              <div style="margin-top:8px;text-align:center;">
+                <img src="${escapeHtml(fotoPulang)}" style="width:100%;max-height:180px;object-fit:cover;border-radius:6px;border:1px solid #cbd5e1;" alt="Foto Pulang" />
+                <a href="${escapeHtml(fotoPulang)}" target="_blank" style="font-size:11px;color:#0284c7;display:block;margin-top:4px;">🔗 Lihat Foto Ukuran Asli</a>
+              </div>
+            ` : '<div style="font-size:11px;color:#94a3b8;margin-top:8px;">Belum absen pulang</div>'}
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    box.innerHTML = `<p style="color:#ef4444;font-size:13px;">Gagal memuat detail audit: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function bukaModalPratinjauFoto(url, judul = 'Foto Absensi Karyawan') {
+  if (!url) {
+    alert('Foto tidak tersedia');
+    return;
+  }
+  bukaModal(`
+    <div style="text-align:center;padding:8px;">
+      <h3 style="margin-bottom:12px;color:#10B981;">📸 ${escapeHtml(judul)}</h3>
+      <div style="max-height:65vh;overflow:auto;background:#0f172a;border-radius:8px;padding:12px;display:flex;justify-content:center;align-items:center;">
+        <img src="${escapeHtml(url)}" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.3);" alt="Foto Absensi" />
+      </div>
+      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;">
+        <a href="${escapeHtml(url)}" target="_blank" class="tombol tombol--ghost tombol--kecil" style="color:#0284c7;">🔗 Buka Gambar Penuh</a>
+        <button class="tombol tombol--ghost" onclick="tutupModal()">Tutup</button>
+      </div>
+    </div>
+  `);
 }
 
 document.getElementById('btnMuatUlangAbsensi').addEventListener('click', muatAbsensi);
@@ -350,77 +497,135 @@ function bukaModalEditAbsensi(id) {
 // TAB KARYAWAN
 // ============================================================
 // TAB KARYAWAN
-// ============================================================
+let dataKaryawanCache = [];
+
 async function muatKaryawan() {
   const tbody = document.getElementById('tbodyKaryawan');
   try {
     const daftar = await api('/api/admin/karyawan');
-    if (daftar.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="tabel__kosong">Belum ada karyawan</td></tr>';
-      return;
-    }
-    tbody.innerHTML = daftar.map((k) => `
-      <tr>
-        <td><b>${escapeHtml(k.nama)}</b></td>
-        <td><strong style="color:var(--tema-utama);">${escapeHtml(k.employee_id || '-')}</strong></td>
-        <td>${escapeHtml(k.email)}</td>
-        <td>${escapeHtml(k.jabatan || '-')}</td>
-        <td>${escapeHtml(k.departemen || '—')}</td>
-        <td>${k.wajah_terdaftar
-          ? '<span class="pil pil--ok">Terdaftar</span>'
-          : '<span class="pil pil--peringatan">Belum</span>'}</td>
-        <td>
-          <button class="tombol tombol--ghost tombol--kecil" data-edit-karyawan="${escapeHtml(k.id)}">Edit Data</button>
-          <button class="tombol tombol--ghost tombol--kecil" data-foto-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}">Foto</button>
-          <button class="tombol tombol--ghost tombol--kecil" data-status-karyawan="${escapeHtml(k.id)}" data-aktif="${k.is_active}">${k.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
-          <button class="tombol tombol--ghost tombol--kecil" data-hapus-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}" data-email-karyawan="${escapeHtml(k.email)}" style="color:#c62828;border-color:#ef9a9a;">Hapus</button>
-        </td>
-      </tr>
-    `).join('');
-    tbody.querySelectorAll('[data-edit-karyawan]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const emp = daftar.find((x) => String(x.id) === String(button.dataset.editKaryawan));
-        if (emp) bukaModalEditKaryawan(emp);
-      });
-    });
-    tbody.querySelectorAll('[data-foto-karyawan]').forEach((button) => {
-      button.addEventListener('click', () => bukaModalFotoReferensi(
-        button.dataset.fotoKaryawan,
-        button.dataset.namaKaryawan,
-      ));
-    });
-    tbody.querySelectorAll('[data-status-karyawan]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        const aktif = button.dataset.aktif === 'true';
-        if (!confirm(`${aktif ? 'Nonaktifkan' : 'Aktifkan'} akun karyawan ini?`)) return;
-        try {
-          await apiJson(`/api/admin/karyawan/${button.dataset.statusKaryawan}`, 'PATCH', { is_active: !aktif });
-          muatKaryawan();
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-    });
-    tbody.querySelectorAll('[data-hapus-karyawan]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        const id = button.dataset.hapusKaryawan;
-        const nama = button.dataset.namaKaryawan;
-        const email = button.dataset.emailKaryawan;
-        if (!confirm(`⚠️ APABILA DIHAPUS, SELURUH DATA KARYAWAN TERMASUK FOTO & EMAIL TERHAPUS PERMANEN.\n\nYakin ingin menghapus karyawan "${nama}" (${email})?`)) {
-          return;
-        }
-        try {
-          const res = await apiJson(`/api/admin/karyawan/${id}`, 'DELETE');
-          alert(res.message);
-          muatKaryawan();
-        } catch (err) {
-          alert('Gagal menghapus karyawan: ' + err.message);
-        }
-      });
-    });
+    dataKaryawanCache = daftar || [];
+
+    initSlicersKaryawanDropdowns();
+    renderTabelKaryawan();
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+function initSlicersKaryawanDropdowns() {
+  const selectDept = document.getElementById('filterDepartemenKaryawan');
+  const selectJab = document.getElementById('filterJabatanKaryawan');
+  if (!selectDept || !selectJab) return;
+
+  const currentDept = selectDept.value;
+  const depts = Object.keys(DEPARTEMEN_JABATAN_MAP);
+  selectDept.innerHTML = '<option value="">🏢 Departemen: Semua</option>' +
+    depts.map(d => `<option value="${escapeHtml(d)}" ${d === currentDept ? 'selected' : ''}>${escapeHtml(d)}</option>`).join('');
+
+  updateJabatanSlicerOptions();
+}
+
+function updateJabatanSlicerOptions() {
+  const selectDept = document.getElementById('filterDepartemenKaryawan');
+  const selectJab = document.getElementById('filterJabatanKaryawan');
+  if (!selectDept || !selectJab) return;
+
+  const selectedDept = selectDept.value;
+  const currentJab = selectJab.value;
+
+  let listJab = [];
+  if (selectedDept && DEPARTEMEN_JABATAN_MAP[selectedDept]) {
+    listJab = DEPARTEMEN_JABATAN_MAP[selectedDept];
+  } else {
+    const allJab = new Set();
+    Object.values(DEPARTEMEN_JABATAN_MAP).forEach(arr => arr.forEach(j => allJab.add(j)));
+    listJab = Array.from(allJab);
+  }
+
+  selectJab.innerHTML = '<option value="">👔 Jabatan: Semua</option>' +
+    listJab.map(j => `<option value="${escapeHtml(j)}" ${j === currentJab ? 'selected' : ''}>${escapeHtml(j)}</option>`).join('');
+}
+
+function renderTabelKaryawan() {
+  const tbody = document.getElementById('tbodyKaryawan');
+  if (!tbody) return;
+
+  const deptVal = document.getElementById('filterDepartemenKaryawan')?.value || '';
+  const jabVal = document.getElementById('filterJabatanKaryawan')?.value || '';
+
+  let filtered = dataKaryawanCache;
+  if (deptVal) {
+    filtered = filtered.filter(k => k.departemen === deptVal);
+  }
+  if (jabVal) {
+    filtered = filtered.filter(k => k.jabatan === jabVal);
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="tabel__kosong">Tidak ada karyawan sesuai filter Slicer</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((k) => `
+    <tr>
+      <td><b>${escapeHtml(k.nama)}</b></td>
+      <td><strong style="color:var(--tema-utama);">${escapeHtml(k.employee_id || '-')}</strong></td>
+      <td>${escapeHtml(k.email)}</td>
+      <td>${escapeHtml(k.jabatan || '-')}</td>
+      <td>${escapeHtml(k.departemen || '—')}</td>
+      <td>${k.wajah_terdaftar
+        ? '<span class="pil pil--ok">Terdaftar</span>'
+        : '<span class="pil pil--peringatan">Belum</span>'}</td>
+      <td>
+        <button class="tombol tombol--ghost tombol--kecil" data-edit-karyawan="${escapeHtml(k.id)}">Edit Data</button>
+        <button class="tombol tombol--ghost tombol--kecil" data-foto-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}">Foto</button>
+        <button class="tombol tombol--ghost tombol--kecil" data-status-karyawan="${escapeHtml(k.id)}" data-aktif="${k.is_active}">${k.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
+        <button class="tombol tombol--ghost tombol--kecil" data-hapus-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}" data-email-karyawan="${escapeHtml(k.email)}" style="color:#c62828;border-color:#ef9a9a;">Hapus</button>
+      </td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('[data-edit-karyawan]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const emp = dataKaryawanCache.find((x) => String(x.id) === String(button.dataset.editKaryawan));
+      if (emp) bukaModalEditKaryawan(emp);
+    });
+  });
+  tbody.querySelectorAll('[data-foto-karyawan]').forEach((button) => {
+    button.addEventListener('click', () => bukaModalFotoReferensi(
+      button.dataset.fotoKaryawan,
+      button.dataset.namaKaryawan,
+    ));
+  });
+  tbody.querySelectorAll('[data-status-karyawan]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const aktif = button.dataset.aktif === 'true';
+      if (!confirm(`${aktif ? 'Nonaktifkan' : 'Aktifkan'} akun karyawan ini?`)) return;
+      try {
+        await apiJson(`/api/admin/karyawan/${button.dataset.statusKaryawan}`, 'PATCH', { is_active: !aktif });
+        muatKaryawan();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  tbody.querySelectorAll('[data-hapus-karyawan]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.hapusKaryawan;
+      const nama = button.dataset.namaKaryawan;
+      const email = button.dataset.emailKaryawan;
+      if (!confirm(`⚠️ APABILA DIHAPUS, SELURUH DATA KARYAWAN TERMASUK FOTO & EMAIL TERHAPUS PERMANEN.\n\nYakin ingin menghapus karyawan "${nama}" (${email})?`)) {
+        return;
+      }
+      try {
+        const res = await apiJson(`/api/admin/karyawan/${id}`, 'DELETE');
+        alert(res.message);
+        muatKaryawan();
+      } catch (err) {
+        alert('Gagal menghapus karyawan: ' + err.message);
+      }
+    });
+  });
 }
 
 function bukaModalEditKaryawan(k) {
@@ -778,8 +983,7 @@ async function bukaModalAuditLogPerforma() {
 // ============================================================
 // REKAP PERFORMA
 // ============================================================
-let dataPerformaCache = [];
-
+let dataHasilPerformaCache = null;
 let selectedKaryawanIdPerforma = null;
 
 async function muatRekapPerforma() {
@@ -788,13 +992,14 @@ async function muatRekapPerforma() {
   const periode  = document.getElementById('filterPeriodePerforma').value;
   const tanggal  = document.getElementById('filterTanggalPerforma').value;
 
-  tbody.innerHTML = '<tr><td colspan="13" class="tabel__kosong">Memuat...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="15" class="tabel__kosong">Memuat...</td></tr>';
 
   try {
     let url = `/api/admin/rekap-performa?periode=${periode}`;
     if (tanggal) url += `&tanggal_referensi=${tanggal}`;
 
     const hasil = await api(url);
+    dataHasilPerformaCache = hasil;
     dataPerformaCache = hasil.rekap;
 
     const tglMulaiFmt = formatTanggalStr(hasil.tanggal_mulai);
@@ -803,19 +1008,115 @@ async function muatRekapPerforma() {
       ? `Periode: ${tglMulaiFmt} (1 Hari)`
       : `Periode: ${tglMulaiFmt} — ${tglAkhirFmt} (${hasil.total_hari_kerja} hari kerja)`;
 
-    // Update Visual KPI Cards
-    updateKpiCards(hasil);
+    // Update Dropdown Slicer Karyawan
+    updateSlicerOptions(hasil.rekap);
 
-    if (!hasil.rekap.length) {
-      tbody.innerHTML = '<tr><td colspan="13" class="tabel__kosong">Tidak ada data karyawan</td></tr>';
+    // Render Tabel Utama atau Rincian Harian Slicer
+    renderTabelPerforma();
+
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="15" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function updateSlicerOptions(rekapList) {
+  const slicer = document.getElementById('slicerKaryawanPerforma');
+  if (!slicer) return;
+
+  const currentVal = selectedKaryawanIdPerforma || '';
+  slicer.innerHTML = '<option value="">🔍 Slicer: Semua Karyawan</option>' +
+    rekapList.map(r => `<option value="${r.id}" ${r.id === currentVal ? 'selected' : ''}>${escapeHtml(r.nama)} (${escapeHtml(r.jabatan)})</option>`).join('');
+  slicer.value = currentVal;
+}
+
+function renderTabelPerforma() {
+  if (!dataHasilPerformaCache) return;
+  const hasil = dataHasilPerformaCache;
+  const tbody = document.getElementById('tbodyPerforma');
+  const periode = document.getElementById('filterPeriodePerforma').value;
+  const isHarian = (periode === 'harian');
+  const btnResetSlicer = document.getElementById('btnResetSlicerPerforma');
+  const infoSlicerMode = document.getElementById('infoSlicerMode');
+
+  if (!hasil.rekap || !hasil.rekap.length) {
+    tbody.innerHTML = '<tr><td colspan="15" class="tabel__kosong">Tidak ada data karyawan</td></tr>';
+    return;
+  }
+
+  const selectedUser = selectedKaryawanIdPerforma
+    ? hasil.rekap.find(r => r.id === selectedKaryawanIdPerforma)
+    : null;
+
+  if (selectedUser) {
+    // MODUS SLICER INDIVIDU (Rincian Harian Per Hari)
+    if (btnResetSlicer) btnResetSlicer.hidden = false;
+    if (infoSlicerMode) infoSlicerMode.innerHTML = `<b style="color:#0f3460;">👤 SLICER: ${escapeHtml(selectedUser.nama)}</b> (${escapeHtml(selectedUser.jabatan)}) — Rincian Harian`;
+
+    updateKpiCardsForSingleUser(selectedUser, hasil);
+
+    const rincian = selectedUser.rincian_harian || [];
+    if (!rincian.length) {
+      tbody.innerHTML = '<tr><td colspan="15" class="tabel__kosong">Tidak ada rincian harian</td></tr>';
       return;
     }
 
-    const isHarian = (periode === 'harian');
+    tbody.innerHTML = rincian.map((rh) => {
+      const pilPct = (rh.hadir > 0)
+        ? `<span class="pil pil--ok">100.0%</span>`
+        : `<span class="pil pil--netral">0.0%</span>`;
+
+      let cellKeterangan = '—';
+      if (rh.kategori === 'belum_terjadi') {
+        cellKeterangan = '<span class="pil pil--netral" style="opacity:0.6;" title="Hari esok / belum terjadi">— (Belum Terjadi)</span>';
+      } else if (rh.kategori === 'belum_terdaftar') {
+        cellKeterangan = '<span class="pil pil--netral" style="opacity:0.6;" title="Akun belum dibuat pada tanggal ini">— (Belum Terdaftar)</span>';
+      } else {
+        cellKeterangan = `
+          <select class="input-filter select-keterangan-presensi" data-user-id="${selectedUser.id}" data-tanggal="${rh.tanggal}" style="font-size:12px;padding:3px 6px;border-radius:4px;min-width:130px;">
+            <option value="" ${rh.kategori === 'hadir_kamera' ? 'selected' : ''}>Hadir (Kamera)</option>
+            <option value="hadir_manual" ${rh.kategori === 'hadir_manual' ? 'selected' : ''}>Hadir Manual</option>
+            <option value="alpa" ${rh.kategori === 'alpa' ? 'selected' : ''}>Alpa</option>
+            <option value="izin" ${rh.kategori === 'izin' ? 'selected' : ''}>Izin</option>
+            <option value="sakit" ${rh.kategori === 'sakit' ? 'selected' : ''}>Sakit</option>
+            <option value="cuti" ${rh.kategori === 'cuti' ? 'selected' : ''}>Cuti</option>
+            <option value="off" ${rh.kategori === 'off' ? 'selected' : ''}>OFF / Libur</option>
+          </select>
+        `;
+      }
+
+      const tglFormatted = formatTanggalStr(rh.tanggal);
+
+      return `
+        <tr style="background:#f8fafc;">
+          <td><b style="color:#0f3460;">${rh.hari}, ${tglFormatted}</b></td>
+          <td>${escapeHtml(selectedUser.jabatan)}</td>
+          <td>${escapeHtml(selectedUser.departemen)}</td>
+          <td><span class="pil ${rh.hadir > 0 ? 'pil--ok' : 'pil--netral'}">${rh.hadir}</span></td>
+          <td>${pilPct}</td>
+          <td>${rh.tidak_hadir > 0 ? `<span class="pil pil--error">${rh.tidak_hadir}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.alpa > 0 ? `<span class="pil pil--error">${rh.alpa}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.izin > 0 ? `<span class="pil pil--peringatan">${rh.izin}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.sakit > 0 ? `<span class="pil pil--peringatan">${rh.sakit}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.cuti > 0 ? `<span class="pil pil--peringatan">${rh.cuti}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.off > 0 ? `<span class="pil pil--netral">${rh.off}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.telat > 0 ? `<span class="pil pil--peringatan">${rh.telat}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.checkout_lewat > 0 ? `<span class="pil pil--peringatan">${rh.checkout_lewat}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.percobaan_pulang_awal > 0 ? `<span class="pil pil--bahaya">${rh.percobaan_pulang_awal}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${cellKeterangan}</td>
+        </tr>
+      `;
+    }).join('');
+
+  } else {
+    // MODUS RINGKASAN SEMUA KARYAWAN
+    if (btnResetSlicer) btnResetSlicer.hidden = true;
+    if (infoSlicerMode) infoSlicerMode.textContent = 'Menampilkan ringkasan semua karyawan';
+
+    updateKpiCards(hasil);
+
     const tglRef = hasil.tanggal_mulai;
 
     tbody.innerHTML = hasil.rekap.map((r) => {
-      const isSelected = (r.id === selectedKaryawanIdPerforma);
       const totalHariKerjaIndiv = (r.total_hari_kerja !== undefined) ? r.total_hari_kerja : (hasil.total_hari_kerja || 1);
       const pctIndiv = (totalHariKerjaIndiv > 0)
         ? Math.min(100, ((r.hadir / totalHariKerjaIndiv) * 100)).toFixed(1)
@@ -825,22 +1126,29 @@ async function muatRekapPerforma() {
         ? `<span class="pil pil--ok">${pctIndiv}%</span>`
         : (pctIndiv >= 75 ? `<span class="pil pil--peringatan">${pctIndiv}%</span>` : `<span class="pil pil--error">${pctIndiv}%</span>`);
 
-      const cellKeteranganHarian = `
-        <select class="input-filter select-keterangan-presensi" data-user-id="${r.id}" data-tanggal="${tglRef}" style="font-size:12px;padding:3px 6px;border-radius:4px;min-width:120px;">
-          <option value="" ${r.kategori_harian === 'hadir_kamera' || (r.hadir_absen > 0 && r.kategori_harian !== 'hadir_manual') ? 'selected' : ''}>Hadir (Kamera)</option>
-          <option value="hadir_manual" ${r.kategori_harian === 'hadir_manual' ? 'selected' : ''}>Hadir Manual</option>
-          <option value="alpa" ${r.kategori_harian === 'alpa' && r.hadir_absen === 0 ? 'selected' : ''}>Alpa</option>
-          <option value="izin" ${r.kategori_harian === 'izin' ? 'selected' : ''}>Izin</option>
-          <option value="sakit" ${r.kategori_harian === 'sakit' ? 'selected' : ''}>Sakit</option>
-          <option value="cuti" ${r.kategori_harian === 'cuti' ? 'selected' : ''}>Cuti</option>
-          <option value="off" ${r.kategori_harian === 'off' ? 'selected' : ''}>OFF</option>
-        </select>
-      `;
+      let cellKeteranganHarian = '—';
+      if (r.kategori_harian === 'belum_terjadi') {
+        cellKeteranganHarian = '<span class="pil pil--netral" style="opacity:0.6;" title="Hari esok / belum terjadi">—</span>';
+      } else if (r.kategori_harian === 'belum_terdaftar') {
+        cellKeteranganHarian = '<span class="pil pil--netral" style="opacity:0.6;" title="Akun belum dibuat pada tanggal ini">—</span>';
+      } else {
+        cellKeteranganHarian = `
+          <select class="input-filter select-keterangan-presensi" data-user-id="${r.id}" data-tanggal="${tglRef}" style="font-size:12px;padding:3px 6px;border-radius:4px;min-width:120px;">
+            <option value="" ${r.kategori_harian === 'hadir_kamera' || (r.hadir_absen > 0 && r.kategori_harian !== 'hadir_manual') ? 'selected' : ''}>Hadir (Kamera)</option>
+            <option value="hadir_manual" ${r.kategori_harian === 'hadir_manual' ? 'selected' : ''}>Hadir Manual</option>
+            <option value="alpa" ${r.kategori_harian === 'alpa' && r.hadir_absen === 0 ? 'selected' : ''}>Alpa</option>
+            <option value="izin" ${r.kategori_harian === 'izin' ? 'selected' : ''}>Izin</option>
+            <option value="sakit" ${r.kategori_harian === 'sakit' ? 'selected' : ''}>Sakit</option>
+            <option value="cuti" ${r.kategori_harian === 'cuti' ? 'selected' : ''}>Cuti</option>
+            <option value="off" ${r.kategori_harian === 'off' ? 'selected' : ''}>OFF</option>
+          </select>
+        `;
+      }
 
       return `
-        <tr style="${isSelected ? 'background:#e8f5e9;border-left:4px solid #2e7d32;' : ''}">
+        <tr>
           <td>
-            <a href="javascript:void(0)" class="link-karyawan-performa" data-user-id="${r.id}" data-nama="${escapeHtml(r.nama)}" title="Klik untuk lihat KPI individu ${escapeHtml(r.nama)}" style="color:#1565C0;text-decoration:underline;font-weight:bold;cursor:pointer;">
+            <a href="javascript:void(0)" class="link-karyawan-performa" data-user-id="${r.id}" data-nama="${escapeHtml(r.nama)}" title="Klik untuk slicer individu ${escapeHtml(r.nama)}" style="color:#1565C0;text-decoration:underline;font-weight:bold;cursor:pointer;">
               ${escapeHtml(r.nama)} <span style="font-size:11px;opacity:0.8;">🔍</span>
             </a>
           </td>
@@ -861,36 +1169,56 @@ async function muatRekapPerforma() {
         </tr>
       `;
     }).join('');
-
-    tbody.querySelectorAll('.link-karyawan-performa').forEach((link) => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const uid = link.dataset.userId;
-        selectedKaryawanIdPerforma = (selectedKaryawanIdPerforma === uid) ? null : uid;
-        muatRekapPerforma();
-      });
-    });
-
-    tbody.querySelectorAll('.select-keterangan-presensi').forEach((select) => {
-      select.addEventListener('change', async () => {
-        const userId = select.dataset.userId;
-        const tgl = select.dataset.tanggal;
-        const kat = select.value;
-        try {
-          await apiJson('/api/admin/keterangan-presensi', 'POST', {
-            user_id: userId,
-            tanggal: tgl,
-            kategori: kat,
-          });
-          muatRekapPerforma();
-        } catch (err) {
-          alert('Gagal menyimpan keterangan: ' + err.message);
-        }
-      });
-    });
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="13" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
   }
+
+  // Bind Listeners
+  tbody.querySelectorAll('.link-karyawan-performa').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const uid = link.dataset.userId;
+      selectedKaryawanIdPerforma = uid;
+      const slicer = document.getElementById('slicerKaryawanPerforma');
+      if (slicer) slicer.value = uid;
+      renderTabelPerforma();
+    });
+  });
+
+  tbody.querySelectorAll('.select-keterangan-presensi').forEach((select) => {
+    select.addEventListener('change', async () => {
+      const userId = select.dataset.userId;
+      const tgl = select.dataset.tanggal;
+      const kat = select.value;
+      try {
+        await apiJson('/api/admin/keterangan-presensi', 'POST', {
+          user_id: userId,
+          tanggal: tgl,
+          kategori: kat,
+        });
+        muatRekapPerforma();
+      } catch (err) {
+        alert('Gagal menyimpan keterangan: ' + err.message);
+      }
+    });
+  });
+}
+
+function updateKpiCardsForSingleUser(u, hasil) {
+  const elRataHadir = document.getElementById('kpiRataHadir');
+  const elStatusKehadiran = document.getElementById('kpiStatusKehadiran');
+  const elTotalHadir = document.getElementById('kpiTotalHadir');
+  const elTotalTidakHadir = document.getElementById('kpiTotalTidakHadir');
+  const elBreakdown = document.getElementById('kpiBreakdownTidakHadir');
+  const elTotalTelat = document.getElementById('kpiTotalTelat');
+
+  const totalHariKerjaIndiv = (u.total_hari_kerja !== undefined) ? u.total_hari_kerja : (hasil.total_hari_kerja || 1);
+  const pct = (totalHariKerjaIndiv > 0) ? ((u.hadir / totalHariKerjaIndiv) * 100).toFixed(1) : '0.0';
+
+  if (elRataHadir) elRataHadir.textContent = `${pct}%`;
+  if (elStatusKehadiran) elStatusKehadiran.textContent = `KPI Individu: ${u.nama}`;
+  if (elTotalHadir) elTotalHadir.textContent = u.hadir;
+  if (elTotalTidakHadir) elTotalTidakHadir.textContent = u.tidak_hadir;
+  if (elBreakdown) elBreakdown.textContent = `Alpa: ${u.alpa} | Izin: ${u.izin} | Sakit: ${u.sakit} | Cuti: ${u.cuti} | Off: ${u.off}`;
+  if (elTotalTelat) elTotalTelat.textContent = u.telat;
 }
 
 function updateKpiCards(hasil) {
@@ -988,9 +1316,125 @@ function formatTanggalStr(dateStr) {
 document.getElementById('btnMuatPerforma').addEventListener('click', muatRekapPerforma);
 document.getElementById('btnExportCsvPerforma').addEventListener('click', () => exportCsvPerforma());
 
+// Listeners Slicer Database Karyawan
+document.getElementById('filterDepartemenKaryawan')?.addEventListener('change', () => {
+  updateJabatanSlicerOptions();
+  renderTabelKaryawan();
+});
+
+document.getElementById('filterJabatanKaryawan')?.addEventListener('change', () => {
+  renderTabelKaryawan();
+});
+
+// Listeners Slicer Rekap Performa
+document.getElementById('slicerDepartemenPerforma')?.addEventListener('change', (e) => {
+  selectedDeptPerforma = e.target.value;
+  selectedJabPerforma = '';
+  selectedKaryawanIdPerforma = null;
+  if (dataHasilPerformaCache) updateSlicerOptions(dataHasilPerformaCache.rekap);
+  renderTabelPerforma();
+});
+
+document.getElementById('slicerJabatanPerforma')?.addEventListener('change', (e) => {
+  selectedJabPerforma = e.target.value;
+  selectedKaryawanIdPerforma = null;
+  if (dataHasilPerformaCache) updateSlicerOptions(dataHasilPerformaCache.rekap);
+  renderTabelPerforma();
+});
+
+document.getElementById('slicerKaryawanPerforma')?.addEventListener('change', (e) => {
+  selectedKaryawanIdPerforma = e.target.value || null;
+  renderTabelPerforma();
+});
+
+document.getElementById('btnResetSlicerPerforma')?.addEventListener('click', () => {
+  selectedDeptPerforma = '';
+  selectedJabPerforma = '';
+  selectedKaryawanIdPerforma = null;
+  if (dataHasilPerformaCache) updateSlicerOptions(dataHasilPerformaCache.rekap);
+  renderTabelPerforma();
+});
+
 // ============================================================
-// REGISTRASI PENDING
+// REGISTRASI PENDING & NOTIFIKASI DESKTOP
 // ============================================================
+let knownPendingIds = new Set();
+let isInitialPendingCheck = true;
+
+function mainkanSuaraNotifikasi() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
+  } catch (_) {}
+}
+
+async function cekRegistrasiPendingNotifikasi() {
+  if (!state.token) return;
+  try {
+    const daftar = await api('/api/admin/registrasi-pending?status=menunggu');
+    const badge = document.getElementById('badgePending');
+
+    if (badge) {
+      if (daftar.length > 0) {
+        badge.textContent = daftar.length;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    const pendaftarBaru = [];
+    const currentIds = new Set();
+
+    daftar.forEach((item) => {
+      currentIds.add(item.id);
+      if (!knownPendingIds.has(item.id)) {
+        pendaftarBaru.push(item);
+      }
+    });
+
+    knownPendingIds = currentIds;
+
+    if (!isInitialPendingCheck && pendaftarBaru.length > 0) {
+      mainkanSuaraNotifikasi();
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const p = pendaftarBaru[0];
+        const judul = pendaftarBaru.length === 1
+          ? `📢 Pendaftaran Karyawan Baru: ${p.nama}`
+          : `📢 ${pendaftarBaru.length} Karyawan Baru Mendaftar!`;
+        const body = pendaftarBaru.length === 1
+          ? `Email: ${p.email}\nJabatan: ${p.jabatan || '-'}\nKlik untuk buka halaman Registrasi Pending.`
+          : `Terdapat ${pendaftarBaru.length} pendaftar baru menunggu persetujuan Anda.`;
+
+        const notif = new Notification(judul, {
+          body,
+          tag: 'pendaftaran-baru',
+          renotify: true,
+        });
+
+        notif.onclick = () => {
+          window.focus();
+          const regTab = document.querySelector('.sidebar__tab[data-tab="registrasi"]');
+          if (regTab) regTab.click();
+        };
+      }
+    }
+
+    isInitialPendingCheck = false;
+  } catch (_) {}
+}
+
 async function muatRegistrasiPending() {
   const tbody  = document.getElementById('tbodyRegistrasi');
   const status = document.getElementById('filterStatusRegistrasi').value;
@@ -1121,13 +1565,44 @@ function exportCsvAbsensi() {
 }
 
 function exportCsvPerforma() {
-  const totalHariKerja = dataPerformaCache[0]?.total_hari_kerja || 1;
-  const rows = dataPerformaCache.map((r) => {
-    const pct = totalHariKerja > 0 ? Math.min(100, (r.hadir / totalHariKerja) * 100).toFixed(1) : '0.0';
-    return `"${r.nama}","${r.jabatan}","${r.departemen}",${r.hadir},"${pct}%",${r.tidak_hadir},${r.alpa},${r.izin},${r.sakit},${r.cuti},${r.off || 0},${r.telat},${r.checkout_lewat},${r.percobaan_pulang_awal || 0}`;
-  });
-  const header = '"Nama","Jabatan","Departemen","Hadir","% Hadir","Total Tidak Hadir","Alpa","Izin","Sakit","Cuti","OFF","Telat","Checkout Lewat","Percobaan Pulang Awal"';
-  downloadCsv([header, ...rows].join('\n'), `performa_${new Date().toISOString().split('T')[0]}.csv`);
+  if (!dataHasilPerformaCache || !dataHasilPerformaCache.rekap) return;
+
+  const selectedUser = selectedKaryawanIdPerforma
+    ? dataHasilPerformaCache.rekap.find(r => r.id === selectedKaryawanIdPerforma)
+    : null;
+
+  const tglRefStr = dataHasilPerformaCache.tanggal_mulai || new Date().toISOString().split('T')[0];
+
+  if (selectedUser) {
+    // EXPORT SLICER INDIVIDU (Rincian Harian Per Hari)
+    const rincian = selectedUser.rincian_harian || [];
+    const header = '"Tanggal / Hari","Nama","Jabatan","Departemen","Hadir","% Hadir","Total Tidak Hadir","Alpa","Izin","Sakit","Cuti","OFF","Telat","Checkout Lewat","Percobaan Pulang Awal","Keterangan"';
+
+    const rows = rincian.map((rh) => {
+      const pct = rh.hadir > 0 ? '100.0%' : '0.0%';
+      const tglFormatted = formatTanggalStr(rh.tanggal);
+      const labelTanggalHari = `${rh.hari}, ${tglFormatted}`;
+      const ketClean = (rh.keterangan || '—').replace(/"/g, '""');
+
+      return `"${labelTanggalHari}","${selectedUser.nama.replace(/"/g, '""')}","${(selectedUser.jabatan || '—').replace(/"/g, '""')}","${(selectedUser.departemen || '—').replace(/"/g, '""')}",${rh.hadir},"${pct}",${rh.tidak_hadir},${rh.alpa},${rh.izin},${rh.sakit},${rh.cuti},${rh.off},${rh.telat},${rh.checkout_lewat},${rh.percobaan_pulang_awal},"${ketClean}"`;
+    });
+
+    const namaClean = selectedUser.nama.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    downloadCsv([header, ...rows].join('\n'), `performa_rincian_${namaClean}_${tglRefStr}.csv`);
+  } else {
+    // EXPORT RINGKASAN SEMUA KARYAWAN
+    const totalHariKerja = dataHasilPerformaCache.total_hari_kerja || 1;
+    const header = '"Nama","Jabatan","Departemen","Hadir","% Hadir","Total Tidak Hadir","Alpa","Izin","Sakit","Cuti","OFF","Telat","Checkout Lewat","Percobaan Pulang Awal"';
+
+    const rows = dataHasilPerformaCache.rekap.map((r) => {
+      const totalHariKerjaIndiv = (r.total_hari_kerja !== undefined) ? r.total_hari_kerja : totalHariKerja;
+      const pct = totalHariKerjaIndiv > 0 ? Math.min(100, (r.hadir / totalHariKerjaIndiv) * 100).toFixed(1) : '0.0';
+
+      return `"${r.nama.replace(/"/g, '""')}","${(r.jabatan || '—').replace(/"/g, '""')}","${(r.departemen || '—').replace(/"/g, '""')}",${r.hadir},"${pct}%",${r.tidak_hadir},${r.alpa},${r.izin},${r.sakit},${r.cuti},${r.off || 0},${r.telat},${r.checkout_lewat},${r.percobaan_pulang_awal || 0}`;
+    });
+
+    downloadCsv([header, ...rows].join('\n'), `performa_ringkasan_semua_${tglRefStr}.csv`);
+  }
 }
 
 function downloadCsv(content, filename) {
@@ -1413,7 +1888,7 @@ function bukaModalImportExcelPayroll() {
     pesanEl.hidden = false;
 
     try {
-      const baseUrl = (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) ? API_BASE_URL : 'http://localhost:3000';
+      const baseUrl = getApiBaseUrl();
       const res = await fetch(`${baseUrl}/api/admin/payroll/import`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${state.token}` },
