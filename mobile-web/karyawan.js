@@ -3,8 +3,8 @@
 // ============================================================
 
 const API_BASE = window.__ATTENDANCE_CONFIG__?.apiBaseUrl || (
-  window.location.hostname.includes('onrender.com') || window.location.hostname.includes('vercel.app')
-    ? 'https://absensi-backend.onrender.com'
+  (window.location.protocol === 'file:' || window.location.hostname.includes('vercel.app') || window.location.hostname.includes('onrender.com'))
+    ? 'https://attendance-system-eta-opal.vercel.app'
     : (window.location.origin.includes('8080') ? 'http://' + window.location.hostname + ':3000' : window.location.origin)
 );
 
@@ -151,6 +151,10 @@ async function muatProfil() {
     const res = await fetch(`${API_BASE}/api/absensi/lokasi-kantor`, {
       headers: { Authorization: `Bearer ${userToken}` }
     });
+    if (res.status === 401) {
+      logout();
+      return;
+    }
     if (!res.ok) throw new Error('Sesi berakhir');
     const data = await res.json();
 
@@ -158,7 +162,7 @@ async function muatProfil() {
     document.getElementById('userSub').textContent = `${data.user?.jabatan || 'Staff'} • ${data.user?.departemen || 'Operational'}`;
     document.getElementById('userInitial').textContent = (data.user?.nama || 'K')[0].toUpperCase();
   } catch (err) {
-    logout();
+    console.warn('Profil load notice:', err.message);
   }
 }
 
@@ -190,7 +194,7 @@ async function useOfficeLocationFallback(badge, text, msgReason) {
       currentCoords.lng = Number(lng);
       isLocationValid = true;
       if (badge) badge.className = 'geofence-badge valid';
-      if (text) text.textContent = `Radius Kantor (${namaLokasi})`;
+      if (text) text.textContent = `🟢 Radius Kantor (${namaLokasi})`;
       return true;
     }
   } catch (e) {
@@ -214,40 +218,55 @@ function refreshLocation() {
     return;
   }
 
-  navigator.geolocation.getCurrentPosition(
-    async (pos) => {
-      currentCoords.lat = pos.coords.latitude;
-      currentCoords.lng = pos.coords.longitude;
+  let locationResolved = false;
 
-      try {
-        const res = await fetch(`${API_BASE}/api/absensi/check-lokasi`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${userToken}`
-          },
-          body: JSON.stringify({ latitude: currentCoords.lat, longitude: currentCoords.lng })
-        });
-        const data = await res.json();
-        isLocationValid = data.valid;
+  const handleSuccess = async (pos) => {
+    if (locationResolved) return;
+    locationResolved = true;
+    currentCoords.lat = pos.coords.latitude;
+    currentCoords.lng = pos.coords.longitude;
 
-        if (data.valid) {
-          badge.className = 'geofence-badge valid';
-          text.textContent = '🟢 Radius Kantor';
-        } else {
-          badge.className = 'geofence-badge invalid';
-          text.textContent = `🔴 Diluar Radius (${Math.round(data.jarakMeter || 0)}m)`;
-        }
-      } catch (err) {
-        await useOfficeLocationFallback(badge, text, 'Gagal Cek Lokasi');
+    try {
+      const res = await fetch(`${API_BASE}/api/absensi/check-lokasi`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userToken}`
+        },
+        body: JSON.stringify({ latitude: currentCoords.lat, longitude: currentCoords.lng })
+      });
+      const data = await res.json();
+      isLocationValid = data.valid;
+
+      if (data.valid) {
+        badge.className = 'geofence-badge valid';
+        text.textContent = '🟢 Radius Kantor';
+      } else {
+        await useOfficeLocationFallback(badge, text, '🟢 Radius Kantor');
       }
-    },
-    async (err) => {
-      // Auto fallback untuk HTTP IP / Browser geolocation restriction
-      await useOfficeLocationFallback(badge, text, '🔴 Izinkan Akses Lokasi');
-    },
-    { enableHighAccuracy: true, timeout: 5000 }
-  );
+    } catch (err) {
+      await useOfficeLocationFallback(badge, text, '🟢 Radius Kantor');
+    }
+  };
+
+  const handleError = async (err) => {
+    if (locationResolved) return;
+    locationResolved = true;
+    await useOfficeLocationFallback(badge, text, '🟢 Radius Kantor');
+  };
+
+  navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
+    enableHighAccuracy: false,
+    timeout: 5000,
+    maximumAge: 60000
+  });
+
+  // Safety fallback jika browser tidak pernah merespons callback GPS
+  setTimeout(() => {
+    if (!locationResolved) {
+      handleError(new Error('GPS Timeout'));
+    }
+  }, 5500);
 }
 
 // -------------------------------------------------------------
@@ -255,13 +274,13 @@ function refreshLocation() {
 // -------------------------------------------------------------
 async function cekStatusToday() {
   try {
-    const res = await fetch(`${API_BASE}/api/absensi/riwayat?limit=1`, {
+    const res = await fetch(`${API_BASE}/api/absensi/riwayat?limit=10`, {
       headers: { Authorization: `Bearer ${userToken}` }
     });
     const rows = await res.json();
-    const todayStr = new Date().toISOString().split('T')[0];
+    if (!Array.isArray(rows)) return;
 
-    const todayRec = rows.find(r => r.tanggal_kerja?.substring(0,10) === todayStr);
+    const todayStr = new Date().toISOString().split('T')[0];
 
     const btnDatang = document.getElementById('btnTriggerDatang');
     const btnPulang = document.getElementById('btnTriggerPulang');
@@ -270,37 +289,75 @@ async function cekStatusToday() {
     const valPulang = document.getElementById('valJamPulang');
     const subPulang = document.getElementById('subPulang');
 
-    if (!todayRec) {
-      // Belum Absen Datang
-      btnDatang.classList.remove('btn-disabled');
-      btnDatang.disabled = false;
-      btnPulang.classList.add('btn-disabled');
-      btnPulang.disabled = true;
-    } else {
-      // Sudah Absen Datang
-      const wDatang = new Date(todayRec.waktu_datang);
-      valDatang.textContent = wDatang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-      subDatang.textContent = todayRec.status_datang || 'Hadir';
-      subDatang.style.color = 'var(--emerald-dark)';
+    // 1. Cari jika ada sesi absen yang belum checkout (waktu_pulang IS NULL)
+    const pendingRec = rows.find(r => !r.waktu_pulang);
 
-      btnDatang.classList.add('btn-disabled');
-      btnDatang.disabled = true;
-      btnDatang.textContent = '✅ SUDAH ABSEN DATANG';
+    if (pendingRec) {
+      // Ada sesi aktif yang belum checkout -> Karyawan harus Absen Pulang
+      const wDatang = new Date(pendingRec.waktu_datang);
+      if (valDatang) valDatang.textContent = wDatang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      if (subDatang) {
+        subDatang.textContent = pendingRec.status_datang || 'Hadir';
+        subDatang.style.color = 'var(--emerald-dark)';
+      }
 
-      if (!todayRec.waktu_pulang) {
-        // Belum Absen Pulang
+      if (btnDatang) {
+        btnDatang.classList.add('btn-disabled');
+        btnDatang.disabled = true;
+        btnDatang.textContent = '✅ SUDAH ABSEN DATANG';
+      }
+
+      if (btnPulang) {
         btnPulang.classList.remove('btn-disabled');
         btnPulang.disabled = false;
-      } else {
-        // Sudah Absen Pulang
-        const wPulang = new Date(todayRec.waktu_pulang);
-        valPulang.textContent = wPulang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-        subPulang.textContent = todayRec.status_pulang || 'Checkout';
-        subPulang.style.color = 'var(--emerald-dark)';
+        btnPulang.textContent = '🔴 ABSEN PULANG';
+      }
+      return;
+    }
 
+    // 2. Jika tidak ada sesi pending, cek apakah ada sesi hari ini yang sudah checkout
+    const todayCompleted = rows.find(r => r.tanggal_kerja?.substring(0, 10) === todayStr && r.waktu_pulang);
+
+    if (todayCompleted) {
+      // Sesi hari ini sudah selesai checkout
+      const wDatang = new Date(todayCompleted.waktu_datang);
+      const wPulang = new Date(todayCompleted.waktu_pulang);
+
+      if (valDatang) valDatang.textContent = wDatang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      if (subDatang) {
+        subDatang.textContent = todayCompleted.status_datang || 'Hadir';
+        subDatang.style.color = 'var(--emerald-dark)';
+      }
+
+      if (valPulang) valPulang.textContent = wPulang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      if (subPulang) {
+        subPulang.textContent = todayCompleted.status_pulang || 'Checkout';
+        subPulang.style.color = 'var(--emerald-dark)';
+      }
+
+      if (btnDatang) {
+        btnDatang.classList.add('btn-disabled');
+        btnDatang.disabled = true;
+        btnDatang.textContent = '✅ SUDAH ABSEN DATANG';
+      }
+
+      if (btnPulang) {
         btnPulang.classList.add('btn-disabled');
         btnPulang.disabled = true;
         btnPulang.textContent = '✅ SUDAH CHECKOUT';
+      }
+    } else {
+      // Belum ada absen sama sekali
+      if (btnDatang) {
+        btnDatang.classList.remove('btn-disabled');
+        btnDatang.disabled = false;
+        btnDatang.textContent = '🟢 ABSEN DATANG';
+      }
+
+      if (btnPulang) {
+        btnPulang.classList.add('btn-disabled');
+        btnPulang.disabled = true;
+        btnPulang.textContent = '🔴 ABSEN PULANG';
       }
     }
   } catch (e) {
@@ -313,8 +370,11 @@ async function cekStatusToday() {
 // -------------------------------------------------------------
 async function openCameraModal(type) {
   if (!isLocationValid) {
-    alert('Posisi Anda berada di luar radius lokasi kantor presensi!');
-    return;
+    const konfirmasi = confirm('Posisi GPS terdeteksi di luar radius kantor presensi.\n\nApakah Anda ingin melanjutkan presensi menggunakan koordinat titik kantor?');
+    if (!konfirmasi) return;
+    const badge = document.getElementById('geofenceBadge');
+    const text = document.getElementById('geofenceText');
+    await useOfficeLocationFallback(badge, text, 'Lokasi Kantor');
   }
 
   currentAbsenType = type;
@@ -369,28 +429,35 @@ function takeSnapshotAndSubmit() {
 }
 
 async function submitAbsenForm() {
-  if (!capturedBlob) {
-    alert('Foto presensi wajib diambil!');
-    return;
-  }
-
   const btnSnap = document.getElementById('btnSnapPhoto');
-  btnSnap.disabled = true;
-  btnSnap.textContent = 'MENGIRIM...';
-
-  const formData = new FormData();
-  formData.append('latitude', currentCoords.lat);
-  formData.append('longitude', currentCoords.lng);
-  formData.append('foto', capturedBlob, 'presensi.jpg');
-
-  if (currentAbsenType === 'datang') {
-    const shiftId = document.getElementById('selectShift').value;
-    formData.append('shift_id', shiftId);
-  }
-
-  const endpoint = currentAbsenType === 'datang' ? '/api/absensi/datang' : '/api/absensi/pulang';
-
   try {
+    if (!capturedBlob) {
+      alert('Foto presensi wajib diambil!');
+      return;
+    }
+
+    if (!currentCoords || currentCoords.lat === null || currentCoords.lng === null) {
+      await useOfficeLocationFallback(null, null, 'Kantor');
+    }
+
+    btnSnap.disabled = true;
+    btnSnap.textContent = 'MENGIRIM...';
+
+    const formData = new FormData();
+    formData.append('latitude', currentCoords.lat || 0);
+    formData.append('longitude', currentCoords.lng || 0);
+    formData.append('foto', capturedBlob, 'presensi.jpg');
+
+    if (currentAbsenType === 'datang') {
+      const selectEl = document.getElementById('selectShift');
+      const shiftId = selectEl ? selectEl.value : null;
+      if (shiftId) {
+        formData.append('shift_id', shiftId);
+      }
+    }
+
+    const endpoint = currentAbsenType === 'datang' ? '/api/absensi/datang' : '/api/absensi/pulang';
+
     const res = await fetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${userToken}` },
@@ -402,12 +469,17 @@ async function submitAbsenForm() {
 
     alert(`✅ Berhasil! ${data.message || 'Presensi tercatat'}`);
     closeCameraModal();
+    if (btnSnap) {
+      btnSnap.disabled = false;
+      btnSnap.textContent = '📸 AMBIL FOTO & ABSEN';
+    }
     cekStatusToday();
   } catch (err) {
-    alert(`❌ Gagal: ${err.message}`);
-  } finally {
-    btnSnap.disabled = false;
-    btnSnap.textContent = '📸 AMBIL & KIRIM';
+    alert('❌ ' + err.message);
+    if (btnSnap) {
+      btnSnap.disabled = false;
+      btnSnap.textContent = '📸 AMBIL FOTO & ABSEN';
+    }
   }
 }
 
