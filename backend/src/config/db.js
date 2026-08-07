@@ -6,12 +6,18 @@ const isCloudDb = true;
 const pool = new Pool({
   connectionString: dbUrl,
   ssl: { rejectUnauthorized: false },
-  max: Number(process.env.DB_POOL_MAX || 10),
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
+  max: Number(process.env.DB_POOL_MAX || 5),
+  idleTimeoutMillis: 5_000, // Tutup koneksi idle di Node.js sebelum diputus oleh Supabase PgBouncer (port 6543)
+  connectionTimeoutMillis: 15_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
 });
 
 pool.on('error', (err) => {
+  // Abaikan warning termination koneksi idle karena diputus secara otomatis oleh PgBouncer/Vercel
+  if (err.message.includes('Connection terminated') || err.code === '57P01') {
+    return;
+  }
   console.error('⚠️ [PostgreSQL Pool Error]', err.message);
 });
 
