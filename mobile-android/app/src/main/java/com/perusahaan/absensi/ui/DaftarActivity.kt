@@ -3,6 +3,8 @@ package com.perusahaan.absensi.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -24,6 +26,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 class DaftarActivity : AppCompatActivity() {
@@ -34,8 +37,6 @@ class DaftarActivity : AppCompatActivity() {
     private lateinit var spinnerJabatan: Spinner
     private lateinit var spinnerLokasi: Spinner
     private lateinit var btnFoto1: Button
-    private lateinit var btnFoto2: Button
-    private lateinit var btnFoto3: Button
     private lateinit var inputPassword: EditText
     private lateinit var inputKonfirmasi: EditText
     private lateinit var btnDaftar: Button
@@ -53,10 +54,11 @@ class DaftarActivity : AppCompatActivity() {
 
     private var daftarLokasi: List<OpsiPendaftaranDto.LokasiItem> = emptyList()
     private var mapDepartemenJabatan: Map<String, List<String>> = mapOf(
-        "Produksi" to listOf("SPV Produksi", "Pengawas", "Operator", "Driver DT", "Driver WT"),
+        "Produksi" to listOf("SPV Produksi", "Pengawas", "Operator", "Driver DT", "Driver WT", "Checker"),
         "Engineering" to listOf("SPV Engineering", "Mine Plan", "Foreman Moco", "Admin", "Surveyor", "Ast Survey", "Helper Survey"),
         "Logistik" to listOf("Foreman Logistik", "Logistik", "Admin", "Fuelman", "Ekspeditor"),
         "HSE" to listOf("SPV HSE", "HSE Officer", "Safety Patrol", "Helper HSE"),
+        "Maintenance" to listOf("SPV Maintenance", "Foreman Maintenance", "Mekanik", "Welder", "Auto Electrician", "Admin Maintenance", "Helper Maintenance", "Helper Mekanik"),
         "HRGA & Finance" to listOf("Foreman HR", "Admin HR", "Admin Finance", "Driver Sarana"),
         "Management" to listOf("PJO")
     )
@@ -64,8 +66,6 @@ class DaftarActivity : AppCompatActivity() {
     private var listDepartemen: List<String> = emptyList()
 
     private var foto1Bytes: ByteArray? = null
-    private var foto2Bytes: ByteArray? = null
-    private var foto3Bytes: ByteArray? = null
 
     private var fotoTargetAktif = 1
 
@@ -104,8 +104,6 @@ class DaftarActivity : AppCompatActivity() {
         spinnerJabatan     = findViewById(R.id.spinnerJabatan)
         spinnerLokasi      = findViewById(R.id.spinnerLokasi)
         btnFoto1           = findViewById(R.id.btnFoto1)
-        btnFoto2           = findViewById(R.id.btnFoto2)
-        btnFoto3           = findViewById(R.id.btnFoto3)
         inputPassword      = findViewById(R.id.inputPassword)
         inputKonfirmasi    = findViewById(R.id.inputKonfirmasiPassword)
         btnDaftar          = findViewById(R.id.btnDaftar)
@@ -122,8 +120,6 @@ class DaftarActivity : AppCompatActivity() {
         setupSpinnersDepartemenJabatan()
 
         btnFoto1.setOnClickListener { pilihSumberFoto(1) }
-        btnFoto2.setOnClickListener { pilihSumberFoto(2) }
-        btnFoto3.setOnClickListener { pilihSumberFoto(3) }
 
         btnBatalKamera.setOnClickListener {
             layoutCameraOverlay.visibility = View.GONE
@@ -160,11 +156,7 @@ class DaftarActivity : AppCompatActivity() {
 
     private fun bukaInAppKamera(target: Int) {
         fotoTargetAktif = target
-        textJudulFoto.text = when (target) {
-            1 -> "Posisikan Wajah untuk Foto 1 (Tampak Depan)"
-            2 -> "Posisikan Wajah untuk Foto 2 (Miring Kiri)"
-            else -> "Posisikan Wajah untuk Foto 3 (Miring Kanan)"
-        }
+        textJudulFoto.text = "Posisikan Wajah Tampak Depan dengan Jelas"
         layoutCameraOverlay.visibility = View.VISIBLE
         startCameraX()
     }
@@ -222,22 +214,43 @@ class DaftarActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Kompres gambar ke JPEG maks 640x640 px, kualitas 60%.
+     * Memastikan total 3 foto < 4 MB agar lolos batas Vercel 4.5 MB.
+     */
+    private fun kompresiFoto(bytes: ByteArray): ByteArray {
+        val original = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: return bytes
+
+        // Hitung ukuran output agar tidak lebih dari 640px di sisi terpanjang
+        val maxSize = 640
+        val scale = if (original.width > original.height) {
+            maxSize.toFloat() / original.width
+        } else {
+            maxSize.toFloat() / original.height
+        }
+
+        val bitmap = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                original,
+                (original.width * scale).toInt(),
+                (original.height * scale).toInt(),
+                true
+            )
+        } else original
+
+        val out = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 60, out)
+        return out.toByteArray()
+    }
+
     private fun simpanBytesFoto(bytes: ByteArray) {
+        val compressed = kompresiFoto(bytes)
         when (fotoTargetAktif) {
             1 -> {
-                foto1Bytes = bytes
-                btnFoto1.text = "✓ Foto 1 Siap"
+                foto1Bytes = compressed
+                btnFoto1.text = "✓ Foto Wajah Siap"
                 btnFoto1.setBackgroundColor(Color.parseColor("#2E7D32"))
-            }
-            2 -> {
-                foto2Bytes = bytes
-                btnFoto2.text = "✓ Foto 2 Siap"
-                btnFoto2.setBackgroundColor(Color.parseColor("#2E7D32"))
-            }
-            3 -> {
-                foto3Bytes = bytes
-                btnFoto3.text = "✓ Foto 3 Siap"
-                btnFoto3.setBackgroundColor(Color.parseColor("#2E7D32"))
             }
         }
     }
@@ -321,8 +334,8 @@ class DaftarActivity : AppCompatActivity() {
             tampilkanPesan("Konfirmasi password tidak cocok", isError = true)
             return
         }
-        if (foto1Bytes == null || foto2Bytes == null || foto3Bytes == null) {
-            tampilkanPesan("Wajib memilih 3 sampel foto wajah sebelum mendaftar", isError = true)
+        if (foto1Bytes == null) {
+            tampilkanPesan("Wajib mengambil foto wajah sebelum mendaftar", isError = true)
             return
         }
 
@@ -340,8 +353,8 @@ class DaftarActivity : AppCompatActivity() {
                     shiftId = null,
                     lokasiId = lokasiId?.toPart(),
                     foto1 = foto1Bytes?.toMultipart("foto1", "sample1.jpg"),
-                    foto2 = foto2Bytes?.toMultipart("foto2", "sample2.jpg"),
-                    foto3 = foto3Bytes?.toMultipart("foto3", "sample3.jpg")
+                    foto2 = null,
+                    foto3 = null
                 )
                 if (response.isSuccessful) {
                     tampilkanPesan(
