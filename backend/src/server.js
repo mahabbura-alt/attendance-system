@@ -39,6 +39,7 @@ app.use('/api/auth', createRateLimiter({
   max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 100),
   message: 'Terlalu banyak percobaan login. Coba lagi dalam 15 menit.',
 }), authRoutes);
+app.use('/api/absensi', absensiRoutes);
 app.use('/api/admin/production', productionRoutes);
 app.use('/api/admin/karyawan', karyawanRoutes);
 app.use('/api/admin/lokasi', lokasiRoutes);

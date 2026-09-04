@@ -4,7 +4,20 @@ const { minioClient, BUCKET } = require('../config/minio');
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://lpezydpyzvfydbhwimqq.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// Inisialisasi klien Supabase secara lazy agar server tidak crash di module-load
+// ketika SUPABASE_SERVICE_ROLE_KEY belum tersedia (mis. dev lokal / env belum di-set).
+// Endpoint lain (lokasi-kantor, riwayat, dll.) tetap berfungsi; hanya fitur yang
+// benar-benar butuh Supabase Storage yang akan melewati fallback MinIO/Base64.
+let supabase = null;
+function getSupabase() {
+  if (supabase) return supabase;
+  if (!SUPABASE_KEY) {
+    console.warn('[Storage] SUPABASE_SERVICE_ROLE_KEY belum di-set. Supabase Storage dinonaktifkan, fallback ke MinIO/Base64.');
+    return null;
+  }
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  return supabase;
+}
 
 /**
  * Upload buffer foto ke Supabase Storage Bucket "absensi-foto".
@@ -21,28 +34,31 @@ async function uploadFoto(buffer, { userId, jenis }) {
   console.log(`[Storage] SUPABASE_URL set: ${!!SUPABASE_URL_CHECK}, KEY set: ${!!SUPABASE_KEY_CHECK}`);
 
   // 1. Primary: Upload ke Supabase Storage (Visual Cloud Bucket)
-  try {
-    const { data, error } = await supabase.storage
-      .from('absensi-foto')
-      .upload(objectKey, buffer, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      });
-
-    if (!error && data) {
-      const { data: publicUrlData } = supabase.storage
+  const supabaseClient = getSupabase();
+  if (supabaseClient) {
+    try {
+      const { data, error } = await supabaseClient.storage
         .from('absensi-foto')
-        .getPublicUrl(objectKey);
+        .upload(objectKey, buffer, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
 
-      console.log(`[Storage] ✅ Supabase upload SUCCESS: ${publicUrlData.publicUrl}`);
-      return publicUrlData.publicUrl;
-    }
+      if (!error && data) {
+        const { data: publicUrlData } = supabaseClient.storage
+          .from('absensi-foto')
+          .getPublicUrl(objectKey);
 
-    if (error) {
-      console.error(`[Storage] ❌ Supabase upload FAILED: ${error.message} | status: ${error.statusCode} | name: ${error.name}`);
+        console.log(`[Storage] ✅ Supabase upload SUCCESS: ${publicUrlData.publicUrl}`);
+        return publicUrlData.publicUrl;
+      }
+
+      if (error) {
+        console.error(`[Storage] ❌ Supabase upload FAILED: ${error.message} | status: ${error.statusCode} | name: ${error.name}`);
+      }
+    } catch (supaErr) {
+      console.error(`[Storage] ❌ Supabase upload EXCEPTION: ${supaErr.message}`);
     }
-  } catch (supaErr) {
-    console.error(`[Storage] ❌ Supabase upload EXCEPTION: ${supaErr.message}`);
   }
 
   // 2. Secondary: Fallback ke MinIO (Local Container)
@@ -105,7 +121,10 @@ async function hapusFoto(objectKey) {
   if (!objectKey) return;
   if (objectKey.includes('/storage/v1/object/public/absensi-foto/')) {
     const relativeKey = objectKey.split('/storage/v1/object/public/absensi-foto/')[1];
-    if (relativeKey) await supabase.storage.from('absensi-foto').remove([relativeKey]).catch(() => {});
+    const supabaseClient = getSupabase();
+    if (relativeKey && supabaseClient) {
+      await supabaseClient.storage.from('absensi-foto').remove([relativeKey]).catch(() => {});
+    }
   }
 }
 
