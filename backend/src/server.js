@@ -14,6 +14,7 @@ const lokasiRoutes = require('./routes/lokasi.routes');
 const payrollRoutes = require('./routes/payroll.routes');
 const hmRoutes = require('./routes/hm.routes');
 const kalkulasiPayrollRoutes = require('./routes/kalkulasiPayroll.routes');
+const productionRoutes = require('./routes/production.routes');
 const { securityHeaders, requestId, createRateLimiter } = require('./middleware/security');
 const { uploadErrorHandler } = require('./middleware/upload');
 
@@ -25,11 +26,11 @@ app.use(securityHeaders);
 app.use(cors({
   origin: true,
   credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Authorization', 'Content-Type', 'X-Password'],
   exposedHeaders: ['Content-Disposition'],
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', serverless: Boolean(process.env.VERCEL) }));
 
@@ -38,13 +39,13 @@ app.use('/api/auth', createRateLimiter({
   max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 100),
   message: 'Terlalu banyak percobaan login. Coba lagi dalam 15 menit.',
 }), authRoutes);
-app.use('/api/absensi', absensiRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/admin/production', productionRoutes);
 app.use('/api/admin/karyawan', karyawanRoutes);
 app.use('/api/admin/lokasi', lokasiRoutes);
 app.use('/api/admin/payroll', payrollRoutes);
 app.use('/api/admin/hm', hmRoutes);
 app.use('/api/admin/kalkulasi-payroll', kalkulasiPayrollRoutes);
+app.use('/api/admin', adminRoutes);
 
 const storageRoutes = require('./routes/storage.routes');
 app.use('/api/storage', storageRoutes);
@@ -93,6 +94,23 @@ try {
 async function checkDependencies() {
   try {
     await pool.query('SELECT 1');
+    const fs = require('fs');
+    const path = require('path');
+    const baseSqlPath = path.join(__dirname, '../sql/schema.sql');
+    if (fs.existsSync(baseSqlPath)) {
+      const baseSqlContent = fs.readFileSync(baseSqlPath, 'utf8');
+      await pool.query(baseSqlContent);
+    }
+    const sqlPath = path.join(__dirname, '../sql/003_mining_production_schema.sql');
+    if (fs.existsSync(sqlPath)) {
+      const sqlContent = fs.readFileSync(sqlPath, 'utf8');
+      await pool.query(sqlContent);
+      console.log('⛏️ [Database] Tabel Mining Production Management System siap!');
+      if (String(process.env.SEED_PRODUCTION_DUMMY_DATA || '').trim().toLowerCase() === 'true') {
+        const seedDummyData = require('./scripts/seedProductionDummyData');
+        await seedDummyData();
+      }
+    }
   } catch (err) {
     console.warn(`[DB Warning] PostgreSQL query test: ${err.message}`);
   }

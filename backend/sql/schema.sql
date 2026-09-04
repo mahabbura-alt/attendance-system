@@ -7,19 +7,24 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto"; -- untuk gen_random_uuid()
 -- =========================================================
 -- Tabel shifts
 -- =========================================================
-CREATE TABLE shifts (
+CREATE TABLE IF NOT EXISTS shifts (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    nama_shift      VARCHAR(50) NOT NULL,        -- 'Shift 1' / 'Shift 2'
-    jam_masuk_maks  TIME NOT NULL,               -- 07:10 / 18:10
-    jam_pulang_min  TIME NOT NULL,               -- 18:00 / 07:00
+    nama_shift      VARCHAR(50) NOT NULL,        -- 'Shift Siang' / 'Shift Malam'
+    jam_masuk_maks  TIME NOT NULL,               -- 06:10 / 18:10 (toleransi absensi)
+    jam_pulang_min  TIME NOT NULL,               -- 18:00 / 06:00
+    operational_start TIME NOT NULL,             -- 06:00 / 18:00
+    operational_end TIME NOT NULL,               -- 18:00 / 06:00
     lintas_hari     BOOLEAN NOT NULL DEFAULT FALSE, -- true untuk Shift 2 (malam)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_shifts_normalized_name
+    ON shifts (LOWER(TRIM(nama_shift)));
+
 -- =========================================================
 -- Tabel lokasi_kantor
 -- =========================================================
-CREATE TABLE lokasi_kantor (
+CREATE TABLE IF NOT EXISTS lokasi_kantor (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nama_lokasi   VARCHAR(100) NOT NULL,
     latitude      DOUBLE PRECISION NOT NULL,
@@ -31,7 +36,7 @@ CREATE TABLE lokasi_kantor (
 -- =========================================================
 -- Tabel users
 -- =========================================================
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nama                VARCHAR(150) NOT NULL,
     email               VARCHAR(150) NOT NULL UNIQUE,
@@ -45,6 +50,8 @@ CREATE TABLE users (
     lokasi_kantor_id    UUID REFERENCES lokasi_kantor(id),
     foto_referensi_url  TEXT,           -- foto wajah acuan untuk matching di CompreFace
     compreface_subject  VARCHAR(150),   -- subject id yang didaftarkan ke CompreFace
+    is_super_admin      BOOLEAN NOT NULL DEFAULT FALSE,
+    permissions         JSONB,
     is_active           BOOLEAN NOT NULL DEFAULT TRUE,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -53,7 +60,7 @@ CREATE TABLE users (
 -- Tabel registrasi_pending
 -- Karyawan mendaftar mandiri → admin approve → akun dibuat
 -- =========================================================
-CREATE TABLE registrasi_pending (
+CREATE TABLE IF NOT EXISTS registrasi_pending (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nama            VARCHAR(150) NOT NULL,
     email           VARCHAR(150) NOT NULL UNIQUE,
@@ -80,7 +87,7 @@ CREATE TABLE registrasi_pending (
 -- Tabel password_reset_tokens
 -- Token satu pakai, dikirim ke email karyawan
 -- =========================================================
-CREATE TABLE password_reset_tokens (
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token       TEXT NOT NULL UNIQUE,
@@ -89,12 +96,12 @@ CREATE TABLE password_reset_tokens (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_prt_token ON password_reset_tokens (token) WHERE used = FALSE;
+CREATE INDEX IF NOT EXISTS idx_prt_token ON password_reset_tokens (token) WHERE used = FALSE;
 
 -- =========================================================
 -- Tabel absensi
 -- =========================================================
-CREATE TABLE absensi (
+CREATE TABLE IF NOT EXISTS absensi (
     id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id                   UUID NOT NULL REFERENCES users(id),
     -- shift_id dipilih karyawan saat absen (rolling shift)
@@ -120,17 +127,17 @@ CREATE TABLE absensi (
 );
 
 -- Satu user hanya boleh punya satu record aktif (belum checkout) pada satu waktu
-CREATE UNIQUE INDEX uq_absensi_user_pending
+CREATE UNIQUE INDEX IF NOT EXISTS uq_absensi_user_pending
     ON absensi (user_id)
     WHERE waktu_pulang IS NULL;
 
-CREATE INDEX idx_absensi_user_tanggal ON absensi (user_id, tanggal_kerja);
-CREATE INDEX idx_absensi_tanggal ON absensi (tanggal_kerja);
+CREATE INDEX IF NOT EXISTS idx_absensi_user_tanggal ON absensi (user_id, tanggal_kerja);
+CREATE INDEX IF NOT EXISTS idx_absensi_tanggal ON absensi (tanggal_kerja);
 
 -- =========================================================
 -- Tabel audit_log
 -- =========================================================
-CREATE TABLE audit_log (
+CREATE TABLE IF NOT EXISTS audit_log (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     admin_id         UUID NOT NULL REFERENCES users(id),
     absensi_id       UUID NOT NULL REFERENCES absensi(id),
@@ -143,10 +150,13 @@ CREATE TABLE audit_log (
 -- =========================================================
 -- Seed data awal: 2 shift rolling + 1 akun admin
 -- =========================================================
-INSERT INTO shifts (nama_shift, jam_masuk_maks, jam_pulang_min, lintas_hari) VALUES
-    ('Shift Siang', '07:10:00', '18:00:00', FALSE),  -- 07:00-18:00, toleransi masuk 07:10
-    ('Shift Malam', '18:10:00', '07:00:00', TRUE);   -- 18:00-07:00 (lintas hari)
+INSERT INTO shifts (
+    nama_shift, jam_masuk_maks, jam_pulang_min, operational_start, operational_end, lintas_hari
+) VALUES
+    ('Shift Siang', '06:10:00', '18:00:00', '06:00:00', '18:00:00', FALSE),
+    ('Shift Malam', '18:10:00', '06:00:00', '18:00:00', '06:00:00', TRUE)
+ON CONFLICT DO NOTHING;
 
--- Akun admin contoh (ganti password via: npm run seed:admin -- admin@perusahaan.com <password>)
 INSERT INTO users (nama, email, password_hash, role) VALUES
-    ('Admin Utama', 'admin@perusahaan.com', 'GANTI_DENGAN_HASH_BCRYPT', 'admin');
+    ('Admin Utama', 'admin@perusahaan.com', 'GANTI_DENGAN_HASH_BCRYPT', 'admin')
+ON CONFLICT (email) DO NOTHING;

@@ -1,17 +1,23 @@
 const { Pool } = require('pg');
 
-const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres.lpezydpyzvfydbhwimqq:vxOtEE428k3UmFv4@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres';
-const isCloudDb = true;
+const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5432/attendance_db';
+const isCloudDb = dbUrl.includes('supabase.com') || dbUrl.includes('render.com') || dbUrl.includes('aws.com') || process.env.DB_SSL === 'true';
 
 const pool = new Pool({
   connectionString: dbUrl,
-  ssl: { rejectUnauthorized: false },
-  max: Number(process.env.DB_POOL_MAX || 10),
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
+  ssl: isCloudDb ? { rejectUnauthorized: false } : false,
+  max: Number(process.env.DB_POOL_MAX || 5),
+  idleTimeoutMillis: 5_000,
+  connectionTimeoutMillis: 15_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
 });
 
 pool.on('error', (err) => {
+  // Abaikan warning termination koneksi idle karena diputus secara otomatis oleh PgBouncer/Vercel
+  if (err.message.includes('Connection terminated') || err.code === '57P01') {
+    return;
+  }
   console.error('⚠️ [PostgreSQL Pool Error]', err.message);
 });
 

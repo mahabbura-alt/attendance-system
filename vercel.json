@@ -8,6 +8,10 @@
     {
       "src": "admin-dashboard/**",
       "use": "@vercel/static"
+    },
+    {
+      "src": "mobile-web/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
@@ -32,8 +36,52 @@
       "dest": "api/index.js"
     },
     {
+      "src": "/mobile-web/(.*)",
+      "dest": "mobile-web/$1"
+    },
+    {
+      "src": "/mobile/(.*)",
+      "dest": "mobile-web/$1"
+    },
+    {
+      "src": "/mobile",
+      "dest": "mobile-web/index.html"
+    },
+    {
+      "src": "/portal/(.*)",
+      "dest": "mobile-web/$1"
+    },
+    {
+      "src": "/karyawan.html",
+      "dest": "mobile-web/index.html"
+    },
+    {
+      "src": "/karyawan",
+      "dest": "mobile-web/index.html"
+    },
+    {
       "src": "/(.*)",
       "dest": "admin-dashboard/$1"
+    }
+  ],
+  "headers": [
+    {
+      "source": "(.*).js",
+      "headers": [
+        { "key": "Content-Type", "value": "application/javascript; charset=utf-8" }
+      ]
+    },
+    {
+      "source": "(.*).css",
+      "headers": [
+        { "key": "Content-Type", "value": "text/css; charset=utf-8" }
+      ]
+    },
+    {
+      "source": "(.*)",
+      "headers": [
+        { "key": "Content-Type", "value": "text/html; charset=utf-8" }
+      ]
     }
   ]
 }

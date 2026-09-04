@@ -4,12 +4,22 @@
  * Ini penting karena tidak ada toleransi keterlambatan sama sekali.
  */
 
-/** Gabungkan tanggal (Date, jam 00:00) dengan jam 'HH:MM:SS' menjadi Date lengkap. */
-function gabungTanggalJam(tanggal, jamString) {
-  const [h, m, s] = jamString.split(':').map(Number);
-  const hasil = new Date(tanggal);
-  hasil.setHours(h, m, s || 0, 0);
-  return hasil;
+/** Gabungkan tanggal (WIB) dengan jam 'HH:MM:SS' menjadi Date UTC yang tepat. */
+function gabungTanggalJam(tanggalStrOrDate, jamString) {
+  let tglStr = '';
+  if (typeof tanggalStrOrDate === 'string') {
+    tglStr = tanggalStrOrDate.split('T')[0];
+  } else if (tanggalStrOrDate instanceof Date) {
+    const wibDate = new Date(tanggalStrOrDate.getTime() + (7 * 60 * 60 * 1000));
+    const yyyy = wibDate.getUTCFullYear();
+    const mm = String(wibDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(wibDate.getUTCDate()).padStart(2, '0');
+    tglStr = `${yyyy}-${mm}-${dd}`;
+  } else {
+    tglStr = new Date().toISOString().split('T')[0];
+  }
+  const jamNorm = jamString.length === 5 ? `${jamString}:00` : jamString;
+  return new Date(`${tglStr}T${jamNorm}+07:00`);
 }
 
 function tambahHari(tanggal, jumlahHari) {
@@ -30,15 +40,9 @@ function statusAbsenDatang(shift, tanggalKerja, waktuDatang) {
 }
 
 /**
- * Menentukan status absen pulang + validasi bahwa checkout tidak dilakukan
- * sebelum jam_pulang_min (checkout terlalu cepat harus ditolak).
- *
- * Window checkout "wajar":
- * - Shift non-lintas hari: mulai jam_pulang_min s.d. akhir hari yang sama (23:59:59), tanggalKerja
- * - Shift lintas hari    : mulai jam_pulang_min s.d. akhir hari berikutnya (23:59:59), tanggalKerja + 1
- *
- * Checkout yang terjadi setelah window wajar tsb (baru dilakukan di hari
- * berikutnya lagi) dianggap "checkout lewat".
+ * Menentukan status absen pulang + validasi jam checkout.
+ * Jika checkout dilakukan sebelum jam_pulang_min, diberikan status 'pulang awal'
+ * dan tetap diizinkan agar karyawan/tester tidak terblokir.
  */
 function statusAbsenPulang(shift, tanggalKerja, waktuPulang) {
   const hariPulangEkspektasi = shift.lintas_hari
@@ -49,10 +53,7 @@ function statusAbsenPulang(shift, tanggalKerja, waktuPulang) {
   const akhirWindowWajar = gabungTanggalJam(hariPulangEkspektasi, '23:59:59');
 
   if (waktuPulang.getTime() < batasMin.getTime()) {
-    const jamMinFormatted = String(shift.jam_pulang_min).substring(0, 5);
-    const err = new Error(`Jam pulang belum tersedia (minimal jam ${jamMinFormatted})`);
-    err.statusCode = 400;
-    throw err;
+    return 'pulang awal';
   }
 
   return waktuPulang.getTime() <= akhirWindowWajar.getTime()

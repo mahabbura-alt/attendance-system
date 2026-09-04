@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS shifts (
     nama_shift      VARCHAR(50) NOT NULL,
     jam_masuk_maks  TIME NOT NULL,
     jam_pulang_min  TIME NOT NULL,
+    operational_start TIME NOT NULL,
+    operational_end TIME NOT NULL,
     lintas_hari     BOOLEAN NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

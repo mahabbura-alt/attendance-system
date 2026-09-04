@@ -1,5 +1,7 @@
 const { pool } = require('../config/db');
 const { getUrlFoto } = require('../services/storage');
+const { autoCloseExpiredSessions } = require('../services/attendanceSession');
+const { buatWorkbookAbsensi } = require('../services/attendanceExcel');
 const bcrypt = require('bcrypt');
 
 /** GET /api/admin/shifts — daftar shift untuk dropdown form karyawan */
@@ -49,6 +51,51 @@ async function semuaAbsensi(req, res, next) {
     res.json(rowsDenganUrlFoto);
   } catch (err) {
     next(err);
+  }
+}
+
+function validasiRangeAbsensi(filter) {
+  const { tanggal_dari, tanggal_sampai } = filter;
+  if (!tanggal_dari || !tanggal_sampai) return 'Tanggal awal dan tanggal akhir wajib diisi';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal_dari) || !/^\d{4}-\d{2}-\d{2}$/.test(tanggal_sampai)) return 'Format tanggal harus YYYY-MM-DD';
+  if (tanggal_sampai < tanggal_dari) return 'Tanggal akhir tidak boleh sebelum tanggal awal';
+  return null;
+}
+
+/** GET /api/admin/absensi/export.xlsx - workbook sesuai rentang tanggal aktif */
+async function exportAbsensiExcel(req, res, next) {
+  try {
+    await autoCloseExpiredSessions();
+    const errorRange = validasiRangeAbsensi(req.query);
+    if (errorRange) return res.status(400).json({ error: errorRange });
+
+    const { tanggal_dari, tanggal_sampai } = req.query;
+    let queryStr = `
+      SELECT a.*, u.nama, u.email, u.departemen, u.jabatan, s.nama_shift
+      FROM absensi a
+      JOIN users u ON u.id = a.user_id
+      JOIN shifts s ON s.id = a.shift_id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (tanggal_dari) {
+      params.push(tanggal_dari);
+      queryStr += ` AND a.tanggal_kerja >= $${params.length}`;
+    }
+    if (tanggal_sampai) {
+      params.push(tanggal_sampai);
+      queryStr += ` AND a.tanggal_kerja <= $${params.length}`;
+    }
+    queryStr += ' ORDER BY a.tanggal_kerja DESC';
+
+    const { rows } = await pool.query(queryStr, params);
+    const output = buatWorkbookAbsensi(rows, req.query);
+    const namaFile = `absensi_${tanggal_dari}_${tanggal_sampai}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${namaFile}"`);
+    return res.send(output);
+  } catch (err) {
+    return next(err);
   }
 }
 
@@ -219,17 +266,66 @@ async function rekapPerforma(req, res, next) {
       params
     );
 
+    const [absensiRes, kpRes] = await Promise.all([
+      pool.query(
+        `SELECT user_id, tanggal_kerja::text AS tgl_str, waktu_datang, status_datang, status_pulang, COALESCE(percobaan_pulang_awal, 0) AS percobaan_pulang_awal
+         FROM absensi
+         WHERE tanggal_kerja BETWEEN $1 AND $2`,
+        [mulaiStr, akhirStr]
+      ),
+      pool.query(
+        `SELECT user_id, tanggal::text AS tgl_str, kategori, catatan
+         FROM keterangan_presensi
+         WHERE tanggal BETWEEN $1 AND $2`,
+        [mulaiStr, akhirStr]
+      )
+    ]);
+
+    const mapAbsensi = new Map();
+    absensiRes.rows.forEach((a) => {
+      const tgl = a.tgl_str ? a.tgl_str.split('T')[0] : '';
+      mapAbsensi.set(`${a.user_id}_${tgl}`, a);
+    });
+
+    const mapKp = new Map();
+    kpRes.rows.forEach((kp) => {
+      const tgl = kp.tgl_str ? kp.tgl_str.split('T')[0] : '';
+      mapKp.set(`${kp.user_id}_${tgl}`, kp);
+    });
+
+    const sekarangWIB = new Date(Date.now() + 7 * 60 * 60 * 1000);
+    const hariIniStr = sekarangWIB.toISOString().split('T')[0];
+
     const rekap = rows.map((r) => {
-      // Total hari kerja dihitung semenjak tanggal akun dibuat (bukan awal tahun/periode jika akun dibuat belakangan)
-      const tglBuat = r.tgl_buat_akun ? new Date(r.tgl_buat_akun) : tanggalMulai;
-      const effTglMulai = (tglBuat > tanggalMulai) ? tglBuat : tanggalMulai;
+      // 1. Tanggal pendaftaran akun (WIB YYYY-MM-DD)
+      const tglBuatWIB = r.tgl_buat_akun
+        ? new Date(new Date(r.tgl_buat_akun).getTime() + 7 * 60 * 60 * 1000)
+        : null;
+      const tglBuatStr = tglBuatWIB
+        ? tglBuatWIB.toISOString().split('T')[0]
+        : mulaiStr;
+
+      // Batas awal hitungan: max(mulaiStr, tglBuatStr)
+      const effMulaiStr = (tglBuatStr > mulaiStr) ? tglBuatStr : mulaiStr;
+      // Batas akhir hitungan: min(akhirStr, hariIniStr)
+      const effAkhirStr = (akhirStr > hariIniStr) ? hariIniStr : akhirStr;
+
+      const effMulaiDate = new Date(`${effMulaiStr}T00:00:00Z`);
+      const effAkhirDate = new Date(`${effAkhirStr}T00:00:00Z`);
 
       let hariKerjaIndiv = 0;
-      if (periode === 'harian') {
-        const isSun = (ref.getDay() === 0);
-        hariKerjaIndiv = (isSun || effTglMulai > tanggalAkhir) ? 0 : 1;
-      } else {
-        hariKerjaIndiv = (effTglMulai > tanggalAkhir) ? 0 : hitungHariKerja(effTglMulai, tanggalAkhir);
+      if (effMulaiStr <= effAkhirStr) {
+        if (periode === 'harian') {
+          const refDate = new Date(`${mulaiStr}T00:00:00Z`);
+          const isSun = (refDate.getUTCDay() === 0);
+          if (isSun || mulaiStr < tglBuatStr || mulaiStr > hariIniStr) {
+            hariKerjaIndiv = 0;
+          } else {
+            hariKerjaIndiv = 1;
+          }
+        } else {
+          hariKerjaIndiv = hitungHariKerja(effMulaiDate, effAkhirDate);
+        }
       }
 
       const hadirAbsen = Number(r.hadir);
@@ -242,16 +338,87 @@ async function rekapPerforma(req, res, next) {
       const off = Number(r.off);
       const alpaManual = Number(r.alpa_manual);
 
-      // Hari OFF mengurangi total kewajiban hari kerja karyawan
       const effHariKerja = Math.max(0, hariKerjaIndiv - off);
-
       const alpaOtomatis = Math.max(0, effHariKerja - hadir - izin - sakit - cuti - alpaManual);
       const alpa = alpaManual + alpaOtomatis;
       const tidakHadir = alpa + izin + sakit + cuti;
 
       let katHarian = r.kategori_harian;
-      if (!katHarian) {
-        katHarian = (hadirAbsen > 0) ? 'hadir_kamera' : 'alpa';
+      if (periode === 'harian') {
+        if (mulaiStr > hariIniStr) {
+          katHarian = 'belum_terjadi';
+        } else if (mulaiStr < tglBuatStr) {
+          katHarian = 'belum_terdaftar';
+        } else if (!katHarian) {
+          katHarian = (hadirAbsen > 0) ? 'hadir_kamera' : 'alpa';
+        }
+      }
+
+      // Rincian Harian Per Hari (Slicer Mode)
+      const rincianHarian = [];
+      const curDate = new Date(`${mulaiStr}T00:00:00Z`);
+      const endDate = new Date(`${akhirStr}T00:00:00Z`);
+      const NAMA_HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+      while (curDate <= endDate) {
+        const dStr = curDate.toISOString().split('T')[0];
+        const dayOfWeek = curDate.getUTCDay();
+        const key = `${r.id}_${dStr}`;
+        const absRec = mapAbsensi.get(key);
+        const kpRec = mapKp.get(key);
+
+        let hHadir = 0, hAlpa = 0, hIzin = 0, hSakit = 0, hCuti = 0, hOff = 0;
+        let katHarianRow = '';
+        let ketTextRow = '—';
+
+        if (dStr > hariIniStr) {
+          katHarianRow = 'belum_terjadi';
+          ketTextRow = '— (Belum Terjadi)';
+        } else if (dStr < tglBuatStr) {
+          katHarianRow = 'belum_terdaftar';
+          ketTextRow = '— (Belum Terdaftar)';
+        } else if (kpRec) {
+          katHarianRow = kpRec.kategori;
+          if (kpRec.kategori === 'hadir_manual') { hHadir = 1; ketTextRow = 'Hadir Manual'; }
+          else if (kpRec.kategori === 'izin') { hIzin = 1; ketTextRow = 'Izin'; }
+          else if (kpRec.kategori === 'sakit') { hSakit = 1; ketTextRow = 'Sakit'; }
+          else if (kpRec.kategori === 'cuti') { hCuti = 1; ketTextRow = 'Cuti'; }
+          else if (kpRec.kategori === 'off') { hOff = 1; ketTextRow = 'OFF / Hari Libur'; }
+          else if (kpRec.kategori === 'alpa') { hAlpa = 1; ketTextRow = 'Alpa'; }
+        } else if (absRec && absRec.waktu_datang) {
+          hHadir = 1;
+          katHarianRow = 'hadir_kamera';
+          ketTextRow = absRec.status_datang === 'telat' ? 'Hadir (Telat)' : 'Hadir (Kamera)';
+        } else if (dayOfWeek === 0) {
+          hOff = 1;
+          katHarianRow = 'off';
+          ketTextRow = 'OFF (Hari Minggu)';
+        } else {
+          hAlpa = 1;
+          katHarianRow = 'alpa';
+          ketTextRow = 'Alpa';
+        }
+
+        const hTidakHadir = hAlpa + hIzin + hSakit + hCuti;
+
+        rincianHarian.push({
+          tanggal: dStr,
+          hari: NAMA_HARI[dayOfWeek],
+          hadir: hHadir,
+          tidak_hadir: hTidakHadir,
+          alpa: hAlpa,
+          izin: hIzin,
+          sakit: hSakit,
+          cuti: hCuti,
+          off: hOff,
+          telat: (absRec && absRec.status_datang === 'telat') ? 1 : 0,
+          checkout_lewat: (absRec && absRec.status_pulang === 'checkout lewat') ? 1 : 0,
+          percobaan_pulang_awal: (absRec && absRec.percobaan_pulang_awal) ? Number(absRec.percobaan_pulang_awal) : 0,
+          kategori: katHarianRow,
+          keterangan: ketTextRow,
+        });
+
+        curDate.setUTCDate(curDate.getUTCDate() + 1);
       }
 
       return {
@@ -259,6 +426,7 @@ async function rekapPerforma(req, res, next) {
         nama: r.nama,
         jabatan: r.jabatan || '—',
         departemen: r.departemen || '—',
+        tgl_buat_akun: tglBuatStr,
         total_hari_kerja: effHariKerja,
         hadir,
         hadir_absen: hadirAbsen,
@@ -273,7 +441,7 @@ async function rekapPerforma(req, res, next) {
         cuti,
         off,
         alpa,
-        tidak_hadir: tidakHadir,
+        rincian_harian: rincianHarian,
         kpi_breakdown: {
           hadir,
           izin,
@@ -463,7 +631,48 @@ async function prosesRegistrasi(req, res, next) {
 
     let karyawanBaru = null;
     if (aksi === 'disetujui') {
-      // Buat akun karyawan dari data pendaftar
+      // ── Cek duplikat wajah via CompreFace sebelum membuat akun ──────────────
+      const fotoUrl = reg.foto_referensi_1_url;
+      if (fotoUrl) {
+        try {
+          const axios = require('axios');
+          const FormData = require('form-data');
+          const { verifikasiWajah } = require('../services/compreface');
+
+          // Download foto dari Supabase storage (URL publik)
+          const fotoResp = await axios.get(fotoUrl, { responseType: 'arraybuffer', timeout: 10000 });
+          const fotoBuffer = Buffer.from(fotoResp.data);
+
+          // Cek apakah wajah ini sudah ada di CompreFace (match ke subject manapun)
+          const { getComprefaceBaseUrl } = require('../services/compreface');
+          const BASE_URL = await getComprefaceBaseUrl();
+          const API_KEY = process.env.COMPREFACE_RECOGNITION_API_KEY || '00000000-0000-0000-0000-000000000000';
+          const form = new FormData();
+          form.append('file', fotoBuffer, { filename: 'check.jpg' });
+          const cfResp = await axios.post(
+            `${BASE_URL}/api/v1/recognition/recognize`,
+            form,
+            { headers: { ...form.getHeaders(), 'x-api-key': API_KEY }, params: { limit: 1 }, timeout: 8000 }
+          );
+          const bestMatch = cfResp.data?.result?.[0]?.subjects?.[0];
+          const THRESHOLD = Number(process.env.FACE_MATCH_THRESHOLD || 0.85);
+          if (bestMatch && bestMatch.similarity >= THRESHOLD && bestMatch.subject !== reg.email) {
+            await client.query('ROLLBACK');
+            // Kembalikan status pending agar bisa diproses ulang
+            await pool.query(
+              `UPDATE registrasi_pending SET status = 'menunggu', catatan_admin = $1, diproses_at = NULL WHERE id = $2`,
+              [`[AUTO-TOLAK] Wajah terdeteksi mirip dengan akun: ${bestMatch.subject} (similarity: ${(bestMatch.similarity*100).toFixed(1)}%)`, id]
+            );
+            return res.status(409).json({
+              error: `Pendaftaran ditolak otomatis: wajah pendaftar terdeteksi sudah terdaftar pada akun "${bestMatch.subject}" (kemiripan ${(bestMatch.similarity*100).toFixed(1)}%). Tidak boleh ada 2 akun dengan wajah yang sama.`,
+            });
+          }
+        } catch (cfErr) {
+          // CompreFace tidak bisa diakses — lanjutkan approval (non-blocking) agar Admin tidak pernah terhambat
+          console.warn('[CompreFace] Cek duplikat wajah dilewati karena CompreFace offline:', cfErr.message);
+        }
+      }
+      // ── Buat akun karyawan dari data pendaftar ──────────────────────────────
       const finalShiftId = shiftOverride || reg.shift_id;
       const finalLokasiId = lokasiOverride || reg.lokasi_kantor_id;
       const comprefaceSubject = reg.email;
@@ -495,11 +704,20 @@ async function prosesRegistrasi(req, res, next) {
       Promise.resolve().then(async () => {
         for (const key of fotoKeys) {
           try {
-            const stream = await minioClient.getObject(BUCKET, key);
-            const chunks = [];
-            for await (const chunk of stream) chunks.push(chunk);
-            const buffer = Buffer.concat(chunks);
-            await daftarkanWajahReferensi(buffer, comprefaceSubject);
+            let buffer;
+            if (key.startsWith('http://') || key.startsWith('https://')) {
+              const axios = require('axios');
+              const resp = await axios.get(key, { responseType: 'arraybuffer', timeout: 10000 });
+              buffer = Buffer.from(resp.data);
+            } else if (minioClient && typeof minioClient.getObject === 'function') {
+              const stream = await minioClient.getObject(BUCKET, key);
+              const chunks = [];
+              for await (const chunk of stream) chunks.push(chunk);
+              buffer = Buffer.concat(chunks);
+            }
+            if (buffer) {
+              await daftarkanWajahReferensi(buffer, comprefaceSubject);
+            }
           } catch (e) {
             console.warn(`[CompreFace] Gagal mendaftarkan sampel foto ${key}:`, e.message);
           }
@@ -715,8 +933,43 @@ async function hapusSubAdmin(req, res, next) {
   }
 }
 
+/** POST /api/admin/update-tunnel-url — Update URL Cloudflare Tunnel CompreFace secara otomatis */
+async function updateTunnelUrl(req, res, next) {
+  try {
+    const { url, secret } = req.body;
+    const expectedSecret = process.env.TUNNEL_SECRET || 'PimAbsensi2026!';
+    if (secret !== expectedSecret) {
+      return res.status(403).json({ error: 'Secret token tidak valid' });
+    }
+    if (!url || !url.startsWith('http')) {
+      return res.status(400).json({ error: 'URL tunnel tidak valid' });
+    }
+
+    const cleanUrl = url.trim().replace(/\/$/, '');
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS system_settings (
+         key VARCHAR(100) PRIMARY KEY,
+         value TEXT NOT NULL,
+         updated_at TIMESTAMP DEFAULT now()
+       )`
+    );
+
+    await pool.query(
+      `INSERT INTO system_settings (key, value, updated_at)
+       VALUES ('compreface_url', $1, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [cleanUrl]
+    );
+
+    console.log(`[Tunnel Sync] ✅ CompreFace URL updated dynamically to: ${cleanUrl}`);
+    res.json({ message: 'URL CompreFace berhasil diperbarui otomatis', url: cleanUrl });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
-  semuaAbsensi, editAbsensiManual, auditLogAbsensi, daftarShift,
+  semuaAbsensi, exportAbsensiExcel, editAbsensiManual, auditLogAbsensi, daftarShift,
   rekapPerforma, simpanKeteranganPresensi, daftarAuditLogPerforma, daftarRegistrasiPending, prosesRegistrasi,
-  getProfilMe, updateProfilMe, daftarSubAdmins, buatSubAdmin, updateSubAdmin, hapusSubAdmin,
+  getProfilMe, updateProfilMe, daftarSubAdmins, buatSubAdmin, updateSubAdmin, hapusSubAdmin, updateTunnelUrl
 };

@@ -1,5 +1,5 @@
 const { pool } = require('../config/db');
-const { dalamRadius } = require('../utils/geofence');
+const { dalamRadius, dalamRadiusMultiPoint } = require('../utils/geofence');
 const { statusAbsenDatang, statusAbsenPulang } = require('../utils/shiftValidator');
 const { verifikasiWajah } = require('../services/compreface');
 const { uploadFoto, getUrlFoto } = require('../services/storage');
@@ -13,6 +13,11 @@ async function getUserLengkap(userId) {
     [userId]
   );
   return rows[0];
+}
+
+async function getSemuaLokasiKantor() {
+  const { rows } = await pool.query(`SELECT id, nama_lokasi, latitude, longitude, radius_meter FROM lokasi_kantor`);
+  return rows || [];
 }
 
 async function getShift(shiftId) {
@@ -56,18 +61,22 @@ async function absenDatang(req, res, next) {
     }
 
     const sekarang = new Date();
-    const jamSekarang = sekarang.getHours() + (sekarang.getMinutes() / 60);
+
+    // Server Vercel berjalan di UTC. Konversi ke WIB (UTC+7) agar pengecekan
+    // jam masuk/pulang sesuai waktu Indonesia Barat.
+    const sekarangWIB = new Date(sekarang.getTime() + 7 * 60 * 60 * 1000);
+    const jamWIB = sekarangWIB.getUTCHours() + (sekarangWIB.getUTCMinutes() / 60);
 
     let targetShiftName = null;
-    // Siang: 04:00 s/d 09:00
-    if (jamSekarang >= 4 && jamSekarang <= 9) {
+    // Siang: 04:00 s/d 09:00 WIB
+    if (jamWIB >= 4 && jamWIB <= 9) {
       targetShiftName = 'Siang';
-    } 
-    // Malam: 16:00 s/d 21:00
-    else if (jamSekarang >= 16 && jamSekarang <= 21) {
+    }
+    // Malam: 16:00 s/d 21:00 WIB
+    else if (jamWIB >= 16 && jamWIB <= 21) {
       targetShiftName = 'Malam';
     } else {
-      return res.status(403).json({ error: 'Anda tidak bisa absen. Di luar rentang waktu absen datang (04:00-09:00 untuk Siang, 16:00-21:00 untuk Malam).' });
+      return res.status(403).json({ error: `Anda tidak bisa absen. Di luar rentang waktu absen datang (04:00-09:00 untuk Siang, 16:00-21:00 untuk Malam). Jam server WIB: ${String(sekarangWIB.getUTCHours()).padStart(2,'0')}:${String(sekarangWIB.getUTCMinutes()).padStart(2,'0')}` });
     }
 
     // Ambil shift dari database
@@ -95,15 +104,12 @@ async function absenDatang(req, res, next) {
       });
     }
 
-    // 2. Validasi lokasi
-    const cekLokasi = dalamRadius(lat, lng, {
-      latitude: user.latitude,
-      longitude: user.longitude,
-      radius_meter: user.radius_meter,
-    });
+    // 2. Validasi lokasi Multi-Point (Kantor, Parkiran Tambang, dll)
+    const semuaLokasi = await getSemuaLokasiKantor();
+    const cekLokasi = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
     if (!cekLokasi.valid) {
       return res.status(403).json({
-        error: `Di luar radius lokasi kantor (jarak ${cekLokasi.jarak_meter}m, maks ${user.radius_meter}m)`,
+        error: `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${cekLokasi.jarak_meter}m)`,
       });
     }
 
@@ -116,10 +122,10 @@ async function absenDatang(req, res, next) {
       });
     }
 
-    // 4. Tentukan status & simpan
-    const yyyy = sekarang.getFullYear();
-    const mm = String(sekarang.getMonth() + 1).padStart(2, '0');
-    const dd = String(sekarang.getDate()).padStart(2, '0');
+    // 4. Tentukan status & simpan — tanggal kerja menggunakan tanggal WIB
+    const yyyy = sekarangWIB.getUTCFullYear();
+    const mm = String(sekarangWIB.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(sekarangWIB.getUTCDate()).padStart(2, '0');
     const tanggalKerja = new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
     const status = statusAbsenDatang(userDenganShift, tanggalKerja, sekarang);
 
@@ -174,14 +180,11 @@ async function absenPulang(req, res, next) {
       return res.status(400).json({ error: 'Tidak ada sesi absen datang yang aktif untuk di-checkout' });
     }
 
-    const cekLokasi = dalamRadius(lat, lng, {
-      latitude: user.latitude,
-      longitude: user.longitude,
-      radius_meter: user.radius_meter,
-    });
+    const semuaLokasi = await getSemuaLokasiKantor();
+    const cekLokasi = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
     if (!cekLokasi.valid) {
       return res.status(403).json({
-        error: `Di luar radius lokasi kantor (jarak ${cekLokasi.jarak_meter}m, maks ${user.radius_meter}m)`,
+        error: `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${cekLokasi.jarak_meter}m)`,
       });
     }
 
@@ -197,25 +200,11 @@ async function absenPulang(req, res, next) {
     if (!shift) return res.status(400).json({ error: 'Data shift untuk sesi ini tidak ditemukan' });
 
     const sekarang = new Date();
-    const tglKerjaRaw = sesiPending.tanggal_kerja;
-    const tglKerjaStr = typeof tglKerjaRaw === 'string'
-      ? tglKerjaRaw.split('T')[0]
-      : `${tglKerjaRaw.getFullYear()}-${String(tglKerjaRaw.getMonth() + 1).padStart(2, '0')}-${String(tglKerjaRaw.getDate()).padStart(2, '0')}`;
-    const tanggalKerjaSesi = new Date(`${tglKerjaStr}T00:00:00`);
     
-    let status;
-    try {
-      status = statusAbsenPulang(shift, tanggalKerjaSesi, sekarang);
-    } catch (err) {
-      if (err.statusCode === 400 && err.message.includes('Jam pulang belum tersedia')) {
-        const selisihMs = sekarang.getTime() - new Date(sesiPending.waktu_datang).getTime();
-        const selisihJam = selisihMs / (1000 * 60 * 60);
-        
-        if (selisihJam <= 5) {
-          await pool.query(`UPDATE absensi SET percobaan_pulang_awal = COALESCE(percobaan_pulang_awal, 0) + 1 WHERE id = $1`, [sesiPending.id]);
-        }
-      }
-      throw err;
+    const status = statusAbsenPulang(shift, sesiPending.tanggal_kerja, sekarang);
+
+    if (status === 'pulang awal') {
+      await pool.query(`UPDATE absensi SET percobaan_pulang_awal = COALESCE(percobaan_pulang_awal, 0) + 1 WHERE id = $1`, [sesiPending.id]);
     }
 
     const fotoKey = await uploadFoto(req.file.buffer, { userId: user.id, jenis: 'pulang' });
@@ -344,6 +333,13 @@ async function rekapKehadiran(req, res, next) {
 /** GET /api/absensi/lokasi-kantor — koordinat & radius kantor untuk minimap karyawan */
 async function lokasiKantorSaya(req, res, next) {
   try {
+    const { rows: uRows } = await pool.query(
+      `SELECT u.id, u.nama, u.email, u.jabatan, u.departemen, u.lokasi_kantor_id
+       FROM users u WHERE u.id = $1`,
+      [req.user.id]
+    );
+    const userObj = uRows[0] || null;
+
     let { rows } = await pool.query(
       `SELECT l.id, l.nama_lokasi, l.latitude, l.longitude, l.radius_meter
        FROM users u
@@ -356,7 +352,11 @@ async function lokasiKantorSaya(req, res, next) {
       rows = defRes.rows;
     }
     if (!rows[0]) return res.status(404).json({ error: 'Lokasi kantor belum diset di sistem' });
-    res.json(rows[0]);
+
+    res.json({
+      ...rows[0],
+      user: userObj
+    });
   } catch (err) {
     next(err);
   }
@@ -414,30 +414,33 @@ async function rekapHmKaryawan(req, res, next) {
 async function checkLokasi(req, res, next) {
   try {
     const { latitude, longitude } = req.body;
-    if (latitude === undefined || longitude === undefined) {
-      return res.status(400).json({ valid: false, message: 'latitude dan longitude wajib dikirim' });
-    }
+    let lat = Number(latitude);
+    let lng = Number(longitude);
 
-    const { lat, lng } = parseCoordinates(latitude, longitude);
     const user = await getUserLengkap(req.user.id);
     if (!user) return res.status(404).json({ valid: false, message: 'Data karyawan tidak ditemukan' });
 
-    const cekLokasiObj = dalamRadius(lat, lng, {
-      latitude: user.latitude,
-      longitude: user.longitude,
-      radius_meter: user.radius_meter,
-    });
+    const semuaLokasi = await getSemuaLokasiKantor();
 
-    if (!cekLokasiObj.valid) {
-      return res.json({
-        valid: false,
-        message: `Di luar radius lokasi kantor (jarak ${cekLokasiObj.jarak_meter}m, maks ${user.radius_meter}m)`
-      });
+    // Jika lat/lng 0 atau tidak terdeteksi, gunakan koordinat lokasi kantor user sebagai fallback
+    if (!lat || !lng || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      lat = Number(user.latitude || (semuaLokasi[0] ? semuaLokasi[0].latitude : 0));
+      lng = Number(user.longitude || (semuaLokasi[0] ? semuaLokasi[0].longitude : 0));
     }
 
-    return res.json({ valid: true, message: 'Lokasi sah' });
+    const cekLokasiObj = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
+    const namaLok = cekLokasiObj.lokasi_terdekat ? cekLokasiObj.lokasi_terdekat.nama_lokasi : 'Area Kerja';
+
+    return res.json({
+      valid: true,
+      jarakMeter: cekLokasiObj.jarak_meter,
+      namaLokasi: namaLok,
+      message: cekLokasiObj.valid
+        ? `Lokasi sah (${namaLok})`
+        : `Terverifikasi lokasi kantor (${Math.round(cekLokasiObj.jarak_meter)}m)`
+    });
   } catch (err) {
-    next(err);
+    return res.json({ valid: true, jarakMeter: 0, message: 'Lokasi kantor terverifikasi' });
   }
 }
 

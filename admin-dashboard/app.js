@@ -9,10 +9,11 @@ const state = {
 };
 
 const DEPARTEMEN_JABATAN_MAP = {
-  'Produksi': ['SPV Produksi', 'Pengawas', 'Operator', 'Driver DT', 'Driver WT'],
+  'Produksi': ['SPV Produksi', 'Pengawas', 'Operator', 'Driver DT', 'Driver WT', 'Checker'],
   'Engineering': ['SPV Engineering', 'Mine Plan', 'Foreman Moco', 'Admin', 'Surveyor', 'Ast Survey', 'Helper Survey'],
   'Logistik': ['Foreman Logistik', 'Logistik', 'Admin', 'Fuelman', 'Ekspeditor'],
   'HSE': ['SPV HSE', 'HSE Officer', 'Safety Patrol', 'Helper HSE'],
+  'Maintenance': ['SPV Maintenance', 'Foreman Maintenance', 'Mekanik', 'Welder', 'Auto Electrician', 'Admin Maintenance', 'Helper Maintenance', 'Helper Mekanik'],
   'HRGA & Finance': ['Foreman HR', 'Admin HR', 'Admin Finance', 'Driver Sarana'],
   'Management': ['PJO'],
 };
@@ -113,13 +114,13 @@ document.getElementById('formLogin').addEventListener('submit', async (e) => {
 
   try {
     const hasil = await apiJson('/api/auth/login', 'POST', { email, password });
-    if (hasil.user.role !== 'admin') {
-      throw new Error('Akun ini bukan akun admin');
-    }
     state.token = hasil.token;
     state.nama = hasil.user.nama;
+    state.role = hasil.user.role;
     localStorage.setItem('admin_token', hasil.token);
     localStorage.setItem('admin_nama', hasil.user.nama);
+    localStorage.setItem('admin_email', hasil.user.email);
+    localStorage.setItem('user_role', hasil.user.role);
     tampilkanApp();
   } catch (err) {
     errorEl.textContent = err.message;
@@ -134,55 +135,179 @@ document.getElementById('tombolLogout').addEventListener('click', () => {
   location.reload();
 });
 
+// ============================================================
+// PER-USER SESSION & SLICER PERSISTENCE SYSTEM (OMOS)
+// ============================================================
+function getOMOSSessionKey() {
+  const userEmail = (state.user && state.user.email) || localStorage.getItem('admin_email') || 'default_admin';
+  return `omos_session_${userEmail}`;
+}
+
+function simpanSesiUserOMOS(customData = {}) {
+  try {
+    const key = getOMOSSessionKey();
+    const existing = JSON.parse(localStorage.getItem(key) || '{}');
+    const updated = {
+      ...existing,
+      ...customData,
+      slicers: {
+        ...(existing.slicers || {}),
+        ...(customData.slicers || {})
+      }
+    };
+    localStorage.setItem(key, JSON.stringify(updated));
+  } catch (err) {
+    console.warn('Gagal menyimpan sesi user:', err);
+  }
+}
+
+function pulihkanSesiUserOMOS() {
+  try {
+    const key = getOMOSSessionKey();
+    const sessionStr = localStorage.getItem(key);
+    if (!sessionStr) return false;
+    const session = JSON.parse(sessionStr);
+
+    // 1. Pulihkan Active Tab
+    if (session.activeTab) {
+      const tabName = session.activeTab;
+      if (tabName.startsWith('prod') && typeof bukaTabProduksi === 'function') {
+        bukaTabProduksi(tabName);
+      } else {
+        const btn = document.querySelector(`.sidebar__tab[data-tab="${tabName}"]`);
+        if (btn) btn.click();
+      }
+    }
+
+    // 2. Pulihkan Nilai Slicer Filter
+    if (session.slicers) {
+      Object.entries(session.slicers).forEach(([id, val]) => {
+        // Input Fuel memakai tampilan kartu seluruh unit saat pertama dibuka.
+        // Jangan menghidupkan lagi pencarian unit yang tersisa dari sesi lama.
+        if (id === 'slicerFuelKode') return;
+        const el = document.getElementById(id);
+        if (el && val !== undefined && val !== null && val !== '') {
+          el.value = val;
+        }
+      });
+
+      if (typeof renderTabelAbsensi === 'function') renderTabelAbsensi();
+      if (typeof terapkanSlicerInputData === 'function') terapkanSlicerInputData();
+      if (typeof terapkanSlicerInputFuel === 'function') terapkanSlicerInputFuel();
+      if (typeof terapkanSlicerEquipment === 'function') terapkanSlicerEquipment();
+    }
+    return true;
+  } catch (err) {
+    console.warn('Gagal memulihkan sesi user:', err);
+    return false;
+  }
+}
+
 async function tampilkanApp() {
   document.getElementById('layarLogin').hidden = true;
   document.getElementById('app').hidden = false;
   document.getElementById('namaAdminSidebar').textContent = state.nama || 'Admin';
 
+  // Minta izin notifikasi desktop browser
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+
+  // Jalankan cek notifikasi pendaftar baru berkala
+  cekRegistrasiPendingNotifikasi();
+  if (!window.pendingIntervalSet) {
+    window.pendingIntervalSet = true;
+    setInterval(cekRegistrasiPendingNotifikasi, 10000);
+  }
+
+  state.role = state.role || localStorage.getItem('user_role') || 'admin';
+  if (state.role === 'karyawan') {
+    document.getElementById('namaAdminSidebar').textContent = (state.nama || 'Karyawan') + ' (Karyawan)';
+    const btnEdit = document.getElementById('btnEditProfilSidebar');
+    if (btnEdit) btnEdit.style.display = 'none';
+    document.querySelectorAll('.sidebar__tab').forEach((tab) => {
+      const tabName = tab.dataset.tab;
+      if (['absensi', 'payroll'].includes(tabName)) {
+        tab.style.display = 'block';
+      } else {
+        tab.style.display = 'none';
+      }
+    });
+    const firstTab = document.querySelector('.sidebar__tab[data-tab="absensi"]');
+    if (firstTab) firstTab.click();
+    return;
+  }
+
   try {
     const adminMe = await api('/api/admin/me');
     state.user = adminMe;
+    if (adminMe.email) localStorage.setItem('admin_email', adminMe.email);
     const isUtama = adminMe.is_super_admin;
     document.getElementById('namaAdminSidebar').textContent = adminMe.nama + (isUtama ? ' (Admin Utama)' : '');
 
     // Filter sidebar tabs berdasarkan otoritas akses (permissions)
     const perms = isUtama
-      ? ['absensi', 'karyawan', 'performa', 'registrasi', 'payroll', 'hm', 'kalkulasiPayroll']
+      ? ['absensi', 'karyawan', 'performa', 'roster', 'registrasi', 'payroll', 'hm', 'kalkulasiPayroll']
       : (adminMe.permissions || ['absensi', 'karyawan']);
 
     let firstAvailableTab = null;
     document.querySelectorAll('.sidebar__tab').forEach((tab) => {
       const tabName = tab.dataset.tab;
-      if (perms.includes(tabName)) {
-        tab.style.display = 'block';
-        if (!firstAvailableTab) firstAvailableTab = tab;
+      if (tab.classList.contains('sidebar__tab--folder') || perms.includes(tabName) || (tabName && tabName.startsWith('prod'))) {
+        tab.style.display = 'flex';
+        if (!firstAvailableTab && tabName) firstAvailableTab = tab;
       } else {
         tab.style.display = 'none';
       }
     });
-
-    if (firstAvailableTab && !document.querySelector('.sidebar__tab.is-aktif:not([style*="display: none"])')) {
-      firstAvailableTab.click();
-    }
   } catch (err) {
     console.warn('Gagal memuat data me admin:', err.message);
   }
 
-  muatSemuaData();
+  await muatSemuaData();
+  const dipulihkan = pulihkanSesiUserOMOS();
+
+  if (!dipulihkan) {
+    const firstTab = document.querySelector('.sidebar__tab:not([style*="display: none"])[data-tab]');
+    if (firstTab) firstTab.click();
+  }
 }
 
 document.getElementById('btnEditProfilSidebar')?.addEventListener('click', bukaModalEditProfilAdmin);
 
+if (typeof PlanProductivity !== 'undefined' && typeof PlanProductivity.initAllPlanProductivityModules === 'function') {
+  window.addEventListener('load', function () {
+    PlanProductivity.initAllPlanProductivityModules();
+  });
+}
+
 document.querySelectorAll('.sidebar__tab').forEach((tab) => {
   tab.addEventListener('click', () => {
+    const tabName = tab.dataset.tab;
+    if (tab.classList.contains('sidebar__tab--folder')) {
+      if (tab.getAttribute('aria-expanded') === 'true' && tabName && typeof bukaTabProduksi === 'function') {
+        bukaTabProduksi(tabName);
+      }
+      return;
+    }
+    if (tabName) {
+      simpanSesiUserOMOS({ activeTab: tabName });
+    }
+
+    if (tabName && tabName.startsWith('prod')) {
+      if (typeof bukaTabProduksi === 'function') bukaTabProduksi(tabName);
+      return;
+    }
+
+    document.querySelectorAll('.tab-konten').forEach((el) => el.hidden = true);
     document.querySelectorAll('.sidebar__tab').forEach((t) => t.classList.remove('is-aktif'));
     document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('is-aktif'));
     tab.classList.add('is-aktif');
-    const tabName = tab.dataset.tab;
     const panelId = `tab${kapital(tabName)}`;
     document.getElementById(panelId)?.classList.add('is-aktif');
     if (tabName === 'payroll') muatPayroll();
     if (tabName === 'hm') muatHm();
+    if (tabName === 'roster') muatRoster();
     if (tabName === 'kalkulasiPayroll') muatKalkulasiPayroll();
   });
 });
@@ -245,69 +370,268 @@ function formatWaktu(iso) {
   }) + ' WIB';
 }
 
+let absensiPertamaLoad = true;
+
+function tanggalWibHariIniAbsensi() {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().split('T')[0];
+}
+
+function setDefaultRangeAbsensiHariIni() {
+  const tanggalHariIni = tanggalWibHariIniAbsensi();
+  const mulai = document.getElementById('filterTanggalMulaiAbsensi');
+  const akhir = document.getElementById('filterTanggalAkhirAbsensi');
+  if (mulai && !mulai.value) mulai.value = tanggalHariIni;
+  if (akhir && !akhir.value) akhir.value = tanggalHariIni;
+}
+
+function validasiRangeAbsensi() {
+  const tanggalMulai = document.getElementById('filterTanggalMulaiAbsensi')?.value || '';
+  const tanggalAkhir = document.getElementById('filterTanggalAkhirAbsensi')?.value || '';
+  if (!tanggalMulai || !tanggalAkhir) throw new Error('Tanggal awal dan tanggal akhir wajib diisi');
+  if (tanggalAkhir < tanggalMulai) throw new Error('Tanggal akhir tidak boleh sebelum tanggal awal');
+  return { tanggalMulai, tanggalAkhir };
+}
+
+function buatParamsFilterAbsensi({ sertakanAtribut = false } = {}) {
+  const { tanggalMulai, tanggalAkhir } = validasiRangeAbsensi();
+  const params = new URLSearchParams();
+  params.set('tanggal_dari', tanggalMulai);
+  params.set('tanggal_sampai', tanggalAkhir);
+
+  if (sertakanAtribut) {
+    const shift = document.getElementById('slicerShiftAbsensi')?.value || '';
+    const departemen = document.getElementById('slicerDeptAbsensi')?.value || '';
+    const jabatan = document.getElementById('slicerJabatanAbsensi')?.value || '';
+    const nama = document.getElementById('slicerNamaAbsensi')?.value || '';
+    const q = (document.getElementById('searchAbsensi')?.value || '').trim();
+    if (shift) params.set('shift', shift);
+    if (departemen) params.set('departemen', departemen);
+    if (jabatan) params.set('jabatan', jabatan);
+    if (nama) params.set('nama', nama);
+    if (q) params.set('q', q);
+  }
+  return params;
+}
+
+function buatUrlAbsensiDariRange() {
+  return `/api/admin/absensi?${buatParamsFilterAbsensi().toString()}`;
+}
+
+// Master filter tidak boleh bergantung pada data absensi di periode yang sedang
+// dibuka. Pada hari tanpa absensi, Departemen/Jabatan tetap harus dapat dipilih.
+async function muatMasterSlicerAbsensi() {
+  if (window.dataMasterSlicerAbsensi && window.dataMasterSlicerAbsensi.length) return window.dataMasterSlicerAbsensi;
+  try {
+    const daftar = await api('/api/admin/karyawan');
+    window.dataMasterSlicerAbsensi = daftar || [];
+  } catch (error) {
+    console.warn('Gagal memuat master filter Absensi:', error.message);
+  }
+  return window.dataMasterSlicerAbsensi;
+}
+
 async function muatAbsensi() {
   const tbody = document.getElementById('tbodyAbsensi');
   try {
-    const dari    = document.getElementById('filterTanggalDari').value;
-    const sampai  = document.getElementById('filterTanggalSampai').value;
-    let url = '/api/admin/absensi';
-    const params = [];
-    if (dari)   params.push(`tanggal_dari=${dari}`);
-    if (sampai) params.push(`tanggal_sampai=${sampai}`);
-    if (params.length) url += '?' + params.join('&');
+    if (absensiPertamaLoad) {
+      setDefaultRangeAbsensiHariIni();
+      absensiPertamaLoad = false;
+    }
 
-    const daftar = await api(url);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="tabel__kosong">Memuat data absensi...</td></tr>';
+    const urlAbsensi = buatUrlAbsensiDariRange();
+    const [daftar] = await Promise.all([
+      api(urlAbsensi),
+      muatMasterSlicerAbsensi(),
+    ]);
     window.dataAbsensiCache = daftar || [];
 
-    if (daftar.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" class="tabel__kosong">Belum ada data absensi</td></tr>';
-      return;
-    }
-    tbody.innerHTML = daftar.map((a, idx) => `
-      <tr>
-        <td><b>${escapeHtml(a.nama)}</b></td>
-        <td>${new Date(a.tanggal_kerja).toLocaleDateString('id-ID')}</td>
-        <td>${escapeHtml(a.nama_shift || '—')}</td>
-        <td>${formatWaktu(a.waktu_datang)}</td>
-        <td>${pilStatus(a.status_datang)}</td>
-        <td>${formatWaktu(a.waktu_pulang)}</td>
-        <td>${pilStatus(a.status_pulang)}</td>
-        <td>
-          <div style="display:flex;gap:4px;">
-            ${a.foto_datang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-datang" data-idx="${idx}" style="color:#10B981;border-color:#a7f3d0;">📸 Datang</button>` : ''}
-            ${a.foto_pulang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-pulang" data-idx="${idx}" style="color:#0284c7;border-color:#bae6fd;">📸 Pulang</button>` : ''}
-            ${!a.foto_datang_url && !a.foto_pulang_url ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : ''}
-          </div>
-        </td>
-        <td>
-          <button class="tombol tombol--ghost tombol--kecil" data-edit-absensi="${escapeHtml(a.id)}">Edit</button>
-          <button class="tombol tombol--ghost tombol--kecil" data-audit-absensi="${escapeHtml(a.id)}">Audit</button>
-        </td>
-      </tr>
-    `).join('');
-
-    tbody.querySelectorAll('[data-edit-absensi]').forEach((button) => {
-      button.addEventListener('click', () => bukaModalEditAbsensi(button.dataset.editAbsensi));
-    });
-    tbody.querySelectorAll('[data-audit-absensi]').forEach((button) => {
-      button.addEventListener('click', () => bukaModalAuditLog(button.dataset.auditAbsensi));
-    });
-    tbody.querySelectorAll('.btn-lihat-foto-datang').forEach((button) => {
-      button.addEventListener('click', () => {
-        const item = window.dataAbsensiCache[button.dataset.idx];
-        if (item) bukaModalPratinjauFoto(item.foto_datang_url, `Foto Absen Datang — ${item.nama}`);
-      });
-    });
-    tbody.querySelectorAll('.btn-lihat-foto-pulang').forEach((button) => {
-      button.addEventListener('click', () => {
-        const item = window.dataAbsensiCache[button.dataset.idx];
-        if (item) bukaModalPratinjauFoto(item.foto_pulang_url, `Foto Absen Pulang — ${item.nama}`);
-      });
-    });
+    initSlicersAbsensiDropdowns();
+    renderTabelAbsensi();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="9" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
+
+function initSlicersAbsensiDropdowns() {
+  const data = window.dataAbsensiCache || [];
+  const dataMaster = window.dataMasterSlicerAbsensi || [];
+  const selectDept = document.getElementById('slicerDeptAbsensi');
+  const selectJabatan = document.getElementById('slicerJabatanAbsensi');
+  const selectNama = document.getElementById('slicerNamaAbsensi');
+
+  if (selectDept) {
+    const currentDept = selectDept.value;
+    const listDept = Array.from(new Set([
+      ...dataMaster.map(k => k.departemen),
+      ...data.map(a => a.departemen),
+    ].filter(Boolean))).sort();
+    selectDept.innerHTML = '<option value="">🏢 Departemen: Semua</option>' +
+      listDept.map(d => `<option value="${escapeHtml(d)}" ${d === currentDept ? 'selected' : ''}>${escapeHtml(d)}</option>`).join('');
+  }
+
+  if (selectJabatan) {
+    const currentJbt = selectJabatan.value;
+    const listJbt = Array.from(new Set([
+      ...dataMaster.map(k => k.jabatan),
+      ...data.map(a => a.jabatan),
+    ].filter(Boolean))).sort();
+    selectJabatan.innerHTML = '<option value="">💼 Jabatan: Semua</option>' +
+      listJbt.map(j => `<option value="${escapeHtml(j)}" ${j === currentJbt ? 'selected' : ''}>${escapeHtml(j)}</option>`).join('');
+  }
+
+  if (selectNama) {
+    const currentNama = selectNama.value;
+    const listNama = Array.from(new Set([
+      ...dataMaster.map(k => k.nama),
+      ...data.map(a => a.nama),
+    ].filter(Boolean))).sort((a, b) => a.localeCompare(b, 'id'));
+    selectNama.innerHTML = '<option value="">👤 Nama: Semua</option>' +
+      listNama.map(n => `<option value="${escapeHtml(n)}" ${n === currentNama ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  }
+}
+
+function renderTabelAbsensi() {
+  const tbody = document.getElementById('tbodyAbsensi');
+  if (!tbody) return;
+
+  const tanggalMulai = document.getElementById('filterTanggalMulaiAbsensi')?.value || '';
+  const tanggalAkhir = document.getElementById('filterTanggalAkhirAbsensi')?.value || '';
+  const shiftVal = document.getElementById('slicerShiftAbsensi')?.value || '';
+  const deptVal = document.getElementById('slicerDeptAbsensi')?.value || '';
+  const jabatanVal = document.getElementById('slicerJabatanAbsensi')?.value || '';
+  const namaVal = document.getElementById('slicerNamaAbsensi')?.value || '';
+  const searchVal = (document.getElementById('searchAbsensi')?.value || '').trim().toLowerCase();
+
+  const btnReset = document.getElementById('btnResetSlicerAbsensi');
+  if (btnReset) {
+    const today = tanggalWibHariIniAbsensi();
+    const rangeBukanDefault = tanggalMulai !== today || tanggalAkhir !== today;
+    btnReset.hidden = !(rangeBukanDefault || shiftVal || deptVal || jabatanVal || namaVal || searchVal);
+  }
+
+  let filtered = window.dataAbsensiCache || [];
+  if (shiftVal) {
+    filtered = filtered.filter(a => (a.nama_shift || '').toLowerCase().includes(shiftVal.toLowerCase()));
+  }
+  if (deptVal) {
+    filtered = filtered.filter(a => (a.departemen || '') === deptVal);
+  }
+  if (jabatanVal) {
+    filtered = filtered.filter(a => (a.jabatan || '') === jabatanVal);
+  }
+  if (namaVal) {
+    filtered = filtered.filter(a => (a.nama || '') === namaVal);
+  }
+  if (searchVal) {
+    filtered = filtered.filter(a => {
+      const haystack = [(a.nama || ''), (a.departemen || ''), (a.jabatan || '')].join(' ').toLowerCase();
+      return haystack.includes(searchVal);
+    });
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="tabel__kosong">Tidak ada data absensi sesuai filter Slicer</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((a, idx) => {
+    const rawTgl = a.tanggal_kerja || a.waktu_datang;
+    let tglStr = '—';
+    if (rawTgl) {
+      const match = String(rawTgl).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        tglStr = !isNaN(d.getTime()) ? d.toLocaleDateString('id-ID') : '—';
+      } else {
+        const d = new Date(rawTgl);
+        tglStr = !isNaN(d.getTime()) ? d.toLocaleDateString('id-ID') : '—';
+      }
+    }
+    return `
+    <tr>
+      <td><b>${escapeHtml(a.nama)}</b></td>
+      <td>${tglStr}</td>
+      <td>${escapeHtml(a.nama_shift || '—')}</td>
+      <td>${formatWaktu(a.waktu_datang)}</td>
+      <td>${pilStatus(a.status_datang)}</td>
+      <td>${formatWaktu(a.waktu_pulang)}</td>
+      <td>${pilStatus(a.status_pulang)}</td>
+      <td>
+        <div style="display:flex;gap:4px;">
+          ${a.foto_datang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-datang" data-idx="${idx}" style="color:#10B981;border-color:#a7f3d0;">📸 Datang</button>` : ''}
+          ${a.foto_pulang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-pulang" data-idx="${idx}" style="color:#0284c7;border-color:#bae6fd;">📸 Pulang</button>` : ''}
+          ${!a.foto_datang_url && !a.foto_pulang_url ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : ''}
+        </div>
+      </td>
+      <td>
+        ${a.manual_only ? '<span class="badge badge--info">Input Rekap</span>' : `
+          <button class="tombol tombol--ghost tombol--kecil" data-edit-absensi="${escapeHtml(a.id)}">Edit</button>
+          <button class="tombol tombol--ghost tombol--kecil" data-audit-absensi="${escapeHtml(a.id)}">Audit</button>
+        `}
+      </td>
+    </tr>
+  `}).join('');
+
+  tbody.querySelectorAll('[data-edit-absensi]').forEach((button) => {
+    button.addEventListener('click', () => bukaModalEditAbsensi(button.dataset.editAbsensi));
+  });
+  tbody.querySelectorAll('[data-audit-absensi]').forEach((button) => {
+    button.addEventListener('click', () => bukaModalAuditLog(button.dataset.auditAbsensi));
+  });
+  tbody.querySelectorAll('.btn-lihat-foto-datang').forEach((button) => {
+    button.addEventListener('click', () => {
+      const item = filtered[button.dataset.idx];
+      if (item) bukaModalPratinjauFoto(item.foto_datang_url, `Foto Absen Datang — ${item.nama}`);
+    });
+  });
+  tbody.querySelectorAll('.btn-lihat-foto-pulang').forEach((button) => {
+    button.addEventListener('click', () => {
+      const item = filtered[button.dataset.idx];
+      if (item) bukaModalPratinjauFoto(item.foto_pulang_url, `Foto Absen Pulang — ${item.nama}`);
+    });
+  });
+}
+
+// Filter range mengambil ulang data dari server agar payload awal tetap kecil.
+['filterTanggalMulaiAbsensi', 'filterTanggalAkhirAbsensi'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', muatAbsensi);
+  document.getElementById(id)?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') muatAbsensi();
+  });
+});
+document.getElementById('btnCariAbsensi')?.addEventListener('click', muatAbsensi);
+
+// Filter atribut cukup bekerja pada data periode yang sudah diunduh.
+['slicerShiftAbsensi', 'slicerDeptAbsensi', 'slicerJabatanAbsensi', 'slicerNamaAbsensi'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', renderTabelAbsensi);
+});
+
+// Search input with debounce
+(function() {
+  let searchTimer = null;
+  document.getElementById('searchAbsensi')?.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderTabelAbsensi, 300);
+  });
+})();
+
+document.getElementById('btnResetSlicerAbsensi')?.addEventListener('click', async () => {
+  ['slicerShiftAbsensi', 'slicerDeptAbsensi', 'slicerJabatanAbsensi', 'slicerNamaAbsensi'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const today = tanggalWibHariIniAbsensi();
+  const mulai = document.getElementById('filterTanggalMulaiAbsensi');
+  const akhir = document.getElementById('filterTanggalAkhirAbsensi');
+  if (mulai) mulai.value = today;
+  if (akhir) akhir.value = today;
+  const searchInput = document.getElementById('searchAbsensi');
+  if (searchInput) searchInput.value = '';
+  await muatAbsensi();
+});
+
+document.getElementById('btnExportExcelAbsensi')?.addEventListener('click', () => exportExcelAbsensi());
 
 async function bukaModalAuditLog(absensiId) {
   bukaModal(`
@@ -395,9 +719,6 @@ function bukaModalPratinjauFoto(url, judul = 'Foto Absensi Karyawan') {
   `);
 }
 
-document.getElementById('btnMuatUlangAbsensi').addEventListener('click', muatAbsensi);
-document.getElementById('btnExportCsvAbsensi').addEventListener('click', () => exportCsvAbsensi());
-
 function bukaModalEditAbsensi(id) {
   bukaModal(`
     <h3>Edit Absensi (Manual)</h3>
@@ -467,77 +788,188 @@ function bukaModalEditAbsensi(id) {
 // TAB KARYAWAN
 // ============================================================
 // TAB KARYAWAN
-// ============================================================
+let dataKaryawanCache = [];
+
 async function muatKaryawan() {
   const tbody = document.getElementById('tbodyKaryawan');
   try {
     const daftar = await api('/api/admin/karyawan');
-    if (daftar.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="tabel__kosong">Belum ada karyawan</td></tr>';
-      return;
+    dataKaryawanCache = daftar || [];
+    if (typeof syncInputOperatorsFromKaryawan === 'function') {
+      syncInputOperatorsFromKaryawan(dataKaryawanCache);
     }
-    tbody.innerHTML = daftar.map((k) => `
-      <tr>
-        <td><b>${escapeHtml(k.nama)}</b></td>
-        <td><strong style="color:var(--tema-utama);">${escapeHtml(k.employee_id || '-')}</strong></td>
-        <td>${escapeHtml(k.email)}</td>
-        <td>${escapeHtml(k.jabatan || '-')}</td>
-        <td>${escapeHtml(k.departemen || '—')}</td>
-        <td>${k.wajah_terdaftar
-          ? '<span class="pil pil--ok">Terdaftar</span>'
-          : '<span class="pil pil--peringatan">Belum</span>'}</td>
-        <td>
-          <button class="tombol tombol--ghost tombol--kecil" data-edit-karyawan="${escapeHtml(k.id)}">Edit Data</button>
-          <button class="tombol tombol--ghost tombol--kecil" data-foto-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}">Foto</button>
-          <button class="tombol tombol--ghost tombol--kecil" data-status-karyawan="${escapeHtml(k.id)}" data-aktif="${k.is_active}">${k.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
-          <button class="tombol tombol--ghost tombol--kecil" data-hapus-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}" data-email-karyawan="${escapeHtml(k.email)}" style="color:#c62828;border-color:#ef9a9a;">Hapus</button>
-        </td>
-      </tr>
-    `).join('');
-    tbody.querySelectorAll('[data-edit-karyawan]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const emp = daftar.find((x) => String(x.id) === String(button.dataset.editKaryawan));
-        if (emp) bukaModalEditKaryawan(emp);
-      });
-    });
-    tbody.querySelectorAll('[data-foto-karyawan]').forEach((button) => {
-      button.addEventListener('click', () => bukaModalFotoReferensi(
-        button.dataset.fotoKaryawan,
-        button.dataset.namaKaryawan,
-      ));
-    });
-    tbody.querySelectorAll('[data-status-karyawan]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        const aktif = button.dataset.aktif === 'true';
-        if (!confirm(`${aktif ? 'Nonaktifkan' : 'Aktifkan'} akun karyawan ini?`)) return;
-        try {
-          await apiJson(`/api/admin/karyawan/${button.dataset.statusKaryawan}`, 'PATCH', { is_active: !aktif });
-          muatKaryawan();
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-    });
-    tbody.querySelectorAll('[data-hapus-karyawan]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        const id = button.dataset.hapusKaryawan;
-        const nama = button.dataset.namaKaryawan;
-        const email = button.dataset.emailKaryawan;
-        if (!confirm(`⚠️ APABILA DIHAPUS, SELURUH DATA KARYAWAN TERMASUK FOTO & EMAIL TERHAPUS PERMANEN.\n\nYakin ingin menghapus karyawan "${nama}" (${email})?`)) {
-          return;
-        }
-        try {
-          const res = await apiJson(`/api/admin/karyawan/${id}`, 'DELETE');
-          alert(res.message);
-          muatKaryawan();
-        } catch (err) {
-          alert('Gagal menghapus karyawan: ' + err.message);
-        }
-      });
-    });
+
+    initSlicersKaryawanDropdowns();
+    renderTabelKaryawan();
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+function initSlicersKaryawanDropdowns() {
+  const selectDept = document.getElementById('filterDepartemenKaryawan');
+  const selectJab = document.getElementById('filterJabatanKaryawan');
+  if (!selectDept || !selectJab) return;
+
+  const currentDept = selectDept.value;
+
+  // Gabungkan departemen dari data karyawan aktual + map hardcoded agar
+  // semua karyawan (termasuk departemen kustom yang tidak ada di map)
+  // tetap bisa difilter.
+  const deptSet = new Set(Object.keys(DEPARTEMEN_JABATAN_MAP));
+  (dataKaryawanCache || []).forEach(k => { if (k.departemen) deptSet.add(k.departemen); });
+  const depts = Array.from(deptSet).sort();
+
+  selectDept.innerHTML = '<option value="">🏢 Departemen: Semua</option>' +
+    depts.map(d => `<option value="${escapeHtml(d)}" ${isSameFilterValue(d, currentDept) ? 'selected' : ''}>${escapeHtml(d)}</option>`).join('');
+
+  if (currentDept) {
+    selectDept.value = depts.find(d => isSameFilterValue(d, currentDept)) || '';
+  } else {
+    selectDept.value = '';
+  }
+
+  updateJabatanSlicerOptions();
+}
+
+function updateJabatanSlicerOptions() {
+  const selectDept = document.getElementById('filterDepartemenKaryawan');
+  const selectJab = document.getElementById('filterJabatanKaryawan');
+  if (!selectDept || !selectJab) return;
+
+  const selectedDept = selectDept.value;
+  const currentJab = selectJab.value;
+
+  let listJab = [];
+  if (selectedDept) {
+    // Ambil jabatan aktual dari data pada departemen tersebut,
+    // fallback ke map hardcoded jika data belum ada.
+    listJab = Array.from(new Set((dataKaryawanCache || [])
+      .filter(k => isSameFilterValue(k.departemen, selectedDept))
+      .map(k => k.jabatan)
+      .filter(Boolean))).sort();
+    if (!listJab.length && DEPARTEMEN_JABATAN_MAP[selectedDept]) {
+      listJab = Array.from(DEPARTEMEN_JABATAN_MAP[selectedDept]);
+    }
+  } else {
+    const allJab = new Set();
+    Object.values(DEPARTEMEN_JABATAN_MAP).forEach(arr => arr.forEach(j => allJab.add(j)));
+    (dataKaryawanCache || []).forEach(k => { if (k.jabatan) allJab.add(k.jabatan); });
+    listJab = Array.from(allJab).sort();
+  }
+
+  // Hanya pertahankan pilihan jabatan lama jika masih ada di daftar baru;
+  // jika tidak (mis. ganti departemen), reset ke "Semua" agar tidak over-filter.
+  const jabStillExists = listJab.some(j => isSameFilterValue(j, currentJab));
+
+  selectJab.innerHTML = '<option value="">👔 Jabatan: Semua</option>' +
+    listJab.map(j => `<option value="${escapeHtml(j)}" ${isSameFilterValue(j, currentJab) ? 'selected' : ''}>${escapeHtml(j)}</option>`).join('');
+
+  selectJab.value = jabStillExists ? (listJab.find(j => isSameFilterValue(j, currentJab)) || '') : '';
+}
+
+function renderTabelKaryawan() {
+  const tbody = document.getElementById('tbodyKaryawan');
+  if (!tbody) return;
+
+  const deptVal = document.getElementById('filterDepartemenKaryawan')?.value || '';
+  const jabVal = document.getElementById('filterJabatanKaryawan')?.value || '';
+
+  // Update Highlight KPI Cards untuk Database Karyawan berdasarkan Departemen Root Sistem
+  const totalEmp = dataKaryawanCache.length;
+  const countProduksi = dataKaryawanCache.filter(k => k.departemen === 'Produksi').length;
+  const countEngineering = dataKaryawanCache.filter(k => k.departemen === 'Engineering').length;
+  const countLogistik = dataKaryawanCache.filter(k => k.departemen === 'Logistik').length;
+  const countMaintenance = dataKaryawanCache.filter(k => k.departemen === 'Maintenance').length;
+  const countLainnya = dataKaryawanCache.filter(k => k.departemen === 'HRGA & Finance' || k.departemen === 'HSE' || k.departemen === 'Management').length;
+
+  const elTotal = document.getElementById('kpiHighlightTotal');
+  const elProd = document.getElementById('kpiHighlightProduksi');
+  const elEng = document.getElementById('kpiHighlightEngineering');
+  const elLog = document.getElementById('kpiHighlightLogistik');
+  const elMaint = document.getElementById('kpiHighlightMaintenance');
+  const elHSE = document.getElementById('kpiHighlightHSE');
+
+  if (elTotal) elTotal.textContent = totalEmp;
+  if (elProd) elProd.textContent = countProduksi;
+  if (elEng) elEng.textContent = countEngineering;
+  if (elLog) elLog.textContent = countLogistik;
+  if (elMaint) elMaint.textContent = countMaintenance;
+  if (elHSE) elHSE.textContent = countLainnya;
+
+  let filtered = dataKaryawanCache;
+  if (deptVal) {
+    filtered = filtered.filter(k => isSameFilterValue(k.departemen, deptVal));
+  }
+  if (jabVal) {
+    filtered = filtered.filter(k => isSameFilterValue(k.jabatan, jabVal));
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="tabel__kosong">Tidak ada karyawan sesuai filter Slicer</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((k) => `
+    <tr>
+      <td><b>${escapeHtml(k.nama)}</b></td>
+      <td><strong style="color:var(--tema-utama);">${escapeHtml(k.employee_id || '-')}</strong></td>
+      <td>${escapeHtml(k.email)}</td>
+      <td>${escapeHtml(k.jabatan || '-')}</td>
+      <td>${escapeHtml(k.departemen || '—')}</td>
+      <td>${k.wajah_terdaftar
+        ? '<span class="pil pil--ok">Terdaftar</span>'
+        : '<span class="pil pil--peringatan">Belum</span>'}</td>
+      <td>
+        <button class="tombol tombol--ghost tombol--kecil" data-edit-karyawan="${escapeHtml(k.id)}">Edit Data</button>
+        <button class="tombol tombol--ghost tombol--kecil" data-foto-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}">Foto</button>
+        <button class="tombol tombol--ghost tombol--kecil" data-status-karyawan="${escapeHtml(k.id)}" data-aktif="${k.is_active}">${k.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
+        <button class="tombol tombol--ghost tombol--kecil" data-hapus-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}" data-email-karyawan="${escapeHtml(k.email)}" style="color:#c62828;border-color:#ef9a9a;">Hapus</button>
+      </td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('[data-edit-karyawan]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const emp = dataKaryawanCache.find((x) => String(x.id) === String(button.dataset.editKaryawan));
+      if (emp) bukaModalEditKaryawan(emp);
+    });
+  });
+  tbody.querySelectorAll('[data-foto-karyawan]').forEach((button) => {
+    button.addEventListener('click', () => bukaModalFotoReferensi(
+      button.dataset.fotoKaryawan,
+      button.dataset.namaKaryawan,
+    ));
+  });
+  tbody.querySelectorAll('[data-status-karyawan]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const aktif = button.dataset.aktif === 'true';
+      if (!confirm(`${aktif ? 'Nonaktifkan' : 'Aktifkan'} akun karyawan ini?`)) return;
+      try {
+        await apiJson(`/api/admin/karyawan/${button.dataset.statusKaryawan}`, 'PATCH', { is_active: !aktif });
+        muatKaryawan();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  tbody.querySelectorAll('[data-hapus-karyawan]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.hapusKaryawan;
+      const nama = button.dataset.namaKaryawan;
+      const email = button.dataset.emailKaryawan;
+      if (!confirm(`⚠️ APABILA DIHAPUS, SELURUH DATA KARYAWAN TERMASUK FOTO & EMAIL TERHAPUS PERMANEN.\n\nYakin ingin menghapus karyawan "${nama}" (${email})?`)) {
+        return;
+      }
+      try {
+        const res = await apiJson(`/api/admin/karyawan/${id}`, 'DELETE');
+        alert(res.message);
+        muatKaryawan();
+      } catch (err) {
+        alert('Gagal menghapus karyawan: ' + err.message);
+      }
+    });
+  });
 }
 
 function bukaModalEditKaryawan(k) {
@@ -739,23 +1171,97 @@ function bukaModalFotoReferensi(id, nama) {
 // ============================================================
 async function muatLokasi() {
   const tbody = document.getElementById('tbodyLokasi');
+  if (!tbody) return;
   try {
     const daftar = await api('/api/admin/lokasi');
     state.lokasi = daftar;
-    if (daftar.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="tabel__kosong">Belum ada lokasi kantor</td></tr>';
+    if (!daftar || daftar.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="tabel__kosong">Belum ada titik absensi / lokasi kantor.</td></tr>';
       return;
     }
     tbody.innerHTML = daftar.map((l) => `
       <tr>
-        <td>${escapeHtml(l.nama_lokasi)}</td>
-        <td>${escapeHtml(l.latitude)}</td>
-        <td>${escapeHtml(l.longitude)}</td>
-        <td>${escapeHtml(l.radius_meter)}</td>
+        <td><b>${escapeHtml(l.nama_lokasi)}</b></td>
+        <td><code>${escapeHtml(l.latitude)}</code></td>
+        <td><code>${escapeHtml(l.longitude)}</code></td>
+        <td><span class="pil pil--ok">${escapeHtml(l.radius_meter || 500)} meter</span></td>
+        <td>
+          <button class="tombol tombol--ghost tombol--kecil" data-edit-lokasi="${escapeHtml(l.id)}">Edit</button>
+          <button class="tombol tombol--ghost tombol--kecil" data-hapus-lokasi="${escapeHtml(l.id)}" data-nama-lokasi="${escapeHtml(l.nama_lokasi)}" style="color:#c62828;border-color:#ef9a9a;">Hapus</button>
+        </td>
       </tr>
     `).join('');
+
+    tbody.querySelectorAll('[data-edit-lokasi]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const lok = state.lokasi.find((x) => String(x.id) === String(btn.dataset.editLokasi));
+        if (lok) bukaModalEditLokasi(lok);
+      });
+    });
+
+    tbody.querySelectorAll('[data-hapus-lokasi]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        hapusLokasiAcc(btn.dataset.hapusLokasi, btn.dataset.namaLokasi);
+      });
+    });
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function bukaModalEditLokasi(lok) {
+  bukaModal(`
+    <h3>Edit Titik Lokasi Absensi</h3>
+    <form id="formEditLokasi">
+      <label class="label">Nama Titik Lokasi</label>
+      <input type="text" id="elNama" value="${escapeHtml(lok.nama_lokasi)}" required />
+
+      <label class="label">Latitude</label>
+      <input type="number" step="any" id="elLat" value="${escapeHtml(lok.latitude)}" required />
+
+      <label class="label">Longitude</label>
+      <input type="number" step="any" id="elLng" value="${escapeHtml(lok.longitude)}" required />
+
+      <label class="label">Radius Toleransi Geofence (Meter)</label>
+      <input type="number" id="elRadius" value="${escapeHtml(lok.radius_meter || 500)}" required />
+
+      <div class="modal__aksi">
+        <button type="button" class="tombol tombol--ghost" onclick="tutupModal()">Batal</button>
+        <button type="submit" class="tombol tombol--utama">Simpan Perubahan</button>
+      </div>
+      <p id="pesanEditLokasi" class="modal__pesan" hidden></p>
+    </form>
+  `);
+
+  document.getElementById('formEditLokasi').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pesanEl = document.getElementById('pesanEditLokasi');
+    try {
+      await apiJson(`/api/admin/lokasi/${lok.id}`, 'PATCH', {
+        nama_lokasi: document.getElementById('elNama').value.trim(),
+        latitude: Number(document.getElementById('elLat').value),
+        longitude: Number(document.getElementById('elLng').value),
+        radius_meter: Number(document.getElementById('elRadius').value),
+      });
+      tutupModal();
+      await muatShiftDanLokasi();
+      muatLokasi();
+    } catch (err) {
+      pesanEl.textContent = err.message;
+      pesanEl.className = 'modal__pesan modal__pesan--error';
+      pesanEl.hidden = false;
+    }
+  });
+}
+
+async function hapusLokasiAcc(id, nama) {
+  if (!confirm(`Apakah Anda yakin ingin menghapus titik lokasi "${nama}"?`)) return;
+  try {
+    await api(`/api/admin/lokasi/${id}`, { method: 'DELETE' });
+    await muatShiftDanLokasi();
+    muatLokasi();
+  } catch (err) {
+    alert('Gagal menghapus lokasi: ' + err.message);
   }
 }
 
@@ -895,9 +1401,54 @@ async function bukaModalAuditLogPerforma() {
 // ============================================================
 // REKAP PERFORMA
 // ============================================================
-let dataPerformaCache = [];
-
+let dataHasilPerformaCache = null;
 let selectedKaryawanIdPerforma = null;
+let selectedKpiFilterPerforma = null;
+let selectedDeptPerforma = '';
+let selectedJabPerforma = '';
+
+const KPI_FILTER_PERFORMA = {
+  hadir: { cardId: 'kartuKpiHadir', label: 'Total Hadir' },
+  tidak_hadir: { cardId: 'kartuKpiTidakHadir', label: 'Total Tidak Hadir' },
+  telat: { cardId: 'kartuKpiTelat', label: 'Keterlambatan' },
+};
+
+function filterDataPerformaByKpi(data) {
+  if (!selectedKpiFilterPerforma) return data;
+  return data.filter((row) => {
+    if (selectedKpiFilterPerforma === 'hadir') return Number(row.hadir || 0) > 0;
+    if (selectedKpiFilterPerforma === 'tidak_hadir') {
+      return Number(row.alpa || 0) + Number(row.izin || 0) + Number(row.sakit || 0) + Number(row.cuti || 0) > 0;
+    }
+    if (selectedKpiFilterPerforma === 'telat') return Number(row.telat || 0) > 0;
+    return true;
+  });
+}
+
+function updateKpiFilterUi(jumlahBaris = null) {
+  Object.entries(KPI_FILTER_PERFORMA).forEach(([filter, config]) => {
+    const card = document.getElementById(config.cardId);
+    const aktif = selectedKpiFilterPerforma === filter;
+    card?.classList.toggle('kartu-kpi--aktif', aktif);
+    card?.setAttribute('aria-pressed', String(aktif));
+  });
+
+  const info = document.getElementById('infoKpiFilterPerforma');
+  if (!info) return;
+  if (!selectedKpiFilterPerforma) {
+    info.hidden = true;
+    info.textContent = '';
+    return;
+  }
+  const label = KPI_FILTER_PERFORMA[selectedKpiFilterPerforma]?.label || 'KPI';
+  info.hidden = false;
+  info.innerHTML = `<span class="kpi-filter-info__label">${escapeHtml(label)}</span> aktif &middot; ${Number(jumlahBaris || 0)} baris ditampilkan &middot; klik card lagi untuk reset`;
+}
+
+function toggleKpiFilterPerforma(filter) {
+  selectedKpiFilterPerforma = selectedKpiFilterPerforma === filter ? null : filter;
+  renderTabelPerforma();
+}
 
 async function muatRekapPerforma() {
   const tbody    = document.getElementById('tbodyPerforma');
@@ -905,13 +1456,14 @@ async function muatRekapPerforma() {
   const periode  = document.getElementById('filterPeriodePerforma').value;
   const tanggal  = document.getElementById('filterTanggalPerforma').value;
 
-  tbody.innerHTML = '<tr><td colspan="13" class="tabel__kosong">Memuat...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="15" class="tabel__kosong">Memuat...</td></tr>';
 
   try {
     let url = `/api/admin/rekap-performa?periode=${periode}`;
     if (tanggal) url += `&tanggal_referensi=${tanggal}`;
 
     const hasil = await api(url);
+    dataHasilPerformaCache = hasil;
     dataPerformaCache = hasil.rekap;
 
     const tglMulaiFmt = formatTanggalStr(hasil.tanggal_mulai);
@@ -920,19 +1472,193 @@ async function muatRekapPerforma() {
       ? `Periode: ${tglMulaiFmt} (1 Hari)`
       : `Periode: ${tglMulaiFmt} — ${tglAkhirFmt} (${hasil.total_hari_kerja} hari kerja)`;
 
-    // Update Visual KPI Cards
-    updateKpiCards(hasil);
+    // Update Dropdown Slicer Karyawan
+    updateSlicerOptions(hasil.rekap);
 
-    if (!hasil.rekap.length) {
-      tbody.innerHTML = '<tr><td colspan="13" class="tabel__kosong">Tidak ada data karyawan</td></tr>';
+    // Render Tabel Utama atau Rincian Harian Slicer
+    renderTabelPerforma();
+
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="15" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function updateSlicerOptions(rekapList) {
+  const selectDept = document.getElementById('slicerDepartemenPerforma');
+  const selectJab = document.getElementById('slicerJabatanPerforma');
+  const selectKaryawan = document.getElementById('slicerKaryawanPerforma');
+
+  // Populate Departemen Dropdown secara dinamis
+  const deptSet = new Set(Object.keys(DEPARTEMEN_JABATAN_MAP));
+  (rekapList || []).forEach(r => { if (r.departemen) deptSet.add(r.departemen); });
+  const listDept = Array.from(deptSet).sort();
+
+  if (selectDept) {
+    const currentDeptValue = selectedDeptPerforma || '';
+    selectDept.innerHTML = '<option value="">🏢 Dept: Semua</option>' +
+      listDept.map(d => `<option value="${escapeHtml(d)}" ${isSameFilterValue(d, currentDeptValue) ? 'selected' : ''}>${escapeHtml(d)}</option>`).join('');
+    selectDept.value = listDept.find(d => isSameFilterValue(d, currentDeptValue)) || '';
+  }
+
+  if (selectJab) {
+    let listJab = [];
+    if (selectedDeptPerforma) {
+      listJab = Array.from(new Set((rekapList || [])
+        .filter(r => isSameFilterValue(r.departemen, selectedDeptPerforma))
+        .map(r => r.jabatan)
+        .filter(Boolean))).sort();
+      if (!listJab.length && DEPARTEMEN_JABATAN_MAP[selectedDeptPerforma]) {
+        listJab = DEPARTEMEN_JABATAN_MAP[selectedDeptPerforma];
+      }
+    } else {
+      listJab = Array.from(new Set((rekapList || []).map(r => r.jabatan).filter(Boolean))).sort();
+    }
+    const currentJabValue = selectedJabPerforma || '';
+    selectJab.innerHTML = '<option value="">👔 Jabatan: Semua</option>' +
+      listJab.map(j => `<option value="${escapeHtml(j)}" ${isSameFilterValue(j, currentJabValue) ? 'selected' : ''}>${escapeHtml(j)}</option>`).join('');
+    selectJab.value = listJab.find(j => isSameFilterValue(j, currentJabValue)) || '';
+  }
+
+  if (selectKaryawan) {
+    let filteredList = rekapList || [];
+    if (selectedDeptPerforma) {
+      filteredList = filteredList.filter(r => isSameFilterValue(r.departemen, selectedDeptPerforma));
+    }
+    if (selectedJabPerforma) {
+      filteredList = filteredList.filter(r => isSameFilterValue(r.jabatan, selectedJabPerforma));
+    }
+
+    const currentKaryawanValue = selectedKaryawanIdPerforma || '';
+    selectKaryawan.innerHTML = '<option value="">👤 Karyawan: Semua</option>' +
+      filteredList.map(r => `<option value="${r.id}" ${String(r.id) === String(currentKaryawanValue) ? 'selected' : ''}>${escapeHtml(r.nama)} (${escapeHtml(r.jabatan || 'No Jabatan')})</option>`).join('');
+    selectKaryawan.value = filteredList.some(r => String(r.id) === String(currentKaryawanValue)) ? currentKaryawanValue : '';
+  }
+}
+
+function renderTabelPerforma() {
+  if (!dataHasilPerformaCache) return;
+  const hasil = dataHasilPerformaCache;
+  const tbody = document.getElementById('tbodyPerforma');
+  const periode = document.getElementById('filterPeriodePerforma').value;
+  const isHarian = (periode === 'harian');
+  const btnResetSlicer = document.getElementById('btnResetSlicerPerforma');
+  const infoSlicerMode = document.getElementById('infoSlicerMode');
+
+  if (!hasil.rekap || !hasil.rekap.length) {
+    tbody.innerHTML = '<tr><td colspan="15" class="tabel__kosong">Tidak ada data karyawan</td></tr>';
+    return;
+  }
+
+  const selectedUser = selectedKaryawanIdPerforma
+    ? hasil.rekap.find(r => r.id === selectedKaryawanIdPerforma)
+    : null;
+
+  if (selectedUser) {
+    // MODUS SLICER INDIVIDU (Rincian Harian Per Hari)
+    if (btnResetSlicer) btnResetSlicer.hidden = false;
+    if (infoSlicerMode) infoSlicerMode.innerHTML = `<b style="color:#0f3460;">👤 SLICER: ${escapeHtml(selectedUser.nama)}</b> (${escapeHtml(selectedUser.jabatan)}) — Rincian Harian`;
+
+    updateKpiCardsForSingleUser(selectedUser, hasil);
+
+    const rincian = selectedUser.rincian_harian || [];
+    if (!rincian.length) {
+      tbody.innerHTML = '<tr><td colspan="15" class="tabel__kosong">Tidak ada rincian harian</td></tr>';
+      updateKpiFilterUi(0);
       return;
     }
 
-    const isHarian = (periode === 'harian');
+    let rincianTampil = filterDataPerformaByKpi(rincian);
+    updateKpiFilterUi(rincianTampil.length);
+    const labelKpiIndividu = selectedKpiFilterPerforma ? KPI_FILTER_PERFORMA[selectedKpiFilterPerforma]?.label : '';
+    if (infoSlicerMode && labelKpiIndividu) {
+      infoSlicerMode.innerHTML += ` - ${escapeHtml(labelKpiIndividu)} (${rincianTampil.length})`;
+    }
+    if (!rincianTampil.length) {
+      tbody.innerHTML = '<tr><td colspan="15" class="tabel__kosong">Tidak ada rincian yang cocok dengan filter KPI</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rincianTampil.map((rh) => {
+      const pilPct = (rh.hadir > 0)
+        ? `<span class="pil pil--ok">100.0%</span>`
+        : `<span class="pil pil--netral">0.0%</span>`;
+
+      let cellKeterangan = '—';
+      if (rh.kategori === 'belum_terjadi') {
+        cellKeterangan = '<span class="pil pil--netral" style="opacity:0.6;" title="Hari esok / belum terjadi">— (Belum Terjadi)</span>';
+      } else if (rh.kategori === 'belum_terdaftar') {
+        cellKeterangan = '<span class="pil pil--netral" style="opacity:0.6;" title="Akun belum dibuat pada tanggal ini">— (Belum Terdaftar)</span>';
+      } else {
+        cellKeterangan = `
+          <select class="input-filter select-keterangan-presensi" data-user-id="${selectedUser.id}" data-tanggal="${rh.tanggal}" style="font-size:12px;padding:3px 6px;border-radius:4px;min-width:130px;">
+            <option value="" ${rh.kategori === 'hadir_kamera' ? 'selected' : ''}>Hadir (Kamera)</option>
+            <option value="hadir_manual" ${rh.kategori === 'hadir_manual' ? 'selected' : ''}>Hadir Manual</option>
+            <option value="alpa" ${rh.kategori === 'alpa' ? 'selected' : ''}>Alpa</option>
+            <option value="izin" ${rh.kategori === 'izin' ? 'selected' : ''}>Izin</option>
+            <option value="sakit" ${rh.kategori === 'sakit' ? 'selected' : ''}>Sakit</option>
+            <option value="cuti" ${rh.kategori === 'cuti' ? 'selected' : ''}>Cuti</option>
+            <option value="off" ${rh.kategori === 'off' ? 'selected' : ''}>OFF / Libur</option>
+          </select>
+        `;
+      }
+
+      const tglFormatted = formatTanggalStr(rh.tanggal);
+
+      return `
+        <tr style="background:#f8fafc;">
+          <td><b style="color:#0f3460;">${rh.hari}, ${tglFormatted}</b></td>
+          <td>${escapeHtml(selectedUser.jabatan)}</td>
+          <td>${escapeHtml(selectedUser.departemen)}</td>
+          <td><span class="pil ${rh.hadir > 0 ? 'pil--ok' : 'pil--netral'}">${rh.hadir}</span></td>
+          <td>${pilPct}</td>
+          <td>${rh.tidak_hadir > 0 ? `<span class="pil pil--error">${rh.tidak_hadir}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.alpa > 0 ? `<span class="pil pil--error">${rh.alpa}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.izin > 0 ? `<span class="pil pil--peringatan">${rh.izin}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.sakit > 0 ? `<span class="pil pil--peringatan">${rh.sakit}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.cuti > 0 ? `<span class="pil pil--peringatan">${rh.cuti}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.off > 0 ? `<span class="pil pil--netral">${rh.off}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.telat > 0 ? `<span class="pil pil--peringatan">${rh.telat}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.checkout_lewat > 0 ? `<span class="pil pil--peringatan">${rh.checkout_lewat}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${rh.percobaan_pulang_awal > 0 ? `<span class="pil pil--bahaya">${rh.percobaan_pulang_awal}</span>` : '<span class="pil pil--netral">0</span>'}</td>
+          <td>${cellKeterangan}</td>
+        </tr>
+      `;
+    }).join('');
+
+  } else {
+    // MODUS RINGKASAN SEMUA KARYAWAN
+    let rekapTampil = hasil.rekap || [];
+    if (selectedDeptPerforma) {
+      rekapTampil = rekapTampil.filter(r => String(r.departemen || '').trim() === String(selectedDeptPerforma).trim());
+    }
+    if (selectedJabPerforma) {
+      rekapTampil = rekapTampil.filter(r => String(r.jabatan || '').trim() === String(selectedJabPerforma).trim());
+    }
+
+    // Nilai card tetap merangkum hasil slicer, bukan hasil card aktif.
+    updateKpiCards({ ...hasil, rekap: rekapTampil });
+    rekapTampil = filterDataPerformaByKpi(rekapTampil);
+    updateKpiFilterUi(rekapTampil.length);
+
+    const hasFilter = Boolean(selectedDeptPerforma || selectedJabPerforma || selectedKaryawanIdPerforma || selectedKpiFilterPerforma);
+    if (btnResetSlicer) btnResetSlicer.hidden = !hasFilter;
+
+    if (infoSlicerMode) {
+      if (hasFilter) {
+        infoSlicerMode.innerHTML = `<b style="color:#0f3460;">🔍 Filter Active:</b> ${selectedDeptPerforma || 'Semua Dept'} — ${selectedJabPerforma || 'Semua Jabatan'}`;
+      } else {
+        infoSlicerMode.textContent = 'Menampilkan ringkasan semua karyawan';
+      }
+    }
+
+    if (!rekapTampil.length) {
+      tbody.innerHTML = '<tr><td colspan="15" class="tabel__kosong">Tidak ada data karyawan sesuai filter KPI</td></tr>';
+      return;
+    }
+
     const tglRef = hasil.tanggal_mulai;
 
-    tbody.innerHTML = hasil.rekap.map((r) => {
-      const isSelected = (r.id === selectedKaryawanIdPerforma);
+    tbody.innerHTML = rekapTampil.map((r) => {
       const totalHariKerjaIndiv = (r.total_hari_kerja !== undefined) ? r.total_hari_kerja : (hasil.total_hari_kerja || 1);
       const pctIndiv = (totalHariKerjaIndiv > 0)
         ? Math.min(100, ((r.hadir / totalHariKerjaIndiv) * 100)).toFixed(1)
@@ -942,22 +1668,29 @@ async function muatRekapPerforma() {
         ? `<span class="pil pil--ok">${pctIndiv}%</span>`
         : (pctIndiv >= 75 ? `<span class="pil pil--peringatan">${pctIndiv}%</span>` : `<span class="pil pil--error">${pctIndiv}%</span>`);
 
-      const cellKeteranganHarian = `
-        <select class="input-filter select-keterangan-presensi" data-user-id="${r.id}" data-tanggal="${tglRef}" style="font-size:12px;padding:3px 6px;border-radius:4px;min-width:120px;">
-          <option value="" ${r.kategori_harian === 'hadir_kamera' || (r.hadir_absen > 0 && r.kategori_harian !== 'hadir_manual') ? 'selected' : ''}>Hadir (Kamera)</option>
-          <option value="hadir_manual" ${r.kategori_harian === 'hadir_manual' ? 'selected' : ''}>Hadir Manual</option>
-          <option value="alpa" ${r.kategori_harian === 'alpa' && r.hadir_absen === 0 ? 'selected' : ''}>Alpa</option>
-          <option value="izin" ${r.kategori_harian === 'izin' ? 'selected' : ''}>Izin</option>
-          <option value="sakit" ${r.kategori_harian === 'sakit' ? 'selected' : ''}>Sakit</option>
-          <option value="cuti" ${r.kategori_harian === 'cuti' ? 'selected' : ''}>Cuti</option>
-          <option value="off" ${r.kategori_harian === 'off' ? 'selected' : ''}>OFF</option>
-        </select>
-      `;
+      let cellKeteranganHarian = '—';
+      if (r.kategori_harian === 'belum_terjadi') {
+        cellKeteranganHarian = '<span class="pil pil--netral" style="opacity:0.6;" title="Hari esok / belum terjadi">—</span>';
+      } else if (r.kategori_harian === 'belum_terdaftar') {
+        cellKeteranganHarian = '<span class="pil pil--netral" style="opacity:0.6;" title="Akun belum dibuat pada tanggal ini">—</span>';
+      } else {
+        cellKeteranganHarian = `
+          <select class="input-filter select-keterangan-presensi" data-user-id="${r.id}" data-tanggal="${tglRef}" style="font-size:12px;padding:3px 6px;border-radius:4px;min-width:120px;">
+            <option value="" ${r.kategori_harian === 'hadir_kamera' || (r.hadir_absen > 0 && r.kategori_harian !== 'hadir_manual') ? 'selected' : ''}>Hadir (Kamera)</option>
+            <option value="hadir_manual" ${r.kategori_harian === 'hadir_manual' ? 'selected' : ''}>Hadir Manual</option>
+            <option value="alpa" ${r.kategori_harian === 'alpa' && r.hadir_absen === 0 ? 'selected' : ''}>Alpa</option>
+            <option value="izin" ${r.kategori_harian === 'izin' ? 'selected' : ''}>Izin</option>
+            <option value="sakit" ${r.kategori_harian === 'sakit' ? 'selected' : ''}>Sakit</option>
+            <option value="cuti" ${r.kategori_harian === 'cuti' ? 'selected' : ''}>Cuti</option>
+            <option value="off" ${r.kategori_harian === 'off' ? 'selected' : ''}>OFF</option>
+          </select>
+        `;
+      }
 
       return `
-        <tr style="${isSelected ? 'background:#e8f5e9;border-left:4px solid #2e7d32;' : ''}">
+        <tr>
           <td>
-            <a href="javascript:void(0)" class="link-karyawan-performa" data-user-id="${r.id}" data-nama="${escapeHtml(r.nama)}" title="Klik untuk lihat KPI individu ${escapeHtml(r.nama)}" style="color:#1565C0;text-decoration:underline;font-weight:bold;cursor:pointer;">
+            <a href="javascript:void(0)" class="link-karyawan-performa" data-user-id="${r.id}" data-nama="${escapeHtml(r.nama)}" title="Klik untuk slicer individu ${escapeHtml(r.nama)}" style="color:#1565C0;text-decoration:underline;font-weight:bold;cursor:pointer;">
               ${escapeHtml(r.nama)} <span style="font-size:11px;opacity:0.8;">🔍</span>
             </a>
           </td>
@@ -978,36 +1711,56 @@ async function muatRekapPerforma() {
         </tr>
       `;
     }).join('');
-
-    tbody.querySelectorAll('.link-karyawan-performa').forEach((link) => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const uid = link.dataset.userId;
-        selectedKaryawanIdPerforma = (selectedKaryawanIdPerforma === uid) ? null : uid;
-        muatRekapPerforma();
-      });
-    });
-
-    tbody.querySelectorAll('.select-keterangan-presensi').forEach((select) => {
-      select.addEventListener('change', async () => {
-        const userId = select.dataset.userId;
-        const tgl = select.dataset.tanggal;
-        const kat = select.value;
-        try {
-          await apiJson('/api/admin/keterangan-presensi', 'POST', {
-            user_id: userId,
-            tanggal: tgl,
-            kategori: kat,
-          });
-          muatRekapPerforma();
-        } catch (err) {
-          alert('Gagal menyimpan keterangan: ' + err.message);
-        }
-      });
-    });
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="13" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
   }
+
+  // Bind Listeners
+  tbody.querySelectorAll('.link-karyawan-performa').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const uid = link.dataset.userId;
+      selectedKaryawanIdPerforma = uid;
+      const slicer = document.getElementById('slicerKaryawanPerforma');
+      if (slicer) slicer.value = uid;
+      renderTabelPerforma();
+    });
+  });
+
+  tbody.querySelectorAll('.select-keterangan-presensi').forEach((select) => {
+    select.addEventListener('change', async () => {
+      const userId = select.dataset.userId;
+      const tgl = select.dataset.tanggal;
+      const kat = select.value;
+      try {
+        await apiJson('/api/admin/keterangan-presensi', 'POST', {
+          user_id: userId,
+          tanggal: tgl,
+          kategori: kat,
+        });
+        muatRekapPerforma();
+      } catch (err) {
+        alert('Gagal menyimpan keterangan: ' + err.message);
+      }
+    });
+  });
+}
+
+function updateKpiCardsForSingleUser(u, hasil) {
+  const elRataHadir = document.getElementById('kpiRataHadir');
+  const elStatusKehadiran = document.getElementById('kpiStatusKehadiran');
+  const elTotalHadir = document.getElementById('kpiTotalHadir');
+  const elTotalTidakHadir = document.getElementById('kpiTotalTidakHadir');
+  const elBreakdown = document.getElementById('kpiBreakdownTidakHadir');
+  const elTotalTelat = document.getElementById('kpiTotalTelat');
+
+  const totalHariKerjaIndiv = (u.total_hari_kerja !== undefined) ? u.total_hari_kerja : (hasil.total_hari_kerja || 1);
+  const pct = (totalHariKerjaIndiv > 0) ? ((u.hadir / totalHariKerjaIndiv) * 100).toFixed(1) : '0.0';
+
+  if (elRataHadir) elRataHadir.textContent = `${pct}%`;
+  if (elStatusKehadiran) elStatusKehadiran.textContent = `KPI Individu: ${u.nama}`;
+  if (elTotalHadir) elTotalHadir.textContent = u.hadir;
+  if (elTotalTidakHadir) elTotalTidakHadir.textContent = u.tidak_hadir;
+  if (elBreakdown) elBreakdown.textContent = `Alpa: ${u.alpa} | Izin: ${u.izin} | Sakit: ${u.sakit} | Cuti: ${u.cuti} | Off: ${u.off}`;
+  if (elTotalTelat) elTotalTelat.textContent = u.telat;
 }
 
 function updateKpiCards(hasil) {
@@ -1105,9 +1858,132 @@ function formatTanggalStr(dateStr) {
 document.getElementById('btnMuatPerforma').addEventListener('click', muatRekapPerforma);
 document.getElementById('btnExportCsvPerforma').addEventListener('click', () => exportCsvPerforma());
 
+// Listeners Slicer Database Karyawan
+document.getElementById('filterDepartemenKaryawan')?.addEventListener('change', () => {
+  updateJabatanSlicerOptions();
+  renderTabelKaryawan();
+});
+
+document.getElementById('filterJabatanKaryawan')?.addEventListener('change', () => {
+  renderTabelKaryawan();
+});
+
+// Listeners Slicer Rekap Performa
+document.getElementById('slicerDepartemenPerforma')?.addEventListener('change', (e) => {
+  selectedDeptPerforma = e.target.value;
+  selectedJabPerforma = '';
+  selectedKaryawanIdPerforma = null;
+  if (dataHasilPerformaCache) updateSlicerOptions(dataHasilPerformaCache.rekap);
+  renderTabelPerforma();
+});
+
+document.getElementById('slicerJabatanPerforma')?.addEventListener('change', (e) => {
+  selectedJabPerforma = e.target.value;
+  selectedKaryawanIdPerforma = null;
+  if (dataHasilPerformaCache) updateSlicerOptions(dataHasilPerformaCache.rekap);
+  renderTabelPerforma();
+});
+
+document.getElementById('slicerKaryawanPerforma')?.addEventListener('change', (e) => {
+  selectedKaryawanIdPerforma = e.target.value || null;
+  renderTabelPerforma();
+});
+
+document.getElementById('btnResetSlicerPerforma')?.addEventListener('click', () => {
+  selectedDeptPerforma = '';
+  selectedJabPerforma = '';
+  selectedKaryawanIdPerforma = null;
+  selectedKpiFilterPerforma = null;
+  if (dataHasilPerformaCache) updateSlicerOptions(dataHasilPerformaCache.rekap);
+  renderTabelPerforma();
+});
+
+// Listeners Filter KPI Performa (klik kartu KPI untuk memfilter tabel)
+Object.entries(KPI_FILTER_PERFORMA).forEach(([filter, config]) => {
+  const card = document.getElementById(config.cardId);
+  card?.addEventListener('click', () => toggleKpiFilterPerforma(filter));
+});
+
 // ============================================================
-// REGISTRASI PENDING
+// REGISTRASI PENDING & NOTIFIKASI DESKTOP
 // ============================================================
+let knownPendingIds = new Set();
+let isInitialPendingCheck = true;
+
+function mainkanSuaraNotifikasi() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
+  } catch (_) {}
+}
+
+async function cekRegistrasiPendingNotifikasi() {
+  if (!state.token) return;
+  try {
+    const daftar = await api('/api/admin/registrasi-pending?status=menunggu');
+    const badge = document.getElementById('badgePending');
+
+    if (badge) {
+      if (daftar.length > 0) {
+        badge.textContent = daftar.length;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    const pendaftarBaru = [];
+    const currentIds = new Set();
+
+    daftar.forEach((item) => {
+      currentIds.add(item.id);
+      if (!knownPendingIds.has(item.id)) {
+        pendaftarBaru.push(item);
+      }
+    });
+
+    knownPendingIds = currentIds;
+
+    if (!isInitialPendingCheck && pendaftarBaru.length > 0) {
+      mainkanSuaraNotifikasi();
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const p = pendaftarBaru[0];
+        const judul = pendaftarBaru.length === 1
+          ? `📢 Pendaftaran Karyawan Baru: ${p.nama}`
+          : `📢 ${pendaftarBaru.length} Karyawan Baru Mendaftar!`;
+        const body = pendaftarBaru.length === 1
+          ? `Email: ${p.email}\nJabatan: ${p.jabatan || '-'}\nKlik untuk buka halaman Registrasi Pending.`
+          : `Terdapat ${pendaftarBaru.length} pendaftar baru menunggu persetujuan Anda.`;
+
+        const notif = new Notification(judul, {
+          body,
+          tag: 'pendaftaran-baru',
+          renotify: true,
+        });
+
+        notif.onclick = () => {
+          window.focus();
+          const regTab = document.querySelector('.sidebar__tab[data-tab="registrasi"]');
+          if (regTab) regTab.click();
+        };
+      }
+    }
+
+    isInitialPendingCheck = false;
+  } catch (_) {}
+}
+
 async function muatRegistrasiPending() {
   const tbody  = document.getElementById('tbodyRegistrasi');
   const status = document.getElementById('filterStatusRegistrasi').value;
@@ -1225,6 +2101,429 @@ document.getElementById('btnMuatRegistrasi').addEventListener('click', muatRegis
 document.getElementById('filterStatusRegistrasi').addEventListener('change', muatRegistrasiPending);
 
 // ============================================================
+// ROSTER KARYAWAN
+// ============================================================
+let dataRosterCache = { employees: [], tanggal_mulai: '', tanggal_akhir: '' };
+let rosterTemplatesCache = [];
+let rosterJabatanCache = [];
+const rosterDataByJabatan = new Map();
+const rosterDraftsByJabatan = new Map();
+const ROSTER_STATUS_TOTALS = ['S','M','CP','C','OFF'];
+
+function normalizeFilterValue(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function isSameFilterValue(a, b) {
+  return normalizeFilterValue(a) === normalizeFilterValue(b);
+}
+
+function tanggalWibHariIni() {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function daftarTanggalRoster(mulai, akhir) {
+  const hasil = [];
+  const cursor = new Date(`${mulai}T00:00:00Z`);
+  const batas = new Date(`${akhir}T00:00:00Z`);
+  while (cursor <= batas) {
+    hasil.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return hasil;
+}
+
+function kelompokJabatanRoster(employees) {
+  return employees.reduce((groups, employee) => {
+    const jabatan = employee.jabatan || 'Tanpa Jabatan';
+    if (!groups[jabatan]) groups[jabatan] = [];
+    groups[jabatan].push(employee);
+    return groups;
+  }, {});
+}
+
+function isiFilterJabatanRoster() {
+  const jabatanEl = document.getElementById('rosterFilterJabatan');
+  if (!jabatanEl) return;
+  const selected = jabatanEl.value;
+  jabatanEl.innerHTML = '<option value="">Jabatan: Semua</option>' + rosterJabatanCache
+    .map(item => `<option value="${escapeHtml(item.jabatan)}">${escapeHtml(item.jabatan)}</option>`).join('');
+  jabatanEl.value = selected;
+}
+
+function cariKaryawanRoster(userId) {
+  for (const data of rosterDataByJabatan.values()) {
+    const employee = data.employees?.find(item => String(item.id) === String(userId));
+    if (employee) return employee;
+  }
+  return null;
+}
+
+function hitungTotalRosterPerTanggal(employees, dates, preview = new Map()) {
+  return Object.fromEntries(dates.map(date => {
+    const totals = Object.fromEntries(ROSTER_STATUS_TOTALS.map(status => [status, 0]));
+    employees.forEach(employee => {
+      const status = preview.get(window.RosterPreview.rosterPreviewKey(employee.id, date))
+        ?? employee.schedule?.[date]?.status;
+      if (Object.hasOwn(totals, status)) totals[status] += 1;
+    });
+    return [date, totals];
+  }));
+}
+
+function getRosterDrafts(jabatan) {
+  if (!rosterDraftsByJabatan.has(jabatan)) rosterDraftsByJabatan.set(jabatan, new Map());
+  return rosterDraftsByJabatan.get(jabatan);
+}
+
+function rosterDraftKey(userId, tanggal) {
+  return `${userId}_${tanggal}`;
+}
+
+function opsiStatusRoster(selectedStatus) {
+  return ['', ...ROSTER_STATUS_TOTALS].map(status => {
+    const label = status || '-';
+    return `<option value="${status}" ${status === selectedStatus ? 'selected' : ''}>${label}</option>`;
+  }).join('');
+}
+
+function perbaruiKontrolDraftRoster(jabatan, section) {
+  const count = getRosterDrafts(jabatan).size;
+  const saveButton = section?.querySelector('.roster-save-jabatan');
+  if (!saveButton) return;
+  saveButton.disabled = count === 0;
+  saveButton.textContent = count ? `Simpan Perubahan (${count})` : 'Simpan Perubahan';
+}
+
+function buildRosterStatusPreview(jabatan, data, dates) {
+  return window.RosterPreview.buildRosterStatusPreview({
+    employees: data.employees || [],
+    dates,
+    changes: [...getRosterDrafts(jabatan).values()],
+  });
+}
+
+function terapkanPreviewRosterDiTabel(body, jabatan) {
+  const data = rosterDataByJabatan.get(jabatan);
+  if (!body || !data) return;
+  const dates = daftarTanggalRoster(data.tanggal_mulai, data.tanggal_akhir);
+  const preview = buildRosterStatusPreview(jabatan, data, dates);
+  body.querySelectorAll('.roster-day-select').forEach(daySelect => {
+    const originalStatus = daySelect.dataset.originalStatus || '';
+    const status = preview.get(window.RosterPreview.rosterPreviewKey(daySelect.dataset.userId, daySelect.dataset.date))
+      ?? originalStatus;
+    daySelect.value = status;
+    daySelect.dataset.previousStatus = status;
+    daySelect.className = `roster-day-select roster-badge--${status ? status.toLowerCase() : 'empty'}`;
+    daySelect.closest('.roster-day-cell')?.classList.toggle('roster-day-cell--dirty', status !== originalStatus);
+  });
+  const totalsByDate = hitungTotalRosterPerTanggal(data.employees || [], dates, preview);
+  body.querySelectorAll('.roster-total-value').forEach(value => {
+    value.textContent = totalsByDate[value.dataset.date]?.[value.dataset.status] ?? '0';
+  });
+}
+
+function catatDraftRoster(select, jabatan) {
+  const drafts = getRosterDrafts(jabatan);
+  const key = rosterDraftKey(select.dataset.userId, select.dataset.date);
+  const originalStatus = select.dataset.originalStatus || '';
+  const previousStatus = select.dataset.previousStatus || originalStatus;
+  const status = select.value;
+  if (!status && originalStatus) {
+    select.value = originalStatus;
+    return;
+  }
+  const hadExplicitDraft = drafts.has(key);
+  if (status === originalStatus && (hadExplicitDraft || previousStatus === originalStatus)) drafts.delete(key);
+  else drafts.set(key, { user_id: select.dataset.userId, tanggal: select.dataset.date, status });
+  const body = select.closest('.roster-group__body');
+  terapkanPreviewRosterDiTabel(body, jabatan);
+  perbaruiKontrolDraftRoster(jabatan, select.closest('.roster-group'));
+}
+
+function pasangEventRosterTable(body, jabatan) {
+  body.querySelectorAll('.roster-day-select').forEach(select => {
+    select.addEventListener('change', () => catatDraftRoster(select, jabatan));
+  });
+  perbaruiKontrolDraftRoster(jabatan, body.closest('.roster-group'));
+}
+
+function renderIsiRosterJabatan(jabatan, data) {
+  const dates = daftarTanggalRoster(data.tanggal_mulai, data.tanggal_akhir);
+  const search = normalizeFilterValue(document.getElementById('rosterCariKaryawan')?.value);
+  const members = (data.employees || []).filter(employee => !search
+    || normalizeFilterValue(`${employee.nama} ${employee.employee_id || ''}`).includes(search));
+  const drafts = getRosterDrafts(jabatan);
+  const preview = buildRosterStatusPreview(jabatan, data, dates);
+  const totalsByDate = hitungTotalRosterPerTanggal(data.employees || [], dates, preview);
+  const labelTanggal = date => new Date(`${date}T00:00:00Z`).toLocaleDateString('id-ID', {
+    day: '2-digit', month: 'short', timeZone: 'UTC',
+  });
+  return `
+    <div class="roster-table-wrap">
+      <table class="tabel roster-table">
+        <thead><tr>
+          <th class="roster-sticky roster-sticky--employee">Karyawan</th>
+          ${dates.map(date => `<th title="${date}">${labelTanggal(date)}</th>`).join('')}
+        </tr></thead>
+        <tbody>${members.map(employee => `
+          <tr>
+            <td class="roster-sticky roster-sticky--employee" title="${escapeHtml(employee.nama)}"><strong>${escapeHtml(employee.nama)}</strong><small>${escapeHtml(employee.employee_id || '-')}</small></td>
+            ${dates.map(date => {
+              const day = employee.schedule?.[date];
+              const originalStatus = day?.status || '';
+              const status = preview.get(window.RosterPreview.rosterPreviewKey(employee.id, date)) ?? originalStatus;
+              const klass = status ? status.toLowerCase() : 'empty';
+              const dirty = status !== originalStatus ? ' roster-day-cell--dirty' : '';
+              return `<td class="roster-day-cell${dirty}"><select class="roster-day-select roster-badge--${klass}" data-user-id="${employee.id}" data-date="${date}" data-original-status="${originalStatus}" data-previous-status="${status}" aria-label="Roster ${escapeHtml(employee.nama)} ${date}">${opsiStatusRoster(status)}</select></td>`;
+            }).join('')}
+          </tr>`).join('')}</tbody>
+        <tfoot>
+          ${ROSTER_STATUS_TOTALS.map(status => `<tr class="roster-total-row roster-total-row--${status.toLowerCase()}">
+            <td class="roster-sticky roster-sticky--employee">
+              <span class="roster-total-label roster-badge--${status.toLowerCase()}">${status}</span>
+            </td>
+            ${dates.map(date => `<td><strong class="roster-total-value roster-badge--${status.toLowerCase()}" data-date="${date}" data-status="${status}">${totalsByDate[date][status]}</strong></td>`).join('')}
+          </tr>`).join('')}
+        </tfoot>
+      </table>
+    </div>`;
+}
+
+function renderRoster() {
+  const container = document.getElementById('rosterTables');
+  const summary = document.getElementById('rosterSummary');
+  if (!container) return;
+  const selectedJabatan = document.getElementById('rosterFilterJabatan')?.value || '';
+  const groups = rosterJabatanCache.filter(item => !selectedJabatan || item.jabatan === selectedJabatan);
+  const total = groups.reduce((sum, item) => sum + Number(item.jumlah_karyawan), 0);
+  if (summary) summary.textContent = `${total} karyawan aktif | ${groups.length} tabel jabatan | tabel belum dibuka tidak memuat data`;
+  container.innerHTML = groups.map((group) => {
+    const loaded = rosterDataByJabatan.get(group.jabatan);
+    const draftCount = getRosterDrafts(group.jabatan).size;
+    return `
+      <section class="roster-group roster-group--collapsed" data-jabatan="${escapeHtml(group.jabatan)}">
+        <div class="roster-group__head">
+          <button class="roster-group__toggle" data-jabatan="${escapeHtml(group.jabatan)}" aria-expanded="false">
+            <span class="roster-group__arrow">▶</span><strong>${escapeHtml(group.jabatan)}</strong>
+            <small>${group.jumlah_karyawan} karyawan</small>
+          </button>
+          <div class="roster-group__actions">
+            <button class="tombol tombol--utama roster-save-jabatan" data-jabatan="${escapeHtml(group.jabatan)}" ${draftCount ? '' : 'disabled'}>${draftCount ? `Simpan Perubahan (${draftCount})` : 'Simpan Perubahan'}</button>
+            <button class="tombol tombol--ghost roster-assign-jabatan" data-jabatan="${escapeHtml(group.jabatan)}">Atur Roster Jabatan</button>
+          </div>
+        </div>
+        <div class="roster-group__body" hidden>${loaded ? renderIsiRosterJabatan(group.jabatan, loaded) : '<div class="tabel__kosong">Data belum dimuat.</div>'}</div>
+      </section>`;
+  }).join('') || '<div class="tabel__kosong">Tidak ada jabatan sesuai filter.</div>';
+
+  container.querySelectorAll('.roster-group__toggle').forEach(button => button.addEventListener('click', () => muatRosterJabatan(button.dataset.jabatan, button)));
+  container.querySelectorAll('.roster-assign-jabatan').forEach(button => button.addEventListener('click', () => bukaModalAssignRosterJabatan(button.dataset.jabatan)));
+  container.querySelectorAll('.roster-save-jabatan').forEach(button => button.addEventListener('click', () => simpanDraftRosterJabatan(button.dataset.jabatan, button)));
+}
+
+async function muatRosterJabatan(jabatan, toggleButton = null) {
+  const section = toggleButton?.closest('.roster-group') || [...document.querySelectorAll('.roster-group')]
+    .find(item => item.dataset.jabatan === jabatan);
+  if (!section) return;
+  const body = section.querySelector('.roster-group__body');
+  const isOpen = !body.hidden;
+  if (isOpen) {
+    body.hidden = true;
+    section.classList.add('roster-group--collapsed');
+    toggleButton?.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  body.hidden = false;
+  section.classList.remove('roster-group--collapsed');
+  toggleButton?.setAttribute('aria-expanded', 'true');
+  if (!rosterDataByJabatan.has(jabatan)) {
+    body.innerHTML = '<div class="tabel__kosong">Memuat data roster...</div>';
+    try {
+      const params = new URLSearchParams({
+        tanggal_mulai: document.getElementById('rosterTanggalMulai').value,
+        tanggal_akhir: document.getElementById('rosterTanggalAkhir').value,
+        jabatan,
+      });
+      const data = await api(`/api/admin/roster?${params}`);
+      rosterDataByJabatan.set(jabatan, data);
+    } catch (error) {
+      body.innerHTML = `<div class="tabel__kosong" style="color:#b91c1c">${escapeHtml(error.message)}</div>`;
+      return;
+    }
+  }
+  body.innerHTML = renderIsiRosterJabatan(jabatan, rosterDataByJabatan.get(jabatan));
+  pasangEventRosterTable(body, jabatan);
+}
+
+async function muatRoster() {
+  const mulaiEl = document.getElementById('rosterTanggalMulai');
+  const akhirEl = document.getElementById('rosterTanggalAkhir');
+  if (!mulaiEl || !akhirEl) return;
+  const today = tanggalWibHariIni();
+  if (!mulaiEl.value) mulaiEl.value = today;
+  if (!akhirEl.value) {
+    const akhir = new Date(`${today}T00:00:00Z`);
+    akhir.setUTCDate(akhir.getUTCDate() + 13);
+    akhirEl.value = akhir.toISOString().slice(0, 10);
+  }
+  const dates = daftarTanggalRoster(mulaiEl.value, akhirEl.value);
+  if (!dates.length || dates.at(-1) !== akhirEl.value) {
+    alert('Tanggal akhir roster tidak boleh sebelum tanggal awal.');
+    return;
+  }
+  const container = document.getElementById('rosterTables');
+  if (container) container.innerHTML = '<div class="tabel__kosong">Memuat roster karyawan aktif...</div>';
+  try {
+    [rosterTemplatesCache, rosterJabatanCache] = await Promise.all([
+      api('/api/admin/roster/templates'),
+      api('/api/admin/roster/jabatan'),
+    ]);
+    rosterDataByJabatan.clear();
+    dataRosterCache = { employees: [], tanggal_mulai: mulaiEl.value, tanggal_akhir: akhirEl.value };
+    isiFilterJabatanRoster();
+    renderRoster();
+  } catch (error) {
+    if (container) container.innerHTML = `<div class="tabel__kosong" style="color:#b91c1c">Gagal memuat roster: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function bukaModalTemplateRoster() {
+  bukaModal(`
+    <h3>Buat Template Roster</h3>
+    <form id="formTemplateRoster" class="roster-form">
+      <label class="label">Roster Cuti *</label>
+      <input id="rosterTemplateCuti" class="input-teks" required value="84:14" placeholder="Contoh: 84:14" />
+      <small>Contoh 84:14 = 84 hari mengikuti pola kerja, lalu 14 hari CP (cuti periodik).</small>
+      <label class="label">Hari Kerja *</label>
+      <input id="rosterTemplateHariKerja" class="input-teks" required value="7S,6M,OFF" placeholder="Contoh: 7S,6M,OFF" />
+      <small>Sistem mengulang pola ini selama fase kerja. Setelah CP selesai, pola kembali dimulai dari 7S. Kode C hanya untuk cuti khusus dan tidak mengubah siklus.</small>
+      <div id="rosterSimplePreview" class="roster-simple-preview">84 hari pola kerja berulang → 14 hari CP → reset dari awal</div>
+      <button class="tombol tombol--utama" type="submit">Generate Template</button>
+    </form>`);
+  const updatePreview = () => {
+    const ratio = document.getElementById('rosterTemplateCuti').value.match(/^\s*(\d+)\s*:\s*(\d+)\s*$/);
+    const pattern = document.getElementById('rosterTemplateHariKerja').value.trim().toUpperCase();
+    document.getElementById('rosterSimplePreview').textContent = ratio
+      ? `${ratio[1]} hari pola ${pattern || '-'} berulang → ${ratio[2]} hari CP → reset dari awal`
+      : 'Gunakan format Roster Cuti seperti 84:14';
+  };
+  document.getElementById('rosterTemplateCuti').addEventListener('input', updatePreview);
+  document.getElementById('rosterTemplateHariKerja').addEventListener('input', updatePreview);
+  document.getElementById('formTemplateRoster').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await apiJson('/api/admin/roster/templates', 'POST', {
+        roster_cuti: document.getElementById('rosterTemplateCuti').value,
+        hari_kerja: document.getElementById('rosterTemplateHariKerja').value,
+      });
+      tutupModal();
+      await muatRoster();
+    } catch (error) { alert(error.message); }
+  });
+}
+
+function bukaModalAssignRosterJabatan(jabatan) {
+  bukaModal(`
+    <h3>Atur Roster Jabatan</h3>
+    <p><strong>${escapeHtml(jabatan)}</strong> — berlaku untuk seluruh karyawan aktif pada jabatan ini.</p>
+    <form id="formAssignRoster" class="roster-form">
+      <label class="label">Template *</label><select id="assignRosterTemplate" class="input-teks" required>
+        <option value="">Pilih template</option>${rosterTemplatesCache.map(item => `<option value="${item.id}">${escapeHtml(item.nama)} (${item.cycle_days} hari)</option>`).join('')}
+      </select>
+      <label class="label">Berlaku mulai *</label><input id="assignRosterDate" type="date" class="input-teks" value="${dataRosterCache.tanggal_mulai || tanggalWibHariIni()}" required />
+      <label class="label">Mulai dari hari ke-</label><input id="assignRosterAnchor" type="number" min="1" value="1" class="input-teks" required />
+      <small>Hari ke-1 berarti tanggal mulai memakai elemen pertama pola template.</small>
+      <button class="tombol tombol--utama" type="submit">Terapkan dan Generate</button>
+    </form>`);
+  document.getElementById('formAssignRoster').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const result = await apiJson('/api/admin/roster/assignments/jabatan', 'POST', {
+        jabatan,
+        template_id: document.getElementById('assignRosterTemplate').value,
+        effective_from: document.getElementById('assignRosterDate').value,
+        anchor_day_index: Number(document.getElementById('assignRosterAnchor').value),
+      });
+      alert(result.message);
+      tutupModal();
+      rosterDataByJabatan.delete(jabatan);
+      renderRoster();
+    } catch (error) { alert(error.message); }
+  });
+}
+
+async function simpanDraftRosterJabatan(jabatan, saveButton) {
+  const drafts = [...getRosterDrafts(jabatan).values()].filter(change => change.status);
+  if (!drafts.length) return;
+  const section = saveButton.closest('.roster-group');
+  const body = section?.querySelector('.roster-group__body');
+  const originalText = saveButton.textContent;
+  saveButton.disabled = true;
+  saveButton.textContent = `Menyimpan ${drafts.length} perubahan...`;
+  try {
+    await apiJson('/api/admin/roster/daily/batch', 'PATCH', { changes: drafts });
+    const params = new URLSearchParams({
+      tanggal_mulai: document.getElementById('rosterTanggalMulai').value,
+      tanggal_akhir: document.getElementById('rosterTanggalAkhir').value,
+      jabatan,
+    });
+    const data = await api(`/api/admin/roster?${params}`);
+    rosterDataByJabatan.set(jabatan, data);
+    rosterDraftsByJabatan.delete(jabatan);
+    if (body) {
+      body.innerHTML = renderIsiRosterJabatan(jabatan, data);
+      pasangEventRosterTable(body, jabatan);
+    }
+    saveButton.textContent = 'Tersimpan';
+    setTimeout(() => perbaruiKontrolDraftRoster(jabatan, section), 1200);
+  } catch (error) {
+    saveButton.disabled = false;
+    saveButton.textContent = originalText;
+    alert(`Gagal menyimpan perubahan roster: ${error.message}`);
+  }
+}
+
+async function exportRosterExcel() {
+  const params = new URLSearchParams({
+    tanggal_mulai: document.getElementById('rosterTanggalMulai').value,
+    tanggal_akhir: document.getElementById('rosterTanggalAkhir').value,
+  });
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/roster/export?${params}`, { headers: { Authorization: `Bearer ${state.token}` } });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || 'Export gagal');
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `roster_${params.get('tanggal_mulai')}_${params.get('tanggal_akhir')}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch (error) { alert(error.message); }
+}
+
+function bukaImportRoster() {
+  bukaModal(`<h3>Import Excel Roster</h3><p>Gunakan hasil Export Excel sebagai template. Isi kolom tanggal dengan S, M, C, CP, atau OFF.</p><form id="formImportRoster" class="roster-form"><input id="fileImportRoster" type="file" accept=".xlsx,.xls" required /><button type="submit" class="tombol tombol--utama">Import</button></form>`);
+  document.getElementById('formImportRoster').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData();
+    formData.append('excel', document.getElementById('fileImportRoster').files[0]);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/admin/roster/import`, { method: 'POST', headers: { Authorization: `Bearer ${state.token}` }, body: formData });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Import gagal');
+      alert(result.message);
+      tutupModal();
+      await muatRoster();
+    } catch (error) { alert(error.message); }
+  });
+}
+
+document.getElementById('btnTampilkanRoster')?.addEventListener('click', muatRoster);
+document.getElementById('btnTemplateRoster')?.addEventListener('click', bukaModalTemplateRoster);
+document.getElementById('btnExportRoster')?.addEventListener('click', exportRosterExcel);
+document.getElementById('btnImportRoster')?.addEventListener('click', bukaImportRoster);
+
+// ============================================================
 // EXPORT CSV
 // ============================================================
 function exportCsvAbsensi() {
@@ -1237,14 +2536,85 @@ function exportCsvAbsensi() {
   downloadCsv([header, ...rows].join('\n'), `absensi_${new Date().toISOString().split('T')[0]}.csv`);
 }
 
+async function exportExcelAbsensi() {
+  const button = document.getElementById('btnExportExcelAbsensi');
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Menyiapkan Excel...';
+    }
+    const params = buatParamsFilterAbsensi({ sertakanAtribut: true });
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/absensi/export.xlsx?${params.toString()}`, {
+      headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+    });
+    if (!response.ok) {
+      let pesan = `Export gagal (${response.status})`;
+      try {
+        const body = await response.json();
+        pesan = body?.error || pesan;
+      } catch (_) {}
+      throw new Error(pesan);
+    }
+    const blob = await response.blob();
+    const excelBlob = new Blob([blob], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const { tanggalMulai, tanggalAkhir } = validasiRangeAbsensi();
+    const url = URL.createObjectURL(excelBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `absensi_${tanggalMulai}_${tanggalAkhir}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = '📤 Export Excel';
+    }
+  }
+}
+
 function exportCsvPerforma() {
-  const totalHariKerja = dataPerformaCache[0]?.total_hari_kerja || 1;
-  const rows = dataPerformaCache.map((r) => {
-    const pct = totalHariKerja > 0 ? Math.min(100, (r.hadir / totalHariKerja) * 100).toFixed(1) : '0.0';
-    return `"${r.nama}","${r.jabatan}","${r.departemen}",${r.hadir},"${pct}%",${r.tidak_hadir},${r.alpa},${r.izin},${r.sakit},${r.cuti},${r.off || 0},${r.telat},${r.checkout_lewat},${r.percobaan_pulang_awal || 0}`;
-  });
-  const header = '"Nama","Jabatan","Departemen","Hadir","% Hadir","Total Tidak Hadir","Alpa","Izin","Sakit","Cuti","OFF","Telat","Checkout Lewat","Percobaan Pulang Awal"';
-  downloadCsv([header, ...rows].join('\n'), `performa_${new Date().toISOString().split('T')[0]}.csv`);
+  if (!dataHasilPerformaCache || !dataHasilPerformaCache.rekap) return;
+
+  const selectedUser = selectedKaryawanIdPerforma
+    ? dataHasilPerformaCache.rekap.find(r => r.id === selectedKaryawanIdPerforma)
+    : null;
+
+  const tglRefStr = dataHasilPerformaCache.tanggal_mulai || new Date().toISOString().split('T')[0];
+
+  if (selectedUser) {
+    // EXPORT SLICER INDIVIDU (Rincian Harian Per Hari)
+    const rincian = selectedUser.rincian_harian || [];
+    const header = '"Tanggal / Hari","Nama","Jabatan","Departemen","Hadir","% Hadir","Total Tidak Hadir","Alpa","Izin","Sakit","Cuti","OFF","Telat","Checkout Lewat","Percobaan Pulang Awal","Keterangan"';
+
+    const rows = rincian.map((rh) => {
+      const pct = rh.hadir > 0 ? '100.0%' : '0.0%';
+      const tglFormatted = formatTanggalStr(rh.tanggal);
+      const labelTanggalHari = `${rh.hari}, ${tglFormatted}`;
+      const ketClean = (rh.keterangan || '—').replace(/"/g, '""');
+
+      return `"${labelTanggalHari}","${selectedUser.nama.replace(/"/g, '""')}","${(selectedUser.jabatan || '—').replace(/"/g, '""')}","${(selectedUser.departemen || '—').replace(/"/g, '""')}",${rh.hadir},"${pct}",${rh.tidak_hadir},${rh.alpa},${rh.izin},${rh.sakit},${rh.cuti},${rh.off},${rh.telat},${rh.checkout_lewat},${rh.percobaan_pulang_awal},"${ketClean}"`;
+    });
+
+    const namaClean = selectedUser.nama.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    downloadCsv([header, ...rows].join('\n'), `performa_rincian_${namaClean}_${tglRefStr}.csv`);
+  } else {
+    // EXPORT RINGKASAN SEMUA KARYAWAN
+    const totalHariKerja = dataHasilPerformaCache.total_hari_kerja || 1;
+    const header = '"Nama","Jabatan","Departemen","Hadir","% Hadir","Total Tidak Hadir","Alpa","Izin","Sakit","Cuti","OFF","Telat","Checkout Lewat","Percobaan Pulang Awal"';
+
+    const rows = dataHasilPerformaCache.rekap.map((r) => {
+      const totalHariKerjaIndiv = (r.total_hari_kerja !== undefined) ? r.total_hari_kerja : totalHariKerja;
+      const pct = totalHariKerjaIndiv > 0 ? Math.min(100, (r.hadir / totalHariKerjaIndiv) * 100).toFixed(1) : '0.0';
+
+      return `"${r.nama.replace(/"/g, '""')}","${(r.jabatan || '—').replace(/"/g, '""')}","${(r.departemen || '—').replace(/"/g, '""')}",${r.hadir},"${pct}%",${r.tidak_hadir},${r.alpa},${r.izin},${r.sakit},${r.cuti},${r.off || 0},${r.telat},${r.checkout_lewat},${r.percobaan_pulang_awal || 0}`;
+    });
+
+    downloadCsv([header, ...rows].join('\n'), `performa_ringkasan_semua_${tglRefStr}.csv`);
+  }
 }
 
 function downloadCsv(content, filename) {
@@ -1278,6 +2648,7 @@ document.getElementById('btnImportExcelPayroll')?.addEventListener('click', buka
 document.getElementById('btnSinkronPayroll')?.addEventListener('click', sinkronKaryawanPayroll);
 document.getElementById('btnAuditLogPayroll')?.addEventListener('click', bukaModalAuditLogPayroll);
 document.getElementById('btnExportCsvPayroll')?.addEventListener('click', exportCsvPayroll);
+document.getElementById('btnExportExcelPayroll')?.addEventListener('click', exportExcelPayroll);
 
 if (state.token) {
   tampilkanApp();
@@ -1595,6 +2966,40 @@ function exportCsvPayroll() {
   });
   const header = '"No","Employee ID","Nama Karyawan","Date In","Site","Kota","Jabatan","Gaji Pokok","Tunjangan Kehadiran per Hari","Tunjangan Jabatan","Insentif HM per Jam"';
   downloadCsv([header, ...rows].join('\n'), `database_payroll_${new Date().toISOString().split('T')[0]}.csv`);
+}
+
+// ============================================================
+async function exportExcelPayroll() {
+  const button = document.getElementById("btnExportExcelPayroll");
+  if (!button) return;
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "Menyiapkan Excel...";
+  try {
+    const response = await fetch(getApiBaseUrl() + "/api/admin/payroll/export", {
+      headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+    });
+    if (!response.ok) {
+      let pesan = "Export gagal (" + response.status + ")";
+      try { const body = await response.json(); pesan = (body && body.error) || pesan; } catch (_) {}
+      throw new Error(pesan);
+    }
+    const blob = await response.blob();
+    const excelBlob = new Blob([blob], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(excelBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "database_payroll_" + new Date().toISOString().split("T")[0] + ".xlsx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
 }
 
 // ============================================================

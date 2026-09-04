@@ -29,3 +29,23 @@ Thumbs.db
 coverage/
 logs/
 *.log
+ 
+.vercel
+.env*
+
+# Local agent tooling & scratch (not part of the deployed app)
+.codex/
+.kilo/
+.agents/
+OMOS-skill/
+outputs/
+tmp/
+
+# Loose local data/brand artifacts (not required by Vercel build)
+*.xlsx
+*.xls
+*.gpx
+OMOS Logo.*
+OMOS_LITELLM_PROJECT_HANDOVER.md
+OMOS_MASTER_PROJECT_MILESTONE_V2.6.md
+import_parameter_excel.py

@@ -6,7 +6,16 @@
 <title>Dashboard Absensi — Admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="style.css?v=46" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="vendor/xlsx.full.min.js?v=1"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="planProductivity.core.js?v=17"></script>
+    <script src="spo.core.js?v=46"></script>
+<script src="paUaEwh.core.js?v=16"></script>
+<script src="fuelBudgeting.core.js?v=3"></script>
+<script src="fleetCapacity.core.js?v=12"></script>
+<script src="unitMapping.core.js?v=10"></script>
 </head>
 <body>
 
@@ -34,18 +43,56 @@
   <div id="app" class="app" hidden>
 
     <aside class="sidebar">
-      <div class="sidebar__brand">
-        <span class="sidebar__brand-mark">●</span> Absensi
+      <div class="sidebar__brand" style="display:flex;align-items:flex-start;gap:7px;">
+        <span class="sidebar__brand-mark" style="line-height:20px;">●</span>
+        <div>
+          <div style="font-size:18px;line-height:20px;">OMOS</div>
+          <div style="font-size:9px;line-height:12px;margin-top:2px;color:rgba(255,255,255,0.65);font-weight:500;white-space:nowrap;">One Mining One System</div>
+        </div>
       </div>
 
       <nav class="sidebar__nav">
-        <button class="sidebar__tab is-aktif" data-tab="absensi">Absensi</button>
-        <button class="sidebar__tab" data-tab="karyawan">Karyawan</button>
-        <button class="sidebar__tab" data-tab="performa">Rekap Performa</button>
-        <button class="sidebar__tab" data-tab="registrasi">Registrasi Pending</button>
-        <button class="sidebar__tab" data-tab="payroll">Database Payroll</button>
-        <button class="sidebar__tab" data-tab="hm">Database HM</button>
-        <button class="sidebar__tab" data-tab="kalkulasiPayroll">Kalkulasi Payroll</button>
+        <div style="font-size:10px;font-weight:800;color:#94a3b8;letter-spacing:0.08em;margin:12px 10px 4px 10px;text-transform:uppercase;">HR & Absensi</div>
+        <button class="sidebar__tab is-aktif" data-tab="absensi">📋 Absensi</button>
+        <button class="sidebar__tab" data-tab="karyawan">👥 Karyawan</button>
+        <button class="sidebar__tab" data-tab="performa">📊 Rekap Performa</button>
+        <button class="sidebar__tab" data-tab="roster">📅 Roster Karyawan</button>
+        <button class="sidebar__tab" data-tab="registrasi">⏳ Registrasi Pending <span id="badgePending" style="display:none;background:#EF4444;color:#ffffff;font-size:11px;font-weight:bold;padding:2px 7px;border-radius:10px;margin-left:6px;">0</span></button>
+        <button class="sidebar__tab" data-tab="payroll">💳 Database Payroll</button>
+        <button class="sidebar__tab" data-tab="hm">🚜 Database HM</button>
+        <button class="sidebar__tab" data-tab="kalkulasiPayroll">🧮 Kalkulasi Payroll</button>
+
+        <div style="font-size:10px;font-weight:800;color:#f59e0b;letter-spacing:0.08em;margin:18px 10px 4px 10px;text-transform:uppercase;">⛏️ Mining Production</div>
+
+        <!-- FOLDER UTAMA 0. MINE PLANNING (COLLAPSIBLE / AUTOHIDING) -->
+        <button class="sidebar__tab sidebar__tab--folder" id="btnFolderParameter" data-tab="prodMinePlanning" onclick="toggleFolderParameter()" aria-expanded="false" aria-controls="subnavParameter" style="background:#fff7ed;color:#c2410c;font-weight:bold;border:1px solid #ffedd5;display:flex;justify-content:space-between;align-items:center;width:100%;">
+          <span>0. 🧭 Mine Planning</span>
+          <span id="arrowFolderParameter" style="font-size:11px;transition:transform 0.2s ease;">▶</span>
+        </button>
+        <div id="subnavParameter" class="sidebar__subnav" hidden style="padding-left:10px;margin:2px 0 6px 0;flex-direction:column;gap:2px;">
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodListEquipment" style="font-size:12px;">0.1 🚜 List Equipment</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodParamStandbyBd" style="font-size:12px;">0.2 ⚙️ Parameter</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodSpo" style="font-size:12px;">0.3 📋 SPO</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodDelayForecasting" style="font-size:12px;">0.4 📈 PA, UA &amp; EWH</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodPlanProductivity" style="font-size:12px;">0.5 🎯 OB Productivity Planning</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodCoalProductivity" style="font-size:12px;">0.6 ⛏️ Coal Productivity Planning</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodBudgetingCosting" style="font-size:12px;">0.7 ⛽ Fuel Budgeting</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodFleetCapacity" style="font-size:12px;">0.8 🚚 Fleet Capacity</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodUnitMapping" style="font-size:12px;">0.9 🗺️ Unit Mapping</button>
+        </div>
+
+        <button class="sidebar__tab" data-tab="prodInputData">1. 📝 Input Data</button>
+        <button class="sidebar__tab" data-tab="prodInputFuel">2. ⛽ Input Fuel</button>
+        <button class="sidebar__tab" data-tab="prodBreakdown">3. 🛠️ Breakdown</button>
+        <button class="sidebar__tab" data-tab="prodStandby">4. ⏱️ Standby</button>
+        <button class="sidebar__tab" data-tab="prodInputRitase">5. 🚚 Input Ritase</button>
+        <button class="sidebar__tab" data-tab="prodDailyDashboard">6. 📊 Daily Dashboard</button>
+        <button class="sidebar__tab" data-tab="prodShiftReport">7. 📑 Shift Report</button>
+        <button class="sidebar__tab" data-tab="prodProductivityReport">8. 🚀 Productivity Report</button>
+        <button class="sidebar__tab" data-tab="prodMtdReport">9. 📅 MTD Report</button>
+        <button class="sidebar__tab" data-tab="prodYtdReport">10. 🗓️ YTD Report</button>
+        <button class="sidebar__tab" data-tab="prodProjectToDate">11. 🏆 Project To Date</button>
+        <button class="sidebar__tab" data-tab="prodExecutiveDashboard" style="background:#1e293b;color:#38bdf8;font-weight:bold;border:1px solid #334155;">12. ⚡ Executive Dashboard</button>
       </nav>
 
       <div class="sidebar__footer">
@@ -57,24 +104,55 @@
 
     <main class="konten">
 
-      <header class="konten__header">
-        <div class="jam-punch" id="jamUtama">--:--:--</div>
-        <div class="jam-punch__tanggal" id="tanggalUtama">-</div>
-      </header>
-
       <!-- ===== TAB ABSENSI ===== -->
       <section id="tabAbsensi" class="tab-panel is-aktif">
-        <div class="tab-panel__head">
-          <h2>Data Absensi</h2>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input type="date" id="filterTanggalDari" class="input-filter" placeholder="Dari tanggal" />
-            <input type="date" id="filterTanggalSampai" class="input-filter" placeholder="Sampai tanggal" />
-            <button id="btnMuatUlangAbsensi" class="tombol tombol--ghost">Filter</button>
-            <button id="btnExportCsvAbsensi" class="tombol tombol--ghost">Export CSV</button>
+        <!-- AREA HEADER & SLICER -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:12px;">
+            <div>
+              <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📋 Data Absensi Karyawan</h2>
+              <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Monitoring dan rekap presensi kehadiran, jam datang/pulang, foto bukti absensi, dan geofence.</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button id="btnExportExcelAbsensi" class="tombol tombol--ghost">📤 Export Excel</button>
+              <button id="btnResetSlicerAbsensi" class="tombol tombol--ghost tombol--kecil" style="color:#dc2626;border-color:#fca5a5;" hidden>✕ Reset Filter</button>
+            </div>
+          </div>
+
+          <!-- BARIS FILTER RANGE TANGGAL + SLICER ATRIBUT -->
+          <div style="background:#ffffff;padding:10px 14px;border-radius:8px;border:1px solid #cbd5e1;box-shadow:0 2px 4px rgba(0,0,0,0.04);margin-bottom:10px;">
+            <!-- Row 1: Filter Range Waktu (server-side) -->
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+              <label for="filterTanggalMulaiAbsensi" style="font-size:12px;font-weight:700;color:#475569;white-space:nowrap;">Tanggal awal</label>
+              <input id="filterTanggalMulaiAbsensi" type="date" class="input-filter" aria-label="Tanggal awal periode absensi" style="font-weight:600;border:1.5px solid #0f3460;background:#fff;color:#0f172a;min-width:150px;" />
+              <span style="font-size:12px;color:#64748b;">s/d</span>
+              <label for="filterTanggalAkhirAbsensi" style="font-size:12px;font-weight:700;color:#475569;white-space:nowrap;">Tanggal akhir</label>
+              <input id="filterTanggalAkhirAbsensi" type="date" class="input-filter" aria-label="Tanggal akhir periode absensi" style="font-weight:600;border:1.5px solid #0f3460;background:#fff;color:#0f172a;min-width:150px;" />
+              <button id="btnCariAbsensi" type="button" class="tombol tombol--utama tombol--kecil">Cari</button>
+              <select id="slicerShiftAbsensi" class="input-filter" style="font-weight:600;border:1.5px solid #0f3460;background:#fff;color:#0f172a;min-width:140px;">
+                <option value="">⚙️ Shift: Semua</option>
+                <option value="Shift Siang">Shift Siang</option>
+                <option value="Shift Malam">Shift Malam</option>
+              </select>
+            </div>
+            <!-- Row 2: Filter Karyawan (client-side pada data periode) -->
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <select id="slicerDeptAbsensi" class="input-filter" style="font-weight:600;border:1.5px solid #6366f1;background:#fff;color:#0f172a;min-width:160px;">
+                <option value="">🏢 Departemen: Semua</option>
+              </select>
+              <select id="slicerJabatanAbsensi" class="input-filter" style="font-weight:600;border:1.5px solid #6366f1;background:#fff;color:#0f172a;min-width:160px;">
+                <option value="">💼 Jabatan: Semua</option>
+              </select>
+              <select id="slicerNamaAbsensi" class="input-filter" style="font-weight:600;border:1.5px solid #6366f1;background:#fff;color:#0f172a;min-width:180px;">
+                <option value="">👤 Nama: Semua</option>
+              </select>
+              <input id="searchAbsensi" type="text" class="input-filter" placeholder="🔍 Cari Nama / Departemen / Jabatan..." style="font-weight:500;border:1.5px solid #94a3b8;background:#fff;color:#0f172a;min-width:260px;flex:1;" />
+            </div>
           </div>
         </div>
-        <div class="tabel-wrap">
-          <table class="tabel">
+
+        <div class="tabel-wrap tabel-wrap-sticky">
+          <table class="tabel tabel-sticky">
             <thead>
               <tr>
                 <th>Karyawan</th>
@@ -110,10 +188,11 @@
                 <th>Latitude</th>
                 <th>Longitude</th>
                 <th>Radius (Meter)</th>
+                <th>Aksi</th>
               </tr>
             </thead>
             <tbody id="tbodyLokasi">
-              <tr><td colspan="4" class="tabel__kosong">Memuat data...</td></tr>
+              <tr><td colspan="5" class="tabel__kosong">Memuat data...</td></tr>
             </tbody>
           </table>
         </div>
@@ -123,9 +202,49 @@
       <section id="tabKaryawan" class="tab-panel">
         <div class="tab-panel__head">
           <h2>Database Karyawan</h2>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="filterDepartemenKaryawan" class="input-filter" style="font-weight:700;min-width:180px;border:1.5px solid #0f3460;background:#fff;color:#0f172a;">
+              <option value="">🏢 Departemen: Semua</option>
+            </select>
+            <select id="filterJabatanKaryawan" class="input-filter" style="font-weight:700;min-width:180px;border:1.5px solid #0f3460;background:#fff;color:#0f172a;">
+              <option value="">👔 Jabatan: Semua</option>
+            </select>
             <button id="btnAuditLogKaryawan" class="tombol tombol--ghost">📋 Audit Log Karyawan</button>
             <button id="btnTambahKaryawan" class="tombol tombol--utama">+ Tambah karyawan</button>
+          </div>
+        </div>
+
+        <!-- KPI Highlight Grid untuk Database Karyawan -->
+        <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));gap:14px;margin-bottom:20px;">
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #0f3460;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">TOTAL KARYAWAN</div>
+            <div id="kpiHighlightTotal" style="font-size:28px;font-weight:800;color:#0f172a;margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#047857;font-weight:600;margin-top:2px;">👥 Terdaftar di Sistem</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #0284c7;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">PRODUKSI</div>
+            <div id="kpiHighlightProduksi" style="font-size:28px;font-weight:800;color:#0284c7;margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px;">Operator, SPV, Pengawas</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #0284c7;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">ENGINEERING</div>
+            <div id="kpiHighlightEngineering" style="font-size:28px;font-weight:800;color:#0284c7;margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px;">Mine Plan, Surveyor, Admin</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #16a34a;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">LOGISTIK</div>
+            <div id="kpiHighlightLogistik" style="font-size:28px;font-weight:800;color:#16a34a;margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px;">Driver DT, Fuelman, Gudang</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #d97706;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">MAINTENANCE</div>
+            <div id="kpiHighlightMaintenance" style="font-size:28px;font-weight:800;color:#d97706;margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px;">Mekanik, Welder, Electrician</div>
+          </div>
+          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #7c3aed;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">HRGA, HSE & LAINNYA</div>
+            <div id="kpiHighlightHSE" style="font-size:28px;font-weight:800;color:#7c3aed;margin-top:4px;">0</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px;">HRGA, Finance, HSE, PJO</div>
           </div>
         </div>
         <div class="tabel-wrap">
@@ -153,6 +272,15 @@
         <div class="tab-panel__head">
           <h2>Rekap Performa Individu</h2>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="slicerDepartemenPerforma" class="input-filter" style="font-weight:700;min-width:170px;border:1.5px solid #0f3460;background:#fff;color:#0f172a;">
+              <option value="">🏢 Dept: Semua</option>
+            </select>
+            <select id="slicerJabatanPerforma" class="input-filter" style="font-weight:700;min-width:170px;border:1.5px solid #0f3460;background:#fff;color:#0f172a;">
+              <option value="">👔 Jabatan: Semua</option>
+            </select>
+            <select id="slicerKaryawanPerforma" class="input-filter" style="font-weight:700;min-width:200px;border:1.5px solid #0f3460;background:#fff;color:#0f172a;">
+              <option value="">👤 Karyawan: Semua</option>
+            </select>
             <select id="filterPeriodePerforma" class="input-filter">
               <option value="harian">Harian</option>
               <option value="mingguan">Mingguan</option>
@@ -163,15 +291,10 @@
             <button id="btnMuatPerforma" class="tombol tombol--ghost">Tampilkan</button>
             <button id="btnExportCsvPerforma" class="tombol tombol--ghost">Export CSV</button>
             <button id="btnAuditLogPerforma" class="tombol tombol--ghost">Audit Log</button>
+            <button id="btnResetSlicerPerforma" class="tombol tombol--ghost tombol--kecil" style="color:#dc2626;border-color:#fca5a5;" hidden>✕ Reset</button>
           </div>
         </div>
         <p id="infoRentangPerforma" class="info-rentang" style="padding:0 0 12px;color:var(--tinta-lembut);font-size:13px;"></p>
-
-        <!-- Banner Filter Karyawan Terpilih -->
-        <div id="wrapperFilterKaryawanPerforma" style="display:none;align-items:center;gap:8px;background:#e8f5e9;border:1px solid #c8e6c9;padding:10px 14px;border-radius:8px;margin-bottom:14px;">
-          <span style="font-size:13px;color:#2e7d32;font-weight:600;">👤 KPI Individu Karyawan: <b id="labelKaryawanTerpilih"></b></span>
-          <button id="btnResetFilterKaryawan" class="tombol tombol--ghost tombol--kecil" style="margin-left:auto;color:#c62828;border-color:#ef9a9a;">✕ Reset (Tampilkan Semua)</button>
-        </div>
 
         <!-- KPI Cards Grid (Visual Performance Analytics) -->
         <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:16px;">
@@ -180,21 +303,27 @@
             <div id="kpiRataHadir" style="font-size:26px;font-weight:bold;color:#2E7D32;margin-top:4px;">0.0%</div>
             <div id="kpiStatusKehadiran" style="font-size:11px;color:#757575;margin-top:2px;">Memuat data...</div>
           </div>
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+          <div id="kartuKpiHadir" class="kartu-kpi kartu-kpi--filter" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
             <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">TOTAL HADIR</div>
             <div id="kpiTotalHadir" style="font-size:26px;font-weight:bold;color:#1565C0;margin-top:4px;">0</div>
             <div style="font-size:11px;color:#757575;margin-top:2px;">Presensi Wajah</div>
           </div>
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+          <div id="kartuKpiTidakHadir" class="kartu-kpi kartu-kpi--filter" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
             <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">TOTAL TIDAK HADIR</div>
             <div id="kpiTotalTidakHadir" style="font-size:26px;font-weight:bold;color:#C62828;margin-top:4px;">0</div>
             <div id="kpiBreakdownTidakHadir" style="font-size:11px;color:#757575;margin-top:2px;">Alpa: 0 | Izin: 0 | Sakit: 0 | Cuti: 0 | Off: 0</div>
           </div>
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+          <div id="kartuKpiTelat" class="kartu-kpi kartu-kpi--filter" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:16px;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
             <div style="font-size:11px;color:var(--tinta-lembut);font-weight:700;letter-spacing:0.5px;">KETERLAMBATAN</div>
             <div id="kpiTotalTelat" style="font-size:26px;font-weight:bold;color:#EF6C00;margin-top:4px;">0</div>
             <div style="font-size:11px;color:#757575;margin-top:2px;">Jam Masuk &gt; Toleransi</div>
           </div>
+        </div>
+
+        <div id="infoKpiFilterPerforma" class="kpi-filter-info" role="status" hidden></div>
+
+        <div style="margin-bottom:8px;font-size:12px;color:#64748B;font-weight:600;" id="infoSlicerMode">
+          Menampilkan ringkasan semua karyawan
         </div>
 
         <div class="tabel-wrap">
@@ -225,6 +354,44 @@
               <tr><td colspan="14" class="tabel__kosong">Pilih periode lalu klik Tampilkan</td></tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- ===== TAB ROSTER KARYAWAN ===== -->
+      <section id="tabRoster" class="tab-panel">
+        <div class="tab-panel__head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+          <div>
+            <h2 style="margin:0 0 4px;">Roster Karyawan</h2>
+            <p style="margin:0;color:var(--tinta-lembut);font-size:13px;">Jadwal otomatis dari karyawan aktif, dikelompokkan berdasarkan jabatan.</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="btnTemplateRoster" class="tombol tombol--ghost">+ Template Roster</button>
+            <button id="btnImportRoster" class="tombol tombol--ghost">Import Excel</button>
+            <button id="btnExportRoster" class="tombol tombol--ghost">Export Excel</button>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0 10px;padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:9px;">
+          <label class="label" style="margin:0;">Tanggal awal</label>
+          <input id="rosterTanggalMulai" type="date" class="input-filter" />
+          <label class="label" style="margin:0;">Tanggal akhir</label>
+          <input id="rosterTanggalAkhir" type="date" class="input-filter" />
+          <select id="rosterFilterJabatan" class="input-filter"><option value="">Jabatan: Semua</option></select>
+          <button id="btnTampilkanRoster" class="tombol tombol--utama">Terapkan Periode</button>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12px;">
+          <span class="roster-badge roster-badge--s">S = Siang</span>
+          <span class="roster-badge roster-badge--m">M = Malam</span>
+          <span class="roster-badge roster-badge--cp">CP = Cuti periodik (reset siklus)</span>
+          <span class="roster-badge roster-badge--c">C = Cuti khusus (tidak mengubah siklus)</span>
+          <span class="roster-badge roster-badge--off">OFF = Istirahat</span>
+          <span style="color:#64748b;">Klik sel tanggal untuk membuat override. Absensi kamera tetap menjadi sumber aktual utama.</span>
+        </div>
+
+        <div id="rosterSummary" style="font-size:13px;color:#475569;margin-bottom:10px;"></div>
+        <div id="rosterTables">
+          <div class="tabel__kosong">Memuat data roster...</div>
         </div>
       </section>
 
@@ -274,6 +441,7 @@
           <div style="display:flex;gap:8px;">
             <button id="btnAuditLogPayroll" class="tombol tombol--ghost" style="border-color:#7c4dff;color:#651fff;font-weight:600;">📋 Audit Log</button>
             <button id="btnExportCsvPayroll" class="tombol tombol--ghost">⬇️ Export CSV</button>
+            <button id="btnExportExcelPayroll" class="tombol tombol--ghost">⬇️ Export Excel</button>
             <button id="btnSinkronPayroll" class="tombol tombol--utama" style="background:#1976D2;">🔄 Sinkron Data</button>
             <button id="btnImportExcelPayroll" class="tombol tombol--ghost" style="border-color:#2e7d32;color:#2e7d32;font-weight:bold;">🟩 Import Excel</button>
             <button id="btnTambahPayroll" class="tombol tombol--utama">+ Tambah Manual</button>
@@ -526,6 +694,922 @@
         </div>
       </section>
 
+      <!-- ================= 0. MINE PLANNING OVERVIEW ================= -->
+      <section id="tab-prodMinePlanning" class="tab-konten" hidden>
+        <div id="minePlanningOverview" style="min-width:0;"></div>
+      </section>
+
+      <!-- ================= 0.1 LIST EQUIPMENT ================= -->
+      <section id="tab-prodListEquipment" class="tab-konten" hidden>
+        <!-- AREA HEADER & SLICER -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div>
+              <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🚜 Master List Equipment (Alat Berat Tambang)</h2>
+              <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Pengaturan kustom master unit (Kode, Type, Class, Brand, Date In, Fuel Rate L/Jam). Admin dapat mengedit semua data.</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="tombol tombol--ghost" onclick="exportEquipmentExcel()">Export Excel</button>
+              <button class="tombol tombol--ghost" onclick="pilihFileImportEquipment()">Import Excel</button>
+              <button class="tombol tombol--utama" onclick="bukaModalTambahEquipment()">+ Tambah Unit Baru</button>
+            </div>
+          </div>
+
+          <!-- BARIS SLICER FILTER EQUIPMENT -->
+          <div style="background:#ffffff;padding:10px 14px;border-radius:8px;border:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+              <div style="font-weight:700;color:#334155;font-size:13px;display:flex;align-items:center;gap:6px;">
+                <span>🔍</span> Slicer Filter Unit:
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Jenis Alat:</label>
+                <select id="slicerEquipKelas" class="input-filter" onchange="terapkanSlicerEquipment()" style="padding:6px 12px;font-size:12px;border-radius:6px;min-width:150px;background:#fff;border:1px solid #94a3b8;">
+                  <option value="">Semua Jenis Alat</option>
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Tipe Model:</label>
+                <select id="slicerEquipTipe" class="input-filter" onchange="terapkanSlicerEquipment()" style="padding:6px 12px;font-size:12px;border-radius:6px;min-width:150px;background:#fff;border:1px solid #94a3b8;">
+                  <option value="">Semua Tipe Model</option>
+                </select>
+              </div>
+              <button class="tombol-tautan" style="font-size:12px;color:#0284c7;font-weight:600;" onclick="resetSlicerEquipment()">🔄 Reset Filter</button>
+            </div>
+            <div id="counterSlicerEquip" style="font-size:12px;font-weight:bold;color:#475569;background:#e2e8f0;padding:4px 10px;border-radius:12px;">
+              Total Unit: 0
+            </div>
+          </div>
+        </div>
+        <input id="inputImportEquipment" type="file" accept=".xlsx,.xls" hidden />
+
+        <div id="equipmentPopulationHighlights" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-bottom:16px;"></div>
+
+        <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h3 style="margin:0;font-size:16px;font-weight:800;color:#0f172a;">Daftar Master Unit Alat Berat</h3>
+            <span style="font-size:12px;color:#64748b;">Tersinkronisasi ke Dropdown Input Data, Fuel, Standby, Breakdown & Ritase</span>
+          </div>
+          <!-- CONTAINER KOTAK SCROLL LOKAL DENGAN FREEZE HEADER TABLE -->
+          <div class="tabel-wrap tabel-wrap-sticky">
+            <table class="tabel tabel-sticky">
+              <thead>
+                <tr>
+                  <th rowspan="2">Kode Unit</th>
+                  <th rowspan="2">Jenis Alat</th>
+                  <th rowspan="2">Class</th>
+                  <th rowspan="2">Tipe Model</th>
+                  <th rowspan="2">Brand / Merek</th>
+                  <th rowspan="2">Tanggal Masuk (Date In)</th>
+                  <th rowspan="2">Standard Fuel Rate (L/Jam)</th>
+                  <th colspan="2">Kapasitas Unit</th>
+                  <th rowspan="2">Status</th>
+                  <th rowspan="2">Lokasi</th>
+                  <th rowspan="2">Keterangan</th>
+                  <th rowspan="2">Aksi</th>
+                </tr>
+                <tr>
+                  <th>Value</th>
+                  <th>UoM</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyParamEquipment">
+                <tr><td colspan="13" class="tabel__kosong">Memuat master list unit...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ================= 0.2 PARAMETER STANDBY DAN BD ================= -->
+      <section id="tab-prodParamStandbyBd" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;">
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">⚙️ Parameter</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Master kode delay (Standby &amp; Breakdown), Master JOB, dan Problem Productivity operasional tambang.</p>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <h3 style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">⏱️ Parameter Standby Codes</h3>
+              <button class="tombol" style="padding:4px 10px;font-size:11px;" onclick="bukaModalTambahStandbyCode()">+ Kode Standby</button>
+            </div>
+            <div class="tabel-wrap" style="max-height:440px;overflow:auto;position:relative;">
+              <table class="tabel">
+                <thead style="position:sticky;top:0;z-index:2;">
+                  <tr>
+                    <th>Kode</th>
+                    <th>Kategori Standby</th>
+                    <th>Deskripsi</th>
+                    <th style="min-width:220px;">Governance</th>
+                    <th style="width:170px;">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyParamStandby">
+                  <tr><td colspan="5" class="tabel__kosong">Memuat kode standby...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <h3 style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">🛠️ Parameter Breakdown Codes</h3>
+              <button class="tombol" style="padding:4px 10px;font-size:11px;" onclick="bukaModalTambahBreakdownCode()">+ Kode Breakdown</button>
+            </div>
+            <div class="tabel-wrap" style="max-height:440px;overflow:auto;position:relative;">
+              <table class="tabel">
+                <thead style="position:sticky;top:0;z-index:2;">
+                  <tr>
+                    <th>Kode</th>
+                    <th>Kategori Breakdown</th>
+                    <th>Deskripsi</th>
+                    <th style="width:170px;">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyParamBreakdown">
+                  <tr><td colspan="4" class="tabel__kosong">Memuat kode breakdown...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
+          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
+              <div>
+                <h3 style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">Master JOB</h3>
+                <p style="margin:3px 0 0;font-size:11px;color:#64748b;">Referensi awal operasional tambang. Seluruh kode dan deskripsi dapat disesuaikan dengan standar perusahaan.</p>
+              </div>
+              <button class="tombol" style="padding:4px 10px;font-size:11px;" onclick="bukaModalTambahJobCode()">+ JOB</button>
+            </div>
+            <div class="tabel-wrap" style="max-height:440px;overflow:auto;">
+              <table class="tabel">
+                <thead>
+                  <tr><th style="width:150px;">JOB</th><th>JOB DESC</th><th style="width:170px;">AKSI</th></tr>
+                </thead>
+                <tbody id="tbodyParamJob">
+                  <tr><td colspan="3" class="tabel__kosong">Memuat master JOB...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
+              <div>
+                <h3 style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">Parameter Problem Productivity</h3>
+                <p style="margin:3px 0 0;font-size:11px;color:#64748b;">Pemetaan kategori problem operasional tambang (Machine, Man, Method, Material, Enviro).</p>
+              </div>
+              <button class="tombol" style="padding:4px 10px;font-size:11px;" onclick="bukaModalTambahProblemCode()">+ Problem</button>
+            </div>
+            <div class="tabel-wrap" style="max-height:440px;overflow:auto;">
+              <table class="tabel">
+                <thead>
+                  <tr><th style="width:110px;">Kategori</th><th style="width:90px;">Kode</th><th>Problem</th><th style="width:150px;">Aksi</th></tr>
+                </thead>
+                <tbody id="tbodyParamProblem">
+                  <tr><td colspan="4" class="tabel__kosong">Memuat problem productivity...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 0.3 SPO (STANDARD OPERATING PROCEDURE) ================= -->
+      <section id="tab-prodSpo" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;">
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📋 Standard Operating Procedure (SPO)</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Pengaturan SPO unit operasional berdasarkan kategori JOB</p>
+        </div>
+        <div style="display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+          <label style="font-size:12px;font-weight:700;color:#475569;">Tahun Awal<input id="spoGlobalStartYear" type="number" min="2000" max="2100" step="1" placeholder="2026" style="display:block;margin-top:4px;width:96px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;"></label>
+          <label style="font-size:12px;font-weight:700;color:#475569;">Tahun Akhir<input id="spoGlobalEndYear" type="number" min="2000" max="2100" step="1" placeholder="2029" style="display:block;margin-top:4px;width:96px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;"></label>
+          <button id="btnGenerateSpoPeriod" type="button" class="tombol tombol--utama" style="margin-bottom:1px;">Generate Periode</button>
+        </div>
+        <div style="display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:-4px 0 16px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+          <label style="font-size:12px;font-weight:700;color:#475569;">Weekly Model
+            <select id="spoWeeklyModel" style="display:block;margin-top:4px;min-width:245px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;">
+              <option value="week-of-year">Week of Year</option>
+              <option value="week-of-month">Week of Month</option>
+              <option value="manual-year">User (Manual) - Yearly Format</option>
+              <option value="manual-month">User (Manual) - Monthly Format</option>
+            </select>
+          </label>
+          <label id="spoWeekStartWrap" style="display:none;font-size:12px;font-weight:700;color:#475569;">Hari Awal
+            <select id="spoWeekStartDay" style="display:block;margin-top:4px;min-width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;">
+              <option value="1">Senin</option><option value="2">Selasa</option><option value="3">Rabu</option><option value="4">Kamis</option><option value="5">Jumat</option><option value="6">Sabtu</option><option value="0">Minggu</option>
+            </select>
+          </label>
+          <label style="font-size:12px;font-weight:700;color:#475569;">Tahun Aktif Seluruh Tabel
+            <select id="spoGlobalActiveYear" aria-label="Tahun aktif seluruh tabel SPO" style="display:block;margin-top:4px;min-width:170px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1e3a8a;font-weight:700;">
+              <option value="">Generate periode dahulu</option>
+            </select>
+          </label>
+          <span style="font-size:12px;color:#64748b;padding-bottom:8px;">Klik bulan → minggu → hari untuk melihat detail periode.</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;flex-wrap:wrap;"><p style="margin:0;font-size:13px;color:#64748b;">Buat tabel dari template, lalu sesuaikan parameter sebelum di-deploy.</p><button id="btnAddSpoTable" class="tombol tombol--utama">+ Tambah Tabel SPO</button></div><div id="spoTables" style="display:flex;flex-direction:column;gap:14px;"></div>
+      </section>
+
+      <!-- ================= 0.4 PA, UA & EWH ================= -->
+      <section id="tab-prodDelayForecasting" class="tab-konten" hidden>
+        <div id="paeDashboardApp">
+          <div style="margin-bottom:16px;"><h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📈 PA, UA &amp; EWH</h2><p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Input periodik Physical Availability, Use of Availability, dan Effective Working Hours per unit.</p></div>
+          <div style="display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+            <label style="font-size:12px;font-weight:700;color:#475569;">Pilih Tahun<select id="paeGlobalYear" aria-label="Pilih Tahun PA UA EWH" style="display:block;margin-top:4px;min-width:130px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1e3a8a;font-weight:700;"></select></label>
+            <span style="font-size:12px;color:#64748b;padding-bottom:8px;">Skema weekly mengikuti pengaturan dashboard SPO.</span>
+            <span id="paeSaveStatus" style="font-size:11px;color:#15803d;padding-bottom:8px;">Memuat…</span>
+          </div>
+          <input id="paeImportFile" type="file" accept=".xlsx,.xls" hidden>
+          <div id="paeTables" style="display:flex;flex-direction:column;gap:16px;"></div>
+        </div>
+        <div hidden>
+        <div style="margin-bottom:16px;">
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📈 PA, UA &amp; EWH</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Proyeksi dan simulasi potensi delay tambang akibat cuaca, hujan, dan antrean fleet.</p>
+        </div>
+        <div style="background:#fff;padding:24px;border-radius:12px;border:1px dashed #cbd5e1;text-align:center;color:#64748b;">
+          <div style="font-size:32px;margin-bottom:8px;">📈</div>
+          <h3 style="margin:0;font-size:16px;color:#334155;">Dashboard PA, UA &amp; EWH (Kosong)</h3>
+          <p style="margin:4px 0 0 0;font-size:13px;">Siap diisikan data proyeksi delay & simulasi hambatan tambang.</p>
+        </div>
+        </div>
+      </section>
+
+      <!-- ================= 0.5 PLAN PRODUCTIVITY ================= -->
+      <section id="tab-prodPlanProductivity" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div>
+            <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🎯 OB Productivity Planning</h2>
+            <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Perencanaan target produktivitas per jam untuk Excavator, Dump Truck, dan Fleet Loading. Formula mengikuti struktur Excel: Loader Cap, Num of Pass, Loading Time, Cycle Time Truck, Loader Productivity, Truck Productivity, Fleet Match, Fleet Productivity.</p>
+          </div>
+          <button id="btnAddPlanProductivityTable" type="button" class="tombol tombol--utama">+ Tambah Tabel Baru</button>
+        </div>
+
+        <div id="planProductivityTables" data-plan-productivity-container="ob" style="display:flex;flex-direction:column;gap:14px;"></div>
+
+      </section>
+
+      <!-- ================= 0.6 COAL PRODUCTIVITY PLANNING ================= -->
+      <section id="tab-prodCoalProductivity" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div>
+            <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">⛏️ Coal Productivity Planning</h2>
+            <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Perencanaan produktivitas coal dengan format, formula, dan koneksi Master Equipment yang sama.</p>
+          </div>
+          <button id="btnAddCoalProductivityTable" type="button" class="tombol tombol--utama">+ Tambah Tabel Baru</button>
+        </div>
+
+        <div id="coalProductivityTables" data-plan-productivity-container="coal" style="display:flex;flex-direction:column;gap:14px;"></div>
+      </section>
+
+      <!-- ================= 0.7 FUEL BUDGETING ================= -->
+      <section id="tab-prodBudgetingCosting" class="tab-konten" hidden>
+        <div style="display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#f8fafc;border:1px solid #dbe7f5;border-radius:9px;">
+          <label style="font-size:12px;font-weight:700;color:#475569;">Pilih Tahun<select id="fuelBudgetYear" aria-label="Pilih Tahun Fuel Budgeting" style="display:block;margin-top:4px;min-width:130px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1e3a8a;font-weight:700;"></select></label>
+          <span style="font-size:12px;color:#64748b;padding-bottom:8px;">Periode dan Weekly Model mengikuti dashboard SPO.</span>
+          <span id="fuelBudgetStatus" style="font-size:11px;color:#15803d;padding-bottom:8px;">Memuat…</span>
+        </div>
+        <div id="fuelBudgetTables" style="display:flex;flex-direction:column;gap:14px;min-width:0;"></div>
+      </section>
+
+      <!-- ================= 0.7 FLEET CAPACITY ================= -->
+      <section id="tab-prodFleetCapacity" class="tab-konten" hidden>
+        <div style="display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#f8fafc;border:1px solid #dbe7f5;border-radius:9px;">
+          <label style="font-size:11px;font-weight:700;color:#475569;">Pilih Tahun<select id="fleetCapacityYear" style="display:block;margin-top:4px;min-width:110px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-weight:700;"></select></label>
+          <span id="fleetCapacityStatus" style="font-size:11px;color:#15803d;padding-bottom:8px;">Memuat…</span>
+        </div>
+        <div id="fleetPitAreaSetup" style="min-width:0;"></div>
+        <div id="fleetPitAreaSelector" style="margin-top:14px;min-width:0;"></div>
+        <div id="fleetAreaPlanningGuide" style="margin-top:14px;padding:28px;border:1px dashed #94a3b8;border-radius:12px;background:#f8fafc;text-align:center;color:#64748b;font-size:14px;font-weight:700;">Silakan pilih area</div>
+        <div id="fleetAreaPlanningContent" hidden>
+          <div id="fleetPeriodicSetup" style="margin-top:14px;min-width:0;"></div>
+          <div id="fleetProductionPlanning" style="margin-top:14px;min-width:0;"></div>
+        </div>
+      </section>
+
+      <!-- ================= 0.9 UNIT MAPPING ================= -->
+      <section id="tab-prodUnitMapping" class="tab-konten" hidden>
+        <div class="um-page-head">
+          <div>
+            <h2>🗺️ Unit Mapping Control Board</h2>
+            <p>Komposisi dan alokasi unit per area berdasarkan PIT Area Setup dan Fleet Periodic Setup.</p>
+          </div>
+          <span class="um-strict-badge">🔒 Strict DT Compatibility</span>
+        </div>
+        <div class="um-toolbar">
+          <label>Tahun<select id="unitMappingYear"></select></label>
+          <label>Bulan<select id="unitMappingMonth"></select></label>
+          <label>Mapping Scope<select id="unitMappingScope"><option value="month">Bulanan</option><option value="week">Mingguan</option><option value="day">Harian</option></select></label>
+          <label>Minggu<select id="unitMappingWeek"></select></label>
+          <label>Hari<select id="unitMappingDay"></select></label>
+          <div class="um-period-caption"><small>Periode aktif</small><strong id="unitMappingPeriodCaption">—</strong></div>
+          <span id="unitMappingStatus" data-tone="pending">Memuat…</span>
+        </div>
+        <div class="um-actions">
+          <div class="um-actions__filters">
+            <input id="unitMappingSearch" type="search" placeholder="Cari kode unit, class, atau model…" aria-label="Cari unit" />
+            <select id="unitMappingQueueFilter" aria-label="Filter antrean unit"><option value="all">Semua Antrian</option><option value="excavator-support">Excavator Support</option><option value="dump-truck">Dump Truck</option><option value="dozer-support">Dozer Support</option><option value="support">Support Equipment</option><option value="mixed">Mixed Allocation</option></select>
+          </div>
+          <div class="um-actions__buttons">
+            <button type="button" id="unitMappingUndo" disabled>↶ Undo</button>
+            <button type="button" id="unitMappingRedo" disabled>↷ Redo</button>
+            <button type="button" id="unitMappingCopyPrevious">⧉ Copy Periode Sebelumnya</button>
+            <button type="button" id="unitMappingAutoAllocate" class="is-primary">⚡ Auto Allocate DT</button>
+          </div>
+        </div>
+        <div class="um-workspace">
+          <div id="unitMappingQueue"></div>
+          <div id="unitMappingKpis" class="um-kpi-grid"></div>
+        </div>
+      </section>
+
+      <!-- ================= 1. INPUT DATA PRODUKSI ================= -->
+      <section id="tab-prodInputData" class="tab-konten" hidden>
+        <!-- AREA HEADER & SLICER -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:12px;">
+            <div>
+              <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📝 Input Data Produksi (Daily Work Log)</h2>
+              <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Pencatatan jam kerja unit, operator, JOB, PIT/Area, dan total HM otomatis.</p>
+            </div>
+            <!-- POJOK KANAN ATAS: SLICER UTAMA TAHUN & BULAN + TOMBOL EXPORT & TAMBAH WORK LOG -->
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <label style="font-size:12px;font-weight:700;color:#475569;">📅 Tahun:</label>
+                <select id="slicerInputTahun" class="input-filter" onchange="muatProdInputData()" style="padding:6px 10px;font-size:12px;border-radius:6px;background:#fff;border:1px solid #94a3b8;font-weight:600;">
+                  <option value="">Semua Tahun</option>
+                  <option value="2026">2026</option>
+                  <option value="2025">2025</option>
+                  <option value="2024">2024</option>
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <label style="font-size:12px;font-weight:700;color:#475569;">🗓️ Bulan:</label>
+                <select id="slicerInputBulan" class="input-filter" onchange="muatProdInputData()" style="padding:6px 10px;font-size:12px;border-radius:6px;background:#fff;border:1px solid #94a3b8;font-weight:600;">
+                  <option value="">Semua Bulan</option>
+                  <option value="01">Januari</option>
+                  <option value="02">Februari</option>
+                  <option value="03">Maret</option>
+                  <option value="04">April</option>
+                  <option value="05">Mei</option>
+                  <option value="06">Juni</option>
+                  <option value="07">Juli</option>
+                  <option value="08">Agustus</option>
+                  <option value="09">September</option>
+                  <option value="10">Oktober</option>
+                  <option value="11">November</option>
+                  <option value="12">Desember</option>
+                </select>
+              </div>
+              <button id="btnExportWorkLogExcel" class="tombol" onclick="exportWorkLogExcelV2()" title="Export Work Log Excel V2 — mendukung input dan dropdown">📊 Export Excel</button>
+              <button id="btnImportWorkLogExcel" class="tombol" onclick="pilihFileImportWorkLog()" title="Import Work Log menggunakan format file Export Excel" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-weight:800;">⬆ Import Excel</button>
+              <input id="inputImportWorkLogExcel" type="file" accept=".xlsx,.xls" hidden />
+              <button id="btnToggleDeleteWorkLogs" class="tombol" onclick="toggleInputDataBulkDeleteMode()" style="background:#dc2626;color:#fff;border-color:#b91c1c;font-weight:800;">Hapus Work Log</button>
+              <button id="btnUndoInputData" class="tombol" onclick="undoInputDataAction()" disabled title="Undo perubahan terakhir" style="font-weight:800;">↶ Undo</button>
+              <button id="btnRedoInputData" class="tombol" onclick="redoInputDataAction()" disabled title="Redo perubahan terakhir" style="font-weight:800;">↷ Redo</button>
+              <button id="btnSimpanPerubahanInputData" class="tombol" onclick="simpanSemuaPerubahanInputData()" disabled style="background:#0f766e;color:#fff;border-color:#0f766e;">Simpan Perubahan</button>
+              <span id="statusSimpanInputData" style="font-size:11px;font-weight:700;color:#15803d;">Tersimpan</span>
+              <button class="tombol" onclick="bukaModalMultiWorkLog()" style="border-color:#4338ca;color:#fff;background:#4f46e5;box-shadow:0 3px 8px rgba(79,70,229,.24);font-weight:800;">+ Multi Work Log</button>
+              <button class="tombol tombol--utama" onclick="bukaModalInputDataProduksi()">+ Tambah Work Log</button>
+            </div>
+          </div>
+
+          <!-- BARIS SLICER FILTER INPUT DATA -->
+          <div style="background:#ffffff;padding:10px 14px;border-radius:8px;border:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+              <div style="font-weight:700;color:#334155;font-size:13px;display:flex;align-items:center;gap:6px;">
+                <span>🔍</span> Filter Log Produksi:
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Tanggal Log:</label>
+                <input type="date" id="slicerInputTanggal" class="input-filter" onchange="terapkanSlicerInputData()" style="padding:5px 10px;font-size:12px;border-radius:6px;background:#fff;border:1px solid #94a3b8;" />
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Kode Unit:</label>
+                <select id="slicerInputKode" class="input-filter" onchange="terapkanSlicerInputData()" style="padding:6px 12px;font-size:12px;border-radius:6px;min-width:140px;background:#fff;border:1px solid #94a3b8;">
+                  <option value="">Semua Kode Unit</option>
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Shift:</label>
+                <select id="slicerInputShift" class="input-filter" onchange="terapkanSlicerInputData()" style="padding:6px 12px;font-size:12px;border-radius:6px;min-width:130px;background:#fff;border:1px solid #94a3b8;">
+                  <option value="">Semua Shift</option>
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Operator:</label>
+                <select id="slicerInputOperator" class="input-filter" onchange="terapkanSlicerInputData()" style="padding:6px 12px;font-size:12px;border-radius:6px;min-width:140px;background:#fff;border:1px solid #94a3b8;">
+                  <option value="">Semua Operator</option>
+                </select>
+              </div>
+              <button class="tombol-tautan" style="font-size:12px;color:#0284c7;font-weight:600;" onclick="resetSlicerInputData()">🔄 Reset Filter</button>
+            </div>
+            <div id="counterSlicerInputData" style="font-size:12px;font-weight:bold;color:#475569;background:#e2e8f0;padding:4px 10px;border-radius:12px;">
+              Total Work Log: 0
+            </div>
+          </div>
+        </div>
+
+        <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:20px;">
+          <div id="inputDataBulkDeleteBar" hidden style="align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#fff1f2;border:1px solid #fda4af;border-radius:8px;">
+            <label style="display:flex;align-items:center;gap:8px;color:#881337;font-size:12px;font-weight:800;cursor:pointer;"><input id="inputDataSelectAll" type="checkbox" onchange="toggleSelectAllInputData(this.checked)" style="width:17px;height:17px;accent-color:#dc2626;"> Centang Semua</label>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span id="inputDataDeleteSelectedCount" style="font-size:12px;font-weight:800;color:#9f1239;">0 Work Log dipilih</span><button type="button" class="tombol" onclick="cancelInputDataBulkDelete()">Batal</button><button id="btnDeleteSelectedWorkLogs" type="button" class="tombol" onclick="deleteSelectedInputDataLogs()" disabled style="background:#dc2626;color:#fff;border-color:#b91c1c;font-weight:800;">Hapus Terpilih</button></div>
+          </div>
+          <div id="inputDataValidationGuide" hidden></div>
+          <!-- CONTAINER SCROLL STICKY DENGAN FREEZE HEADER TABLE -->
+          <div class="tabel-wrap tabel-wrap-sticky">
+            <table class="tabel tabel-sticky prod-input-table">
+              <thead>
+                <tr>
+                  <th rowspan="2" data-input-delete-column hidden style="width:46px;min-width:46px;text-align:center;">Pilih</th>
+                  <th rowspan="2">Tanggal</th>
+                  <th rowspan="2">Shift</th>
+                  <th rowspan="2">Kode Unit</th>
+                  <th rowspan="2">Class</th>
+                  <th rowspan="2">Operator</th>
+                  <th rowspan="2">PIT / Area</th>
+                  <th colspan="3" class="prod-input-hm-group">HM</th>
+                  <th rowspan="2">JOB</th>
+                  <th rowspan="2">Job Description</th>
+                </tr>
+                <tr>
+                  <th>Start</th>
+                  <th>Akhir</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyProdInputData">
+                <tr><td colspan="11" class="tabel__kosong">Memuat log produksi harian...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 2. INPUT FUEL ================= -->
+      <section id="tab-prodInputFuel" class="tab-konten" hidden>
+        <div class="fuel-page-header">
+          <div>
+            <h2>⛽ Input Fuel & Efficiency Tracking</h2>
+            <p>Monitoring pengisian Fuel berbasis counter HM dan KM aktual untuk setiap unit.</p>
+          </div>
+          <div class="fuel-page-actions">
+            <label>Tahun<select id="slicerFuelTahun" class="input-filter" onchange="muatProdInputFuel()"><option value="2026">2026</option></select></label>
+            <label>Bulan<select id="slicerFuelBulan" class="input-filter" onchange="muatProdInputFuel()">
+              <option value="01">Januari</option><option value="02">Februari</option><option value="03">Maret</option>
+              <option value="04">April</option><option value="05">Mei</option><option value="06">Juni</option>
+              <option value="07">Juli</option><option value="08">Agustus</option><option value="09">September</option>
+              <option value="10">Oktober</option><option value="11">November</option><option value="12">Desember</option>
+            </select></label>
+            <button id="btnExportFuelExcel" class="tombol tombol--ghost" onclick="exportFuelExcel()">📊 Export</button>
+            <button id="btnImportFuelExcel" class="tombol fuel-button-import" onclick="pilihFileImportFuel()">⬆ Import</button>
+            <input id="inputImportFuelExcel" type="file" accept=".xlsx,.xls" hidden />
+            <button id="btnToggleDeleteFuelLogs" class="tombol fuel-button-delete" onclick="toggleFuelBulkDeleteMode()">Hapus</button>
+            <button id="btnUndoFuel" class="tombol fuel-button-history" onclick="undoFuelAction()" disabled>↶ Undo</button>
+            <button id="btnRedoFuel" class="tombol fuel-button-history" onclick="redoFuelAction()" disabled>↷ Redo</button>
+            <button id="btnSimpanFuel" class="tombol fuel-button-save" onclick="simpanPerubahanFuel()" disabled>Simpan</button>
+          </div>
+          <div id="fuelBulkDeleteBar" class="fuel-bulk-delete" hidden>
+            <label><input id="fuelSelectAll" type="checkbox" onchange="toggleSelectAllFuel(this.checked)" /> Pilih seluruh log yang sedang terbuka</label>
+            <span id="fuelDeleteSelectedCount">0 Log Fuel dipilih</span>
+            <button id="btnDeleteSelectedFuel" class="tombol fuel-button-delete" onclick="deleteSelectedFuelLogs()" disabled>Hapus Terpilih</button>
+            <button class="tombol tombol--ghost" onclick="cancelFuelBulkDelete()">Batal</button>
+          </div>
+        </div>
+
+        <div class="fuel-filter-panel">
+          <label class="fuel-filter-search"><span>⌕</span><input id="slicerFuelKode" type="search" placeholder="Cari kode unit, class, atau model…" oninput="scheduleFuelCardReload()" /></label>
+          <label>Jenis Alat<select id="slicerFuelJenis" onchange="muatProdInputFuel()"><option value="">Semua Jenis</option></select></label>
+          <label>Class<select id="slicerFuelClass" onchange="muatProdInputFuel()"><option value="">Semua Class</option></select></label>
+          <label>Status<select id="slicerFuelStatus" onchange="muatProdInputFuel()"><option value="">Semua Status</option><option value="connected">Terkoneksi</option><option value="anomaly">Anomali</option><option value="empty">Belum Ada Data</option></select></label>
+          <button type="button" class="tombol-tautan" onclick="resetSlicerInputFuel()">Reset Filter</button>
+          <span id="counterSlicerInputFuel" class="fuel-filter-count">0 unit</span>
+        </div>
+
+        <div id="fuelKpiGrid" class="fuel-kpi-grid" aria-live="polite"></div>
+
+        <div id="fuelCardGroups" class="fuel-card-groups">
+          <div class="fuel-loading-state">Memuat kartu unit dan kalkulasi Fuel…</div>
+        </div>
+      </section>
+
+      <!-- ================= 4. STANDBY ================= -->
+      <section id="tab-prodStandby" class="tab-konten" hidden lang="id-ID">
+        <div class="standby-v2-page">
+          <div class="standby-v2-freeze">
+          <header class="standby-v2-header">
+            <div><h2>⏱️ Unit Standby Control</h2><p>Standby per hari operasional dan shift, terorganisasi berdasarkan jenis, class, dan kode unit.</p></div>
+            <div class="standby-v2-actions">
+              <button class="tombol standby-history-button" onclick="bukaStandbyHistory()">📚 Standby History</button>
+              <button class="tombol standby-review-button" onclick="bukaReviewStandby()">✓ Review Standby <span id="standbyReviewBadge">0</span></button>
+              <button class="tombol standby-quality-button" onclick="bukaStandbyDataQuality()">Data Quality <span id="standbyQualityBadge">0</span></button>
+              <button class="tombol standby-pareto-button" onclick="bukaStandbyPareto()">Pareto</button>
+              <button class="tombol standby-export-button" onclick="exportStandbyExcel()">📊 Export Excel</button>
+              <button id="btnToggleDeleteStandbyLogs" class="tombol standby-delete-button" onclick="toggleStandbyBulkDeleteMode()">Hapus</button>
+              <button class="tombol tombol--utama" onclick="bukaModalInputStandby()">+ Multi Unit</button>
+            </div>
+          </header>
+
+          <div id="standbyBulkDeleteBar" class="standby-bulk-delete" hidden>
+            <label><input id="standbySelectAll" type="checkbox" onchange="toggleSelectAllStandby(this.checked)" /> Pilih seluruh record manual pada tabel yang sedang terbuka</label>
+            <span id="standbyDeleteSelectedCount">0 Standby dipilih</span>
+            <button id="btnDeleteSelectedStandby" class="tombol standby-delete-button" onclick="deleteSelectedStandbyLogs()" disabled>Hapus Terpilih</button>
+            <button class="tombol tombol--ghost" onclick="cancelStandbyBulkDelete()">Batal</button>
+          </div>
+          </div>
+
+          <div id="standbyActivePanel" class="standby-active-panel" hidden></div>
+
+          <div class="standby-v2-filter">
+            <label>Dari Tanggal<input id="slicerStandbyFrom" type="date" onchange="muatProdStandby()" /></label>
+            <label>Sampai Tanggal<input id="slicerStandbyTo" type="date" onchange="muatProdStandby()" /></label>
+            <label>Shift<select id="slicerStandbyShiftV2" onchange="renderStandbyWorkspace()"><option value="">Semua Shift</option></select></label>
+            <label>Jenis Unit<select id="slicerStandbyJenis" onchange="syncStandbyFilterOptions();renderStandbyWorkspace()"><option value="">Semua Jenis</option></select></label>
+            <label>Class<select id="slicerStandbyClass" onchange="syncStandbyFilterOptions();renderStandbyWorkspace()"><option value="">Semua Class</option></select></label>
+            <label>Kode Unit<select id="slicerStandbyUnit" onchange="renderStandbyWorkspace()"><option value="">Semua Unit</option></select></label>
+            <label>Kode Standby<select id="slicerStandbyCodeV2" onchange="renderStandbyWorkspace()"><option value="">Semua Kode</option></select></label>
+            <label>Status Review<select id="slicerStandbyReview" onchange="renderStandbyWorkspace()"><option value="">Semua Status</option><option value="pending">Belum Direview</option><option value="approved">Disetujui</option><option value="returned">Dikembalikan</option></select></label>
+            <button class="tombol-tautan" onclick="resetSlicerStandbyV2()">Reset Filter</button>
+          </div>
+
+          <div id="standbyKpiGrid" class="standby-v2-kpis" aria-live="polite"></div>
+          <div id="standbyEditSessionBar" class="standby-edit-session" hidden role="status" aria-live="polite">
+            <div><b id="standbyEditSessionTitle">Belum ada perubahan</b><span id="standbyEditSessionMessage">Edit record manual pada tabel unit, lalu simpan bersama dalam satu sesi.</span></div>
+            <div><button class="tombol tombol--ghost" type="button" onclick="batalPerubahanStandby()">Batalkan Perubahan</button><button id="btnSimpanSesiStandby" class="tombol tombol--utama" type="button" onclick="simpanSesiStandby()">Simpan Sesi</button></div>
+          </div>
+          <div id="standbyUnitWorkspace" class="standby-unit-workspace"><div class="standby-loading">Memuat data standby…</div></div>
+        </div>
+
+        <div hidden aria-hidden="true">
+        <!-- AREA HEADER & SLICER -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:12px;">
+            <div>
+              <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">⏱️ Standby Tracking & Pareto Analysis</h2>
+              <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Pencatatan waktu hambatan kerja non-kerusakan (Rain, Waiting Truck, Refueling).</p>
+            </div>
+            <!-- POJOK KANAN ATAS: SLICER UTAMA TAHUN & BULAN + TOMBOL INPUT STANDBY -->
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <label style="font-size:12px;font-weight:700;color:#475569;">📅 Tahun:</label>
+                <select id="slicerStandbyTahun" class="input-filter" onchange="muatProdStandby()" style="padding:6px 10px;font-size:12px;border-radius:6px;background:#fff;border:1px solid #94a3b8;font-weight:600;">
+                  <option value="">Semua Tahun</option>
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <label style="font-size:12px;font-weight:700;color:#475569;">🗓️ Bulan:</label>
+                <select id="slicerStandbyBulan" class="input-filter" onchange="muatProdStandby()" style="padding:6px 10px;font-size:12px;border-radius:6px;background:#fff;border:1px solid #94a3b8;font-weight:600;">
+                  <option value="">Semua Bulan</option>
+                  <option value="01">Januari</option>
+                  <option value="02">Februari</option>
+                  <option value="03">Maret</option>
+                  <option value="04">April</option>
+                  <option value="05">Mei</option>
+                  <option value="06">Juni</option>
+                  <option value="07">Juli</option>
+                  <option value="08">Agustus</option>
+                  <option value="09">September</option>
+                  <option value="10">Oktober</option>
+                  <option value="11">November</option>
+                  <option value="12">Desember</option>
+                </select>
+              </div>
+              <button class="tombol tombol--utama" onclick="bukaModalInputStandby()">+ Multi Unit</button>
+              <button id="btnSimpanPerubahanStandby" class="tombol" onclick="simpanPerubahanStandby()" disabled style="background:#0f766e;color:#fff;border-color:#0f766e;font-weight:800;">Simpan Perubahan</button>
+              <span id="statusSimpanStandby" style="font-size:11px;font-weight:700;color:#15803d;">Tersimpan</span>
+            </div>
+          </div>
+
+          <!-- BARIS SLICER FILTER STANDBY -->
+          <div style="background:#ffffff;padding:10px 14px;border-radius:8px;border:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+              <div style="font-weight:700;color:#334155;font-size:13px;display:flex;align-items:center;gap:6px;">
+                <span>🔍</span> Filter Log Standby:
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Tanggal Log:</label>
+                <input type="date" id="slicerStandbyTanggal" class="input-filter" onchange="terapkanSlicerStandby()" style="padding:5px 10px;font-size:12px;border-radius:6px;background:#fff;border:1px solid #94a3b8;" />
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Kode Unit:</label>
+                <select id="slicerStandbyKode" class="input-filter" onchange="terapkanSlicerStandby()" style="padding:6px 12px;font-size:12px;border-radius:6px;min-width:140px;background:#fff;border:1px solid #94a3b8;">
+                  <option value="">Semua Kode Unit</option>
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;">Shift:</label>
+                <select id="slicerStandbyShift" class="input-filter" onchange="terapkanSlicerStandby()" style="padding:6px 12px;font-size:12px;border-radius:6px;min-width:130px;background:#fff;border:1px solid #94a3b8;">
+                  <option value="">Semua Shift</option>
+                </select>
+              </div>
+              <button class="tombol-tautan" style="font-size:12px;color:#0284c7;font-weight:600;" onclick="resetSlicerStandby()">🔄 Reset Filter</button>
+            </div>
+            <div id="counterSlicerStandby" style="font-size:12px;font-weight:bold;color:#475569;background:#e2e8f0;padding:4px 10px;border-radius:12px;">
+              Total Log Standby: 0
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+            <h4 style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#334155;">Grafik Pareto Standby (Jam Delay)</h4>
+            <div style="position:relative;height:240px;width:100%;max-height:240px;">
+              <canvas id="chartParetoStandby"></canvas>
+            </div>
+          </div>
+          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+            <h4 style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#334155;">Distribusi Kategori Standby</h4>
+            <div style="position:relative;height:240px;width:100%;max-height:240px;">
+              <canvas id="chartPieStandby"></canvas>
+            </div>
+          </div>
+        </div>
+        <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:20px;">
+          <!-- CONTAINER SCROLL STICKY DENGAN FREEZE HEADER TABLE -->
+          <div class="tabel-wrap tabel-wrap-sticky">
+            <table class="tabel tabel-sticky prod-standby-table">
+              <thead>
+                <tr>
+                <th>Tanggal</th>
+                <th>Shift</th>
+                <th>Kode Unit</th>
+                <th>Class</th>
+                <th>Kode Standby</th>
+                <th>Kategori Standby</th>
+                <th>Mulai</th>
+                <th>Selesai</th>
+                <th>Total Standby (Jam)</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyProdStandby">
+                <tr><td colspan="8" class="tabel__kosong">Memuat data standby unit...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <!-- ================= 3. BREAKDOWN ================= -->
+      <section id="tab-prodBreakdown" class="tab-konten" hidden>
+        <div class="breakdown-page-header">
+          <div>
+            <h2>🛠️ Unit Breakdown Control</h2>
+            <p>Monitoring insiden, durasi proses mekanik, waktu tunggu, PIC, part dan nomor PO per unit.</p>
+          </div>
+          <div class="breakdown-page-actions">
+            <label>Tahun<select id="slicerBreakdownTahun" onchange="muatProdBreakdown()"></select></label>
+            <label>Bulan<select id="slicerBreakdownBulan" onchange="muatProdBreakdown()">
+              <option value="1">Januari</option><option value="2">Februari</option><option value="3">Maret</option>
+              <option value="4">April</option><option value="5">Mei</option><option value="6">Juni</option>
+              <option value="7">Juli</option><option value="8">Agustus</option><option value="9">September</option>
+              <option value="10">Oktober</option><option value="11">November</option><option value="12">Desember</option>
+            </select></label>
+            <button class="tombol breakdown-history-button" onclick="bukaBreakdownHistory()">📚 Breakdown History</button>
+            <button class="tombol unit-performance-button" onclick="bukaUnitPerformance()">📈 Unit Performance</button>
+            <button class="tombol tombol--utama" onclick="bukaModalInputBreakdown()">+ Breakdown Baru</button>
+          </div>
+        </div>
+        <div class="breakdown-filter-panel">
+          <label class="breakdown-filter-search"><span>⌕</span><input id="slicerBreakdownCari" type="search" placeholder="Cari unit, kerusakan, reporter, PIC, part atau PO…" oninput="terapkanSlicerBreakdown()" /></label>
+          <label>Status<select id="slicerBreakdownStatus" onchange="terapkanSlicerBreakdown()">
+            <option value="">Semua Status</option><option value="open">Semua Aktif</option>
+            <option value="mechanic_progress">Progres Mekanik</option><option value="waiting_part">Waiting Part</option>
+            <option value="waiting_tool">Waiting Tool</option><option value="waiting_manpower">Waiting Manpower</option>
+            <option value="waiting_vendor">Waiting Vendor</option><option value="awaiting_verification">Menunggu Verifikasi</option><option value="resolved">Ready to Operate</option>
+          </select></label>
+          <button type="button" class="tombol-tautan" onclick="resetSlicerBreakdown()">Reset Filter</button>
+          <span id="counterSlicerBreakdown" class="breakdown-filter-count">0 unit</span>
+        </div>
+
+        <div id="breakdownKpiGrid" class="breakdown-kpi-grid" aria-live="polite">
+          <article><span>Calendar PA</span><strong id="metricPa">--%</strong><small id="metricPaBasis">Basis periode</small></article>
+          <article><span>MTBF Kalender</span><strong id="metricMtbf">-- Jam</strong><small>Uptime kalender / insiden</small></article>
+          <article><span>MTTR Selesai</span><strong id="metricMttr">-- Jam</strong><small>Rata-rata insiden selesai</small></article>
+          <article class="is-danger"><span>Breakdown Aktif</span><strong id="metricBdOpen">0</strong><small>Insiden belum selesai</small></article>
+          <article><span>Total Downtime</span><strong id="metricBdHours">0 Jam</strong><small>Dalam periode</small></article>
+          <article><span>Unit Terdampak</span><strong id="metricBdUnits">0</strong><small>Unit unik dalam periode</small></article>
+        </div>
+
+        <div class="breakdown-table-stack">
+          <section class="breakdown-table-section is-active-breakdown">
+            <header><div><h3>🛠️ Breakdown Aktif</h3><p>Unit masih dalam proses perbaikan atau menunggu resource.</p></div><strong id="breakdownActiveCount">0 insiden</strong></header>
+            <div class="tabel-wrap breakdown-table-wrap">
+              <table class="tabel breakdown-unit-table">
+                <thead><tr><th>Unit</th><th>Tanggal / Shift</th><th>Jenis Kerusakan</th><th>Mulai</th><th>Status</th><th>Total BD</th><th>Report By</th><th>PIC</th><th>Detail Part / PO</th><th>Aksi</th></tr></thead>
+                <tbody id="tbodyProdBreakdown"><tr><td colspan="10" class="tabel__kosong">Memuat breakdown aktif...</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="breakdown-table-section is-ready-check">
+            <header><div><h3>✅ Selesai Perbaikan & Verifikasi</h3><p>Unit selesai diperbaiki, menunggu validasi, atau telah Ready to Operate.</p></div><strong id="breakdownCompletedCount">0 insiden</strong></header>
+            <div class="tabel-wrap breakdown-table-wrap">
+              <table class="tabel breakdown-unit-table breakdown-completed-table">
+                <thead><tr><th>Unit</th><th>Tanggal / Shift</th><th>Jenis Kerusakan</th><th>Mulai</th><th>Status</th><th>Total BD</th><th>Report By</th><th>PIC</th><th>Detail Part / PO</th><th>Aksi</th></tr></thead>
+                <tbody id="tbodyProdBreakdownCompleted"><tr><td colspan="10" class="tabel__kosong">Memuat unit selesai perbaikan...</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ================= 5. INPUT RITASE & FLEET MAPPING ================= -->
+      <section id="tab-prodInputRitase" class="tab-konten" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🚚 Input Ritase per Fleet</h2>
+            <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Satu tabel per fleet: Excavator (loader) + Dump Truck (hauler), header PIT/Area, JOB, material &amp; jarak, dengan input ritase per jam sesuai shift.</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="date" id="filterTanggalRitase" class="input-filter" onchange="muatProdRitase()" />
+            <select id="filterShiftRitase" class="input-filter" onchange="muatProdRitase()"><option value="">Semua Shift</option></select>
+            <button class="tombol" onclick="bukaModalTruckFactor()">⚖️ Truck Factor Setup</button>
+            <button class="tombol tombol--utama" onclick="bukaModalInputFleet()">+ Tambah Fleet</button>
+          </div>
+        </div>
+        <div id="fleetRitaseContainer">
+          <p class="tabel__kosong" style="padding:24px;text-align:center;color:#64748b;">Memuat data ritase...</p>
+        </div>
+      </section>
+
+      <!-- ================= 6. DAILY DASHBOARD ================= -->
+      <section id="tab-prodDailyDashboard" class="tab-konten" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📊 Daily Production Dashboard (Mine Control)</h2>
+            <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Pantauan KPI harian produksi Batubara, OB, solar, HM unit, dan grafik per jam.</p>
+          </div>
+          <input type="date" id="filterDateDailyDash" class="input-filter" onchange="muatDailyDashboard()" />
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;margin-bottom:20px;">
+          <div style="background:#ffffff;padding:14px;border-radius:10px;border:1px solid #e2e8f0;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;">Coal Production (MT)</div>
+            <div id="dashCoalActual" style="font-size:20px;font-weight:800;color:#0f172a;margin-top:4px;">0 MT</div>
+            <div id="dashCoalAchieve" style="font-size:11px;font-weight:700;color:#16a34a;margin-top:2px;">Achievement: 0%</div>
+          </div>
+          <div style="background:#ffffff;padding:14px;border-radius:10px;border:1px solid #e2e8f0;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;">OB Production (BCM)</div>
+            <div id="dashObActual" style="font-size:20px;font-weight:800;color:#2563eb;margin-top:4px;">0 BCM</div>
+            <div id="dashObAchieve" style="font-size:11px;font-weight:700;color:#2563eb;margin-top:2px;">Achievement: 0%</div>
+          </div>
+          <div style="background:#ffffff;padding:14px;border-radius:10px;border:1px solid #e2e8f0;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;">Total Fuel (Liter)</div>
+            <div id="dashTotalFuel" style="font-size:20px;font-weight:800;color:#ea580c;margin-top:4px;">0 L</div>
+          </div>
+          <div style="background:#ffffff;padding:14px;border-radius:10px;border:1px solid #e2e8f0;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;">Average Cycle Time</div>
+            <div id="dashAvgCycle" style="font-size:20px;font-weight:800;color:#7c3aed;margin-top:4px;">0 Menit</div>
+          </div>
+          <div style="background:#fefce8;padding:14px;border-radius:10px;border:1px solid #fef08a;">
+            <div style="font-size:11px;font-weight:700;color:#a16207;">Cuaca & Field Status</div>
+            <div id="dashWeather" style="font-size:14px;font-weight:800;color:#854d0e;margin-top:4px;">Cerah (29°C)</div>
+          </div>
+        </div>
+        <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+          <h4 style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#334155;">Grafik Produksi per Jam (Hourly Production Trend)</h4>
+          <div style="position:relative;height:260px;width:100%;max-height:260px;">
+            <canvas id="chartHourlyProd"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 7. SHIFT REPORT ================= -->
+      <section id="tab-prodShiftReport" class="tab-konten" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📑 Automatic Shift Summary Report</h2>
+            <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Ringkasan otomatis hasil produksi, kendala standby, kerusakan, dan catatan pengawas shift.</p>
+          </div>
+          <button class="tombol tombol--utama" onclick="cetakPdfShiftReport()">🖨️ Cetak PDF Shift Report</button>
+        </div>
+        <div id="areaCetakShiftReport" style="background:#fff;padding:24px;border-radius:12px;border:1px solid #cbd5e1;">
+          <div style="display:flex;justify-content:space-between;border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:16px;">
+            <div>
+              <h3 style="margin:0;font-size:18px;font-weight:800;color:#0f172a;">PT. PRIMA INDOJAYA MANDIRI — OMOS CONTROL ROOM</h3>
+              <p style="margin:2px 0 0 0;font-size:13px;font-weight:600;color:#475569;">DAILY SHIFT PRODUCTION & OPERATIONAL REPORT</p>
+            </div>
+            <div style="text-align:right;font-size:12px;color:#64748b;">
+              <div>Tanggal: <strong id="srTanggal">--</strong></div>
+              <div>Shift: <strong id="srShift">Shift 1 (Siang)</strong></div>
+            </div>
+          </div>
+          <div id="srKontenDetail" style="line-height:1.6;font-size:13px;color:#334155;">
+            <p>Memuat ringkasan otomatis shift report...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 8. PRODUCTIVITY REPORT ================= -->
+      <section id="tab-prodProductivityReport" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;">
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🚀 Equipment & Operator Productivity Ranking</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Leaderboard Top 10 / Bottom 10 produktivitas unit Excavator, Dump Truck, dan Operator.</p>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+            <h4 style="margin:0 0 12px 0;font-size:14px;font-weight:800;color:#0f172a;">🏆 Top 10 Excavator Productivity</h4>
+            <div id="listTopExcavators">Memuat data ranking...</div>
+          </div>
+          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+            <h4 style="margin:0 0 12px 0;font-size:14px;font-weight:800;color:#0f172a;">🚛 Top 10 Dump Truck Productivity</h4>
+            <div id="listTopDumpTrucks">Memuat data ranking...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 9. MTD REPORT ================= -->
+      <section id="tab-prodMtdReport" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;">
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📅 Month To Date (MTD) Production Report</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Akumulasi pencapaian produksi bulan berjalan vs target bulanan dan 30-day forecast.</p>
+        </div>
+        <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:16px;">
+          <div style="position:relative;height:300px;width:100%;max-height:300px;">
+            <canvas id="chartMtdTrend"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 10. YTD REPORT ================= -->
+      <section id="tab-prodYtdReport" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;">
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🗓️ Year To Date (YTD) Production & Fuel Graphs</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Tren tahunan produksi Batubara vs OB dan efisiensi bahan bakar tahunan.</p>
+        </div>
+        <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
+          <div style="position:relative;height:300px;width:100%;max-height:300px;">
+            <canvas id="chartYtdMonthly"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 11. PROJECT TO DATE ================= -->
+      <section id="tab-prodProjectToDate" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;">
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🏆 Project To Date (Lifetime Accumulation)</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Total volume lifetime produksi proyek tambang PIM dari awal hingga saat ini.</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;">
+          <div style="background:#1e293b;color:#fff;padding:20px;border-radius:12px;">
+            <div style="font-size:12px;color:#94a3b8;font-weight:700;">TOTAL COAL PRODUCED</div>
+            <div id="ptdCoal" style="font-size:26px;font-weight:800;color:#38bdf8;margin-top:6px;">0 MT</div>
+          </div>
+          <div style="background:#1e293b;color:#fff;padding:20px;border-radius:12px;">
+            <div style="font-size:12px;color:#94a3b8;font-weight:700;">TOTAL OVERBURDEN REMOVED</div>
+            <div id="ptdOb" style="font-size:26px;font-weight:800;color:#4ade80;margin-top:6px;">0 BCM</div>
+          </div>
+          <div style="background:#1e293b;color:#fff;padding:20px;border-radius:12px;">
+            <div style="font-size:12px;color:#94a3b8;font-weight:700;">TOTAL FUEL CONSUMED</div>
+            <div id="ptdFuel" style="font-size:26px;font-weight:800;color:#fbbf24;margin-top:6px;">0 Liter</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 12. EXECUTIVE DASHBOARD (SIGNATURE DARK MODE CONTROL ROOM) ================= -->
+      <section id="tab-prodExecutiveDashboard" class="tab-konten" hidden style="background:#0f172a;color:#f8fafc;padding:24px;border-radius:14px;margin-top:-10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;padding-bottom:16px;margin-bottom:20px;">
+          <div>
+            <span style="background:#ef4444;color:#fff;font-size:10px;font-weight:800;padding:3px 8px;border-radius:4px;letter-spacing:0.08em;vertical-align:middle;">LIVE CONTROL ROOM</span>
+            <h1 style="margin:6px 0 0 0;font-size:24px;font-weight:800;color:#f8fafc;font-family:'Space Grotesk', sans-serif;">OMOS EXECUTIVE MINE CONTROL ROOM</h1>
+          </div>
+          <div style="text-align:right;">
+            <button class="tombol" style="background:#0284c7;color:#fff;border:none;font-weight:bold;" onclick="jalankanAiEngineAlert()">⚡ Jalankan AI Operational Intelligence</button>
+          </div>
+        </div>
+
+        <!-- ANIMATED KPI CARDS -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:16px;margin-bottom:24px;">
+          <div style="background:#1e293b;padding:18px;border-radius:12px;border:1px solid #334155;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;">Today's Coal Production</div>
+            <div id="execCoal" style="font-size:28px;font-weight:800;color:#38bdf8;margin-top:6px;">0 MT</div>
+            <div style="font-size:11px;color:#4ade80;margin-top:4px;">● Target On Track</div>
+          </div>
+          <div style="background:#1e293b;padding:18px;border-radius:12px;border:1px solid #334155;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;">Today's Overburden</div>
+            <div id="execOb" style="font-size:28px;font-weight:800;color:#4ade80;margin-top:6px;">0 BCM</div>
+            <div style="font-size:11px;color:#4ade80;margin-top:4px;">● High Productivity</div>
+          </div>
+          <div style="background:#1e293b;padding:18px;border-radius:12px;border:1px solid #334155;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;">Est. Daily Operational Cost</div>
+            <div id="execCost" style="font-size:24px;font-weight:800;color:#fbbf24;margin-top:6px;">Rp 142.500.000</div>
+          </div>
+        </div>
+
+        <!-- AI OPERATIONAL INTELLIGENCE PANEL -->
+        <div style="background:linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);padding:20px;border-radius:12px;border:1px solid #4338ca;margin-bottom:24px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+            <span style="font-size:20px;">🤖</span>
+            <h3 style="margin:0;font-size:16px;font-weight:800;color:#818cf8;">AI Operational Intelligence Engine</h3>
+          </div>
+          <div id="aiSummaryBox" style="font-size:14px;line-height:1.6;color:#e0e7ff;background:rgba(255,255,255,0.05);padding:14px;border-radius:8px;">
+            Sistem kecerdasan buatan sedang melakukan analisa telemetry produksi real-time...
+          </div>
+        </div>
+      </section>
+
     </main>
   </div>
 
@@ -535,6 +1619,8 @@
   </div>
 
   <script src="config.js?v=24"></script>
-  <script src="app.js?v=27"></script>
+  <script src="roster-preview.js?v=1"></script>
+  <script src="app.js?v=32"></script>
+  <script src="production.js?v=70"></script>
 </body>
 </html>

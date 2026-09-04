@@ -5,7 +5,8 @@ async function run() {
     SELECT 
       a.id, u.nama, u.email,
       a.tanggal_kerja, a.waktu_datang, a.status_datang,
-      s.nama_shift, s.jam_masuk_maks, s.lintas_hari
+      s.nama_shift, s.jam_masuk_maks, s.jam_pulang_min,
+      s.operational_start, s.operational_end, s.lintas_hari
     FROM absensi a
     JOIN users u ON u.id = a.user_id
     JOIN shifts s ON s.id = a.shift_id

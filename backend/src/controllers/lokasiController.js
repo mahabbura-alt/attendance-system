@@ -38,4 +38,46 @@ async function buatLokasi(req, res, next) {
   }
 }
 
-module.exports = { daftarLokasi, buatLokasi };
+/** PATCH /api/admin/lokasi/:id */
+async function updateLokasi(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { nama_lokasi, latitude, longitude, radius_meter } = req.body;
+
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    const radius = Number(radius_meter || 500);
+
+    if (!nama_lokasi || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: 'Nama lokasi, latitude, dan longitude wajib diisi' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE lokasi_kantor
+       SET nama_lokasi = $1, latitude = $2, longitude = $3, radius_meter = $4
+       WHERE id = $5 RETURNING *`,
+      [nama_lokasi.trim(), lat, lng, radius, id]
+    );
+
+    if (!rows[0]) return res.status(404).json({ error: 'Lokasi tidak ditemukan' });
+
+    res.json({ message: 'Lokasi berhasil diperbarui', lokasi: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** DELETE /api/admin/lokasi/:id */
+async function hapusLokasi(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query('DELETE FROM lokasi_kantor WHERE id = $1 RETURNING *', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Lokasi tidak ditemukan' });
+
+    res.json({ message: 'Lokasi berhasil dihapus' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { daftarLokasi, buatLokasi, updateLokasi, hapusLokasi };

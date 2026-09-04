@@ -6,6 +6,7 @@ const {
   buatPayroll,
   updatePayroll,
   hapusPayroll,
+  exportPayrollExcel,
   importPayrollExcel,
   daftarAuditLogPayroll,
   sinkronKaryawanPayroll,
@@ -20,6 +21,7 @@ const router = express.Router();
 router.use(requireAuth, requireAdmin);
 
 router.get('/', daftarPayroll);
+router.get('/export', exportPayrollExcel);
 router.post('/', buatPayroll);
 router.post('/sinkron', sinkronKaryawanPayroll);
 router.patch('/:id', updatePayroll);

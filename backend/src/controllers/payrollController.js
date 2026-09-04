@@ -1,5 +1,6 @@
 const xlsx = require('xlsx');
 const { pool } = require('../config/db');
+const { PAYROLL_HEADERS } = require('../services/payrollExcel');
 
 /** GET /api/admin/payroll — Daftar seluruh database payroll karyawan */
 async function daftarPayroll(req, res, next) {
@@ -420,11 +421,61 @@ async function sinkronKaryawanPayroll(req, res, next) {
   }
 }
 
+/** GET /api/admin/payroll/export — Export seluruh database payroll ke Excel (format template import) */
+async function exportPayrollExcel(req, res, next) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT u.employee_id, u.nama AS nama_karyawan, u.jabatan,
+              p.date_in, p.site, p.kota,
+              COALESCE(p.gaji_pokok, 0) AS gaji_pokok,
+              COALESCE(p.tunjangan_kehadiran_per_hari, 0) AS tunjangan_kehadiran_per_hari,
+              COALESCE(p.tunjangan_jabatan, 0) AS tunjangan_jabatan,
+              COALESCE(p.insentif_hm_per_jam, 0) AS insentif_hm_per_jam
+       FROM users u
+       LEFT JOIN LATERAL (
+         SELECT payroll_row.* FROM payroll payroll_row
+         WHERE (u.employee_id IS NOT NULL AND LOWER(TRIM(payroll_row.employee_id)) = LOWER(TRIM(u.employee_id)))
+            OR LOWER(TRIM(payroll_row.nama_karyawan)) = LOWER(TRIM(u.nama))
+         ORDER BY CASE WHEN u.employee_id IS NOT NULL
+              AND LOWER(TRIM(payroll_row.employee_id)) = LOWER(TRIM(u.employee_id)) THEN 0 ELSE 1 END,
+              payroll_row.updated_at DESC NULLS LAST
+         LIMIT 1
+       ) p ON TRUE
+       WHERE u.role = 'karyawan' AND u.is_active = TRUE
+       ORDER BY u.nama ASC`
+    );
+    const data = [PAYROLL_HEADERS];
+    rows.forEach((row, index) => data.push([
+      index + 1, row.employee_id || '', row.nama_karyawan,
+      row.date_in ? String(row.date_in).slice(0, 10) : '', row.site || '', row.kota || '',
+      row.jabatan || '', Number(row.gaji_pokok || 0),
+      Number(row.tunjangan_kehadiran_per_hari || 0), Number(row.tunjangan_jabatan || 0),
+      Number(row.insentif_hm_per_jam || 0),
+    ]));
+    const worksheet = xlsx.utils.aoa_to_sheet(data);
+    worksheet['!cols'] = [
+      { wch: 6 }, { wch: 16 }, { wch: 28 }, { wch: 13 }, { wch: 18 }, { wch: 18 },
+      { wch: 20 }, { wch: 16 }, { wch: 30 }, { wch: 22 }, { wch: 22 },
+    ];
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Database Payroll');
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const filename = `database_payroll_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   daftarPayroll,
   buatPayroll,
   updatePayroll,
   hapusPayroll,
+  exportPayrollExcel,
   importPayrollExcel,
   daftarAuditLogPayroll,
   sinkronKaryawanPayroll,

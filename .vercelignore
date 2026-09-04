@@ -1,0 +1,9 @@
+# Hanya backend/src/public/Absensi_PIM.apk yang menjadi sumber endpoint updater.
+Absensi_PIM_V*.apk
+admin-dashboard/Absensi_PIM.apk
+api/Absensi_PIM.apk
+
+# Artefak pengembangan lokal tidak dibutuhkan oleh deployment web.
+mobile-android/
+node_modules/
+.git/

@@ -225,10 +225,11 @@ async function resetSandi(req, res, next) {
 }
 
 const DEPARTEMEN_JABATAN_MAP = {
-  'Produksi': ['SPV Produksi', 'Pengawas', 'Operator', 'Driver DT', 'Driver WT'],
+  'Produksi': ['SPV Produksi', 'Pengawas', 'Operator', 'Driver DT', 'Driver WT', 'Checker'],
   'Engineering': ['SPV Engineering', 'Mine Plan', 'Foreman Moco', 'Admin', 'Surveyor', 'Ast Survey', 'Helper Survey'],
   'Logistik': ['Foreman Logistik', 'Logistik', 'Admin', 'Fuelman', 'Ekspeditor'],
   'HSE': ['SPV HSE', 'HSE Officer', 'Safety Patrol', 'Helper HSE'],
+  'Maintenance': ['SPV Maintenance', 'Foreman Maintenance', 'Mekanik', 'Welder', 'Auto Electrician', 'Admin Maintenance', 'Helper Maintenance', 'Helper Mekanik'],
   'HRGA & Finance': ['Foreman HR', 'Admin HR', 'Admin Finance', 'Driver Sarana'],
   'Management': ['PJO'],
 };
@@ -239,7 +240,7 @@ const DEPARTEMEN_JABATAN_MAP = {
 async function daftarShiftDanLokasi(req, res, next) {
   try {
     const [shiftsResult, lokasiResult] = await Promise.all([
-      pool.query('SELECT id, nama_shift, jam_masuk_maks, jam_pulang_min, lintas_hari FROM shifts ORDER BY nama_shift'),
+      pool.query('SELECT id, nama_shift, jam_masuk_maks, jam_pulang_min, operational_start, operational_end, lintas_hari FROM shifts ORDER BY nama_shift'),
       pool.query('SELECT id, nama_lokasi FROM lokasi_kantor ORDER BY nama_lokasi'),
     ]);
     res.json({

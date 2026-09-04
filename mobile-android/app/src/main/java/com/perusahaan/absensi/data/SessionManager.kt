@@ -24,17 +24,42 @@ object SessionManager {
     fun init(context: Context) {
         if (::prefs.isInitialized) return
 
-        val masterKey = MasterKey.Builder(context.applicationContext)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+        try {
+            val masterKey = MasterKey.Builder(context.applicationContext)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
 
-        prefs = EncryptedSharedPreferences.create(
-            context.applicationContext,
-            PREF_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+            prefs = EncryptedSharedPreferences.create(
+                context.applicationContext,
+                PREF_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            // Error Keystore sering terjadi pada beberapa device atau saat reinstall
+            // Hapus file preferences lama
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+            
+            // Hapus file xml fisiknya secara langsung jika ada
+            val sharedPrefsFile = java.io.File(context.applicationInfo.dataDir, "shared_prefs/$PREF_NAME.xml")
+            if (sharedPrefsFile.exists()) {
+                sharedPrefsFile.delete()
+            }
+            
+            // Coba inisialisasi ulang
+            val masterKey = MasterKey.Builder(context.applicationContext)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
+            prefs = EncryptedSharedPreferences.create(
+                context.applicationContext,
+                PREF_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        }
     }
 
     fun simpanSesi(token: String, userId: String, nama: String, role: String) {

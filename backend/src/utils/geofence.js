@@ -30,9 +30,44 @@ function dalamRadius(latKaryawan, lngKaryawan, lokasiKantor) {
   );
 
   return {
-    valid: jarak <= lokasiKantor.radius_meter,
+    valid: jarak <= (lokasiKantor.radius_meter || 100),
     jarak_meter: Math.round(jarak),
   };
 }
 
-module.exports = { hitungJarakMeter, dalamRadius };
+/**
+ * Cek apakah koordinat karyawan berada dalam radius toleransi SALAH SATU lokasi kantor/tambang resmi.
+ */
+function dalamRadiusMultiPoint(latKaryawan, lngKaryawan, daftarLokasi = []) {
+  if (!daftarLokasi || !daftarLokasi.length) {
+    return { valid: true, jarak_meter: 0, lokasi_terdekat: null };
+  }
+
+  let jarakTerdekat = Infinity;
+  let lokasiTerdekat = null;
+  let isValid = false;
+
+  for (const lok of daftarLokasi) {
+    const jarak = hitungJarakMeter(latKaryawan, lngKaryawan, Number(lok.latitude), Number(lok.longitude));
+    const maxRadius = Number(lok.radius_meter || 100);
+
+    if (jarak < jarakTerdekat) {
+      jarakTerdekat = jarak;
+      lokasiTerdekat = lok;
+    }
+
+    if (jarak <= maxRadius) {
+      isValid = true;
+      lokasiTerdekat = lok;
+      break;
+    }
+  }
+
+  return {
+    valid: isValid,
+    jarak_meter: Math.round(jarakTerdekat),
+    lokasi_terdekat: lokasiTerdekat,
+  };
+}
+
+module.exports = { hitungJarakMeter, dalamRadius, dalamRadiusMultiPoint };
