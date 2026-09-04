@@ -2,22 +2,16 @@
 
 Project: **OMOS (One Mining Operating System)** — root: `D:\OneDrive\Desktop\ONE MINING`.
 
-Dua aturan tetap berlaku untuk **setiap tugas** dalam project ini:
+Aturan ringkas untuk setiap tugas:
 
-## 1. Setiap Tugas Wajib Selaras dengan Scope Master Milestone
+## 1. Keselarasan Scope
+- Ikuti arsitektur & prioritas yang sudah ditetapkan. Bila sebuah tugas tampak **di luar scope**, mengubah keputusan yang sudah di-freeze, atau menambah boundary sistem baru → **berhenti dan konfirmasi ke pemilik project**.
+- Detail arsitektur lengkap tersedia di `OMOS_MASTER_PROJECT_MILESTONE_V2.6.md` — **hanya baca file ini bila diperlukan** (mis. tugas menyentuh arsitektur/boundary), bukan di setiap tugas.
 
-Sebelum memulai tugas apa pun, verifikasi keselarasan tugas dengan scope project di:
-`OMOS_MASTER_PROJECT_MILESTONE_V2.6.md`
+## 2. Skill
+- Sebelum mengubah kode yang menyentuh **rumus/unit/density/rate produksi**, gunakan skill `omos-mining-validation`.
+- Untuk tugas lain, gunakan skill yang relevan bila ada; bila tidak ada, lanjutkan dengan pendekatan standar.
+- Katalog skill: `OMOS-skill/README.md` (baca hanya bila perlu).
 
-- Tugas harus berada dalam batas arsitektur v2.6: Core Platform, Mining Modules, Intelligence Layer, Control Plane, dan Client Data Plane.
-- Tugas tidak boleh menyimpang dari prioritas P0/P1/P2 (§78), Thin Vertical Slice (§77), dan keputusan arsitektur yang sudah ditetapkan (freeze criteria §80).
-- Bila tugas tampak di luar scope, mengubah keputusan yang sudah di-freeze, atau menambah boundary sistem baru, berhenti dan konfirmasi ke pemilik project terlebih dahulu.
-
-## 2. Analisa Kebutuhan Skill Sebelum Coding
-
-Sebelum menulis atau mengubah kode, periksa katalog skill di:
-`OMOS-skill/` — indeks: `OMOS-skill/README.md`
-
-- Pilih skill yang relevan dengan tugas, misalnya: `omos-mining-validation` untuk perubahan rumus/unit/density/rate produksi, `tdd` untuk pengembangan test-first, `code-review` untuk review perubahan, `domain-modeling` untuk pemodelan domain.
-- Baca `OMOS-skill/<nama-skill>/SKILL.md` dan terapkan instruksinya sebelum mulai coding.
-- Bila tidak ada skill yang cocok, lanjutkan dengan pendekatan standar dan catat alasan singkat pada hasil kerja.
+## Catatan
+- Jaga respons tetap ringkas dan langsung pada tugas. Hindari membaca file besar secara tidak perlu.

@@ -1,0 +1,64 @@
+# .rooignore - Folder & file yang TIDAK boleh diakses/di-index oleh Roo Code
+# Tujuan: mencegah Roo Code hang saat memproses pesan karena meng-index ribuan file besar.
+# File ini dibaca Roo Code saat startup & setiap request. Format: pola glob per baris.
+
+# --- Dependensi & artefak build (besar, tidak perlu di-index) ---
+node_modules/
+**/node_modules/
+build/
+**/build/
+.gradle/
+**/.gradle/
+.kotlin/
+**/.kotlin/
+coverage/
+dist/
+**/dist/
+
+# --- Android build artifacts ---
+mobile-android/app/build/
+mobile-android/.gradle/
+mobile-android/.idea/
+*.apk
+*.aab
+*.dex
+*.so
+*.jar
+*.class
+
+# --- Git internal (sangat besar, tidak perlu di-index) ---
+.git/
+**/.git/
+
+# --- Tooling agent lain (bukan bagian kode aplikasi) ---
+.agents/
+.kilo/
+.codex/
+.idea/
+.vscode/
+OMOS-skill/
+outputs/
+tmp/
+
+# --- Data/binary besar yang tidak relevan untuk coding ---
+*.xlsx
+*.xls
+*.gpx
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+*.zip
+*.7z
+*.rar
+*.mp4
+*.wav
+*.mp3
+
+# --- Secret & env lokal ---
+.env
+.env.*
+local.properties
+password supabase.txt
+*.txt
