@@ -12,12 +12,20 @@ node_modules/
 build/
 app/build/
 .gradle/
+**/.gradle/
+**/build/
 *.apk
 !admin-dashboard/Absensi PIM.apk
 !admin-dashboard/Absensi_PIM.apk
 !backend/src/public/Absensi_PIM.apk
 !api/Absensi_PIM.apk
 *.aab
+*.dex
+*.so
+*.jar
+*.class
+.kotlin/
+.idea/
 
 # IDE and operating-system files
 .idea/
@@ -49,3 +57,6 @@ OMOS Logo.*
 OMOS_LITELLM_PROJECT_HANDOVER.md
 OMOS_MASTER_PROJECT_MILESTONE_V2.6.md
 import_parameter_excel.py
+
+.vercel
+.env*
