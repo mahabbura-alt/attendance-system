@@ -2,9 +2,7 @@
 // PORTAL MOBILE ABSENSI KARYAWAN — PT PRIMA INDOJAYA MANDIRI
 // ============================================================
 
-const API_BASE = window.location.origin.includes('8080')
-  ? 'http://' + window.location.hostname + ':3000'
-  : window.location.origin;
+const API_BASE = window.location.origin;
 
 let userToken = localStorage.getItem('token_karyawan');
 let currentUser = null;
@@ -169,28 +167,11 @@ async function muatOpsiShift() {
 }
 
 async function useOfficeLocationFallback(badge, text, msgReason) {
-  try {
-    const res = await fetch(`${API_BASE}/api/absensi/lokasi-kantor`, {
-      headers: { Authorization: `Bearer ${userToken}` }
-    });
-    const data = await res.json();
-    const lat = data.latitude || data.lokasi?.latitude;
-    const lng = data.longitude || data.lokasi?.longitude;
-    const namaLokasi = data.nama_lokasi || data.lokasi?.nama_lokasi || 'Kantor';
-
-    if (lat && lng) {
-      currentCoords.lat = Number(lat);
-      currentCoords.lng = Number(lng);
-      isLocationValid = true;
-      if (badge) badge.className = 'geofence-badge valid';
-      if (text) text.textContent = `Radius Kantor (${namaLokasi})`;
-      return true;
-    }
-  } catch (e) {
-    console.warn('Fallback lokasi error:', e);
-  }
+  // Legacy entry point: failed GPS must never become an office coordinate.
+  currentCoords = { lat: null, lng: null };
+  isLocationValid = false;
   if (badge) badge.className = 'geofence-badge invalid';
-  if (text) text.textContent = msgReason || 'Izinkan Akses Lokasi';
+  if (text) text.textContent = msgReason || 'GPS belum tersedia. Izinkan lokasi dan coba lagi.';
   return false;
 }
 

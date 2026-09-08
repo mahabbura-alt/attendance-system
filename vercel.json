@@ -56,6 +56,10 @@
       "dest": "mobile-web/index.html"
     },
     {
+      "src": "/karyawan.js",
+      "dest": "mobile-web/karyawan.js"
+    },
+    {
       "src": "/karyawan",
       "dest": "mobile-web/index.html"
     },

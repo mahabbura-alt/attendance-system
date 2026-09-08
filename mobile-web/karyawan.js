@@ -2,19 +2,51 @@
 // PORTAL MOBILE ABSENSI KARYAWAN — PT PRIMA INDOJAYA MANDIRI
 // ============================================================
 
-const API_BASE = window.__ATTENDANCE_CONFIG__?.apiBaseUrl || (
-  window.location.protocol === 'file:' || window.location.port === '8080' || window.location.port === '5500' || window.location.port === '8000'
-    ? 'http://' + (window.location.hostname || 'localhost') + ':3000'
-    : window.location.origin
-);
+const API_BASE = window.location.origin;
 
 let userToken = localStorage.getItem('token_karyawan');
 let currentUser = null;
 let currentCoords = { lat: null, lng: null };
+let currentAccuracy = null; // radius akurasi GPS dalam meter (pos.coords.accuracy)
 let isLocationValid = false;
 let currentAbsenType = 'datang'; // 'datang' | 'pulang'
 let videoStream = null;
 let capturedBlob = null;
+let attendanceSubmitInProgress = false;
+
+// Handle expiry on every authenticated request, including after a long shift.
+async function portalFetch(url, options = {}) {
+  const requestOptions = { ...options };
+  const timeoutMs = Number(requestOptions.timeoutMs || 15000);
+  delete requestOptions.timeoutMs;
+  const sentToken = new Headers(requestOptions.headers || {}).get('Authorization');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  requestOptions.signal = controller.signal;
+  let response;
+  try {
+    response = await fetch(url, requestOptions);
+  } catch (cause) {
+    const timedOut = cause?.name === 'AbortError' || controller.signal.aborted;
+    const error = new Error(timedOut
+      ? 'Koneksi ke server melewati batas waktu. Status absensi akan diperiksa ulang.'
+      : 'Koneksi ke server terputus. Status absensi akan diperiksa ulang.');
+    error.code = timedOut ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR';
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (response.status === 401 && sentToken && sentToken === `Bearer ${userToken}`) {
+    logout();
+    const notice = document.getElementById('loginAlert');
+    if (notice) {
+      notice.textContent = 'Sesi login berakhir. Silakan masuk kembali untuk melanjutkan absensi.';
+      notice.style.display = 'block';
+    }
+    throw new Error('Sesi login berakhir. Silakan masuk kembali.');
+  }
+  return response;
+}
 
 // Initial Setup
 document.addEventListener('DOMContentLoaded', () => {
@@ -103,7 +135,7 @@ async function handleLogin(e) {
   btn.textContent = 'MEMPROSES...';
 
   try {
-    const res = await fetch(`${API_BASE}/api/auth/login`, {
+    const res = await portalFetch(`${API_BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
@@ -133,6 +165,9 @@ function logout() {
   localStorage.removeItem('token_karyawan');
   userToken = null;
   currentUser = null;
+  closeCameraModal();
+  isLocationValid = false;
+  currentCoords = { lat: null, lng: null };
   showView('viewLogin');
 }
 
@@ -142,13 +177,14 @@ function logout() {
 async function initPortal() {
   showView('viewMain');
   await muatProfil();
+  if (!userToken) return;
   refreshLocation();
   await cekStatusToday();
 }
 
 async function muatProfil() {
   try {
-    const res = await fetch(`${API_BASE}/api/absensi/lokasi-kantor`, {
+    const res = await portalFetch(`${API_BASE}/api/absensi/lokasi-kantor`, {
       headers: { Authorization: `Bearer ${userToken}` }
     });
     if (res.status === 401) {
@@ -168,7 +204,7 @@ async function muatProfil() {
 
 async function muatOpsiShift() {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/opsi-pendaftaran`);
+    const res = await portalFetch(`${API_BASE}/api/auth/opsi-pendaftaran`);
     const data = await res.json();
     const select = document.getElementById('selectShift');
     select.innerHTML = data.shifts.map(s => `
@@ -177,32 +213,6 @@ async function muatOpsiShift() {
   } catch (e) {
     console.warn('Gagal muat shift:', e);
   }
-}
-
-async function useOfficeLocationFallback(badge, text, msgReason) {
-  try {
-    const res = await fetch(`${API_BASE}/api/absensi/lokasi-kantor`, {
-      headers: { Authorization: `Bearer ${userToken}` }
-    });
-    const data = await res.json();
-    const lat = data.latitude || data.lokasi?.latitude;
-    const lng = data.longitude || data.lokasi?.longitude;
-    const namaLokasi = data.nama_lokasi || data.lokasi?.nama_lokasi || 'Kantor';
-
-    if (lat && lng) {
-      currentCoords.lat = Number(lat);
-      currentCoords.lng = Number(lng);
-      isLocationValid = true;
-      if (badge) badge.className = 'geofence-badge valid';
-      if (text) text.textContent = `🟢 Radius Kantor (${namaLokasi})`;
-      return true;
-    }
-  } catch (e) {
-    console.warn('Fallback lokasi error:', e);
-  }
-  if (badge) badge.className = 'geofence-badge invalid';
-  if (text) text.textContent = msgReason || 'Izinkan Akses Lokasi';
-  return false;
 }
 
 function refreshLocation() {
@@ -214,7 +224,8 @@ function refreshLocation() {
   text.textContent = 'Mencari GPS...';
 
   if (!navigator.geolocation) {
-    useOfficeLocationFallback(badge, text, 'GPS Tidak Didukung');
+    badge.className = 'geofence-badge invalid';
+    text.textContent = 'GPS Tidak Didukung';
     return;
   }
 
@@ -225,40 +236,57 @@ function refreshLocation() {
     locationResolved = true;
     currentCoords.lat = pos.coords.latitude;
     currentCoords.lng = pos.coords.longitude;
+    currentAccuracy = (typeof pos.coords.accuracy === 'number' && isFinite(pos.coords.accuracy))
+      ? pos.coords.accuracy
+      : null;
 
     try {
-      const res = await fetch(`${API_BASE}/api/absensi/check-lokasi`, {
+      const res = await portalFetch(`${API_BASE}/api/absensi/check-lokasi`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${userToken}`
         },
-        body: JSON.stringify({ latitude: currentCoords.lat, longitude: currentCoords.lng })
+        body: JSON.stringify({
+          latitude: currentCoords.lat,
+          longitude: currentCoords.lng,
+          accuracy: currentAccuracy
+        })
       });
       const data = await res.json();
-      isLocationValid = data.valid;
+      isLocationValid = res.ok && data.valid === true;
 
-      if (data.valid) {
+      if (isLocationValid) {
         badge.className = 'geofence-badge valid';
         text.textContent = '🟢 Radius Kantor';
       } else {
-        await useOfficeLocationFallback(badge, text, '🟢 Radius Kantor');
+        // Lokasi di luar radius: tampilkan pesan jelas, jangan diam-diam ganti koordinat.
+        const jarak = data.jarakMeter || data.jarak_meter || 0;
+        badge.className = 'geofence-badge invalid';
+        if (data.message || data.error) {
+          text.textContent = data.message || data.error;
+          return;
+        }
+        text.textContent = `🔴 Di luar radius (${Math.round(jarak)}m)`;
       }
     } catch (err) {
-      await useOfficeLocationFallback(badge, text, '🟢 Radius Kantor');
+      badge.className = 'geofence-badge invalid';
+      text.textContent = 'Gagal cek lokasi. Ketuk untuk coba lagi.';
     }
   };
 
   const handleError = async (err) => {
     if (locationResolved) return;
     locationResolved = true;
-    await useOfficeLocationFallback(badge, text, '🟢 Radius Kantor');
+    // Jangan ganti koordinat dengan titik kantor. Beri tahu user GPS gagal.
+    badge.className = 'geofence-badge invalid';
+    text.textContent = 'GPS tidak tersedia. Ketuk untuk coba lagi.';
   };
 
   navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
-    enableHighAccuracy: false,
-    timeout: 5000,
-    maximumAge: 60000
+    enableHighAccuracy: true,
+    timeout: 8000,
+    maximumAge: 0
   });
 
   // Safety fallback jika browser tidak pernah merespons callback GPS
@@ -274,13 +302,13 @@ function refreshLocation() {
 // -------------------------------------------------------------
 async function cekStatusToday() {
   try {
-    const res = await fetch(`${API_BASE}/api/absensi/riwayat?limit=10`, {
+    const res = await portalFetch(`${API_BASE}/api/absensi/riwayat?limit=10`, {
       headers: { Authorization: `Bearer ${userToken}` }
     });
     const rows = await res.json();
     if (!Array.isArray(rows)) return;
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
 
     const btnDatang = document.getElementById('btnTriggerDatang');
     const btnPulang = document.getElementById('btnTriggerPulang');
@@ -336,9 +364,10 @@ async function cekStatusToday() {
       }
 
       if (btnDatang) {
-        btnDatang.classList.add('btn-disabled');
-        btnDatang.disabled = true;
-        btnDatang.textContent = '✅ SUDAH ABSEN DATANG';
+        // Sesi selesai tidak boleh memblokir sesi berikutnya; server memvalidasi jam.
+        btnDatang.classList.remove('btn-disabled');
+        btnDatang.disabled = false;
+        btnDatang.textContent = '🟢 ABSEN DATANG';
       }
 
       if (btnPulang) {
@@ -369,14 +398,8 @@ async function cekStatusToday() {
 // KAMERA & PRESENSI SUBMIT
 // -------------------------------------------------------------
 async function openCameraModal(type) {
-  if (!isLocationValid) {
-    const konfirmasi = confirm('Posisi GPS terdeteksi di luar radius kantor presensi.\n\nApakah Anda ingin melanjutkan presensi menggunakan koordinat titik kantor?');
-    if (!konfirmasi) return;
-    const badge = document.getElementById('geofenceBadge');
-    const text = document.getElementById('geofenceText');
-    await useOfficeLocationFallback(badge, text, 'Lokasi Kantor');
-  }
-
+  // Validasi lokasi dilakukan saat submit dengan fix GPS segar (getFreshLocation),
+  // bukan dengan koordinat kantor pengganti. Buka kamera langsung.
   currentAbsenType = type;
   document.getElementById('modalCameraTitle').textContent = type === 'datang' ? '📸 Absen Datang (Selfie)' : '📸 Absen Pulang (Selfie)';
   document.getElementById('modalCamera').style.display = 'flex';
@@ -428,24 +451,68 @@ function takeSnapshotAndSubmit() {
   }, 'image/jpeg', 0.85);
 }
 
+// Ambil fix GPS segar (presisi tinggi, tanpa cache) untuk dipakai saat submit.
+// Mengembalikan Promise { lat, lng, accuracy } atau menolak dengan pesan jelas.
+function getFreshLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Perangkat tidak mendukung GPS. Aktifkan lokasi & izinkan akses lokasi.'));
+      return;
+    }
+    let resolved = false;
+    const finish = (fn, arg) => {
+      if (resolved) return;
+      resolved = true;
+      fn(arg);
+    };
+    navigator.geolocation.getCurrentPosition(
+      (pos) => finish(resolve, {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: (typeof pos.coords.accuracy === 'number' && isFinite(pos.coords.accuracy))
+          ? pos.coords.accuracy
+          : null
+      }),
+      (err) => finish(reject, new Error('Gagal membaca GPS. Pastikan lokasi/GPS aktif & izinkan akses lokasi, lalu coba lagi.')),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+    // Safety timeout bila browser tidak pernah memanggil callback
+    setTimeout(() => finish(reject, new Error('Sinyal GPS lambat. Coba lagi di tempat terbuka.')), 9000);
+  });
+}
+
 async function submitAbsenForm() {
   const btnSnap = document.getElementById('btnSnapPhoto');
+  if (attendanceSubmitInProgress) return;
   try {
     if (!capturedBlob) {
       alert('Foto presensi wajib diambil!');
       return;
     }
 
-    if (!currentCoords || currentCoords.lat === null || currentCoords.lng === null) {
-      await useOfficeLocationFallback(null, null, 'Kantor');
+    attendanceSubmitInProgress = true;
+    btnSnap.disabled = true;
+    btnSnap.textContent = 'MEMERIKSA GPS...';
+
+    // Selalu ambil fix GPS segar saat submit agar tidak memakai koordinat basi
+    // dari saat halaman dimuat. Tolak bila akurasi terlalu rendah.
+    const fix = await getFreshLocation();
+    currentCoords.lat = fix.lat;
+    currentCoords.lng = fix.lng;
+    currentAccuracy = fix.accuracy;
+
+    // Ambang akurasi: tolak bila radius ketidakpastian > 100 m (sinyal lemah).
+    if (currentAccuracy !== null && currentAccuracy > 100) {
+      alert(`❌ Sinyal GPS lemah (akurasi ±${Math.round(currentAccuracy)}m).\n\nMendekatlah ke area terbuka & tunggu sinyal stabil, lalu coba lagi.`);
+      return;
     }
 
-    btnSnap.disabled = true;
     btnSnap.textContent = 'MENGIRIM...';
 
     const formData = new FormData();
-    formData.append('latitude', currentCoords.lat || 0);
-    formData.append('longitude', currentCoords.lng || 0);
+    formData.append('latitude', currentCoords.lat);
+    formData.append('longitude', currentCoords.lng);
+    if (currentAccuracy !== null) formData.append('accuracy', String(currentAccuracy));
     formData.append('foto', capturedBlob, 'presensi.jpg');
 
     if (currentAbsenType === 'datang') {
@@ -458,10 +525,11 @@ async function submitAbsenForm() {
 
     const endpoint = currentAbsenType === 'datang' ? '/api/absensi/datang' : '/api/absensi/pulang';
 
-    const res = await fetch(`${API_BASE}${endpoint}`, {
+    const res = await portalFetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${userToken}` },
-      body: formData
+      body: formData,
+      timeoutMs: 45000
     });
 
     const data = await res.json();
@@ -475,11 +543,46 @@ async function submitAbsenForm() {
     }
     cekStatusToday();
   } catch (err) {
+    if (err.code === 'REQUEST_TIMEOUT' || err.code === 'NETWORK_ERROR') {
+      const recovered = await reconcileAttendanceAfterConnectionLoss(currentAbsenType);
+      if (recovered) return;
+    }
     alert('❌ ' + err.message);
+  } finally {
+    attendanceSubmitInProgress = false;
     if (btnSnap) {
       btnSnap.disabled = false;
       btnSnap.textContent = '📸 AMBIL FOTO & ABSEN';
     }
+  }
+}
+
+async function reconcileAttendanceAfterConnectionLoss(type) {
+  try {
+    const response = await portalFetch(`${API_BASE}/api/absensi/riwayat`, {
+      headers: { Authorization: `Bearer ${userToken}` },
+      timeoutMs: 10000,
+    });
+    if (!response.ok) return false;
+    const rows = await response.json();
+    const recentThreshold = Date.now() - (5 * 60 * 1000);
+    const attendanceRows = Array.isArray(rows) ? rows : [];
+    const hasPendingSession = attendanceRows.some((row) => !row.waktu_pulang);
+    const hasRecentEvent = attendanceRows.some((row) => {
+      const value = type === 'datang' ? row.waktu_datang : row.waktu_pulang;
+      const timestamp = value ? new Date(value).getTime() : 0;
+      return Number.isFinite(timestamp) && timestamp >= recentThreshold;
+    });
+    const confirmed = type === 'datang'
+      ? hasPendingSession && hasRecentEvent
+      : !hasPendingSession && hasRecentEvent;
+    if (!confirmed) return false;
+    alert('✅ Absensi sudah tercatat di server. Konfirmasi awal terputus, tetapi data berhasil ditemukan kembali.');
+    closeCameraModal();
+    await cekStatusToday();
+    return true;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -491,7 +594,7 @@ async function muatRiwayat() {
   tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">Memuat data...</td></tr>';
 
   try {
-    const res = await fetch(`${API_BASE}/api/absensi/riwayat`, {
+    const res = await portalFetch(`${API_BASE}/api/absensi/riwayat`, {
       headers: { Authorization: `Bearer ${userToken}` }
     });
     const rows = await res.json();
@@ -525,7 +628,7 @@ async function downloadSlipGaji() {
   const tahun = document.getElementById('slipTahun').value;
 
   try {
-    const res = await fetch(`${API_BASE}/api/absensi/slip-gaji?bulan=${bulan}&tahun=${tahun}`, {
+    const res = await portalFetch(`${API_BASE}/api/absensi/slip-gaji?bulan=${bulan}&tahun=${tahun}`, {
       headers: { Authorization: `Bearer ${userToken}` }
     });
 
@@ -554,7 +657,7 @@ let opsiPendaftaranCache = null;
 
 async function muatOpsiPendaftaranDaftar() {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/opsi-pendaftaran`);
+    const res = await portalFetch(`${API_BASE}/api/auth/opsi-pendaftaran`);
     opsiPendaftaranCache = await res.json();
 
     const deptSelect = document.getElementById('daftarDept');
@@ -629,7 +732,7 @@ async function handleDaftar(e) {
   formData.append('foto3', f3);
 
   try {
-    const res = await fetch(`${API_BASE}/api/auth/daftar`, {
+    const res = await portalFetch(`${API_BASE}/api/auth/daftar`, {
       method: 'POST',
       body: formData
     });
@@ -671,7 +774,7 @@ async function handleMintaOtpReset(e) {
   btn.textContent = 'MENGIRIM KODE OTP...';
 
   try {
-    const res = await fetch(`${API_BASE}/api/auth/lupa-sandi`, {
+    const res = await portalFetch(`${API_BASE}/api/auth/lupa-sandi`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })
@@ -715,7 +818,7 @@ async function handleResetSandi(e) {
   btn.textContent = 'MENYIMPAN PASSWORD...';
 
   try {
-    const res = await fetch(`${API_BASE}/api/auth/reset-sandi`, {
+    const res = await portalFetch(`${API_BASE}/api/auth/reset-sandi`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, token, password_baru })
