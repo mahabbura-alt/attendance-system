@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { cacheDel, LOCATIONS_KEY } = require('../utils/cache');
 
 /** GET /api/admin/lokasi */
 async function daftarLokasi(req, res, next) {
@@ -32,6 +33,7 @@ async function buatLokasi(req, res, next) {
       [nama_lokasi.trim(), lat, lng, radius]
     );
 
+    cacheDel(LOCATIONS_KEY);
     res.status(201).json({ message: 'Lokasi kantor berhasil dibuat', lokasi: rows[0] });
   } catch (err) {
     next(err);
@@ -61,6 +63,7 @@ async function updateLokasi(req, res, next) {
 
     if (!rows[0]) return res.status(404).json({ error: 'Lokasi tidak ditemukan' });
 
+    cacheDel(LOCATIONS_KEY);
     res.json({ message: 'Lokasi berhasil diperbarui', lokasi: rows[0] });
   } catch (err) {
     next(err);
@@ -74,6 +77,7 @@ async function hapusLokasi(req, res, next) {
     const { rows } = await pool.query('DELETE FROM lokasi_kantor WHERE id = $1 RETURNING *', [id]);
     if (!rows[0]) return res.status(404).json({ error: 'Lokasi tidak ditemukan' });
 
+    cacheDel(LOCATIONS_KEY);
     res.json({ message: 'Lokasi berhasil dihapus' });
   } catch (err) {
     next(err);

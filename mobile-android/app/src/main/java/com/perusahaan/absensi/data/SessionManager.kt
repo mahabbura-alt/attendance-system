@@ -17,12 +17,13 @@ object SessionManager {
     private const val KEY_USER_NAMA = "user_nama"
     private const val KEY_USER_ROLE = "user_role"
     private const val KEY_USER_PASSWORD = "user_pw"
-    private const val KEY_SERVER_URL = "server_url"
 
     private lateinit var prefs: SharedPreferences
+    private lateinit var appContext: Context
 
     fun init(context: Context) {
         if (::prefs.isInitialized) return
+        appContext = context.applicationContext
 
         try {
             val masterKey = MasterKey.Builder(context.applicationContext)
@@ -76,18 +77,7 @@ object SessionManager {
     }
     fun getPassword(): String? = prefs.getString(KEY_USER_PASSWORD, null)
 
-    fun simpanServerUrl(url: String) {
-        prefs.edit().putString(KEY_SERVER_URL, url).apply()
-    }
-    fun getServerUrl(): String {
-        val saved = prefs.getString(KEY_SERVER_URL, null)
-        if (saved == null || saved.contains("192.168.") || saved.contains("127.0.0.1") || saved.contains("localhost")) {
-            val cloudUrl = "https://attendance-system-eta-opal.vercel.app/"
-            simpanServerUrl(cloudUrl)
-            return cloudUrl
-        }
-        return saved
-    }
+    fun getServerUrl(): String = "https://attendance-system-eta-opal.vercel.app/"
 
     fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
     fun getUserNama(): String? = prefs.getString(KEY_USER_NAMA, null)
@@ -95,10 +85,23 @@ object SessionManager {
     fun sudahLogin(): Boolean = getToken() != null
 
     fun logout() {
-        val savedUrl = getServerUrl()
         prefs.edit().clear().apply()
-        simpanServerUrl(savedUrl)
     }
 
     fun clearSession() = logout()
+
+    // Ignore a late 401 from an old request after the user has logged in again.
+    @Synchronized
+    fun expireSessionIfCurrent(token: String) {
+        if (getToken() != token) return
+        logout()
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            appContext.startActivity(android.content.Intent(
+                appContext, com.perusahaan.absensi.ui.LoginActivity::class.java
+            ).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+                putExtra("session_expired", true)
+            })
+        }
+    }
 }

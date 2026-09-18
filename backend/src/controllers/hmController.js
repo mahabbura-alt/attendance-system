@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { isJabatanEligibleForHm } = require('../services/hmEligibility');
 
 function getStartOfWeek(d) {
   const date = new Date(d);
@@ -60,6 +61,7 @@ async function daftarHm(req, res, next) {
          LEFT JOIN database_hm h ON h.user_id = u.id AND h.tanggal = $1
          WHERE u.role = 'karyawan'
            AND u.is_active = TRUE
+           AND LOWER(TRIM(COALESCE(u.jabatan, ''))) <> 'driver sarana'
            AND (
              LOWER(u.jabatan) IN ('operator', 'driver dt', 'driver wt')
              OR LOWER(u.jabatan) LIKE '%operator%'
@@ -92,7 +94,9 @@ async function daftarHm(req, res, next) {
          SUM(h.total_hm) AS total_hm_periode,
          ROUND(AVG(h.total_hm), 2) AS avg_hm_per_hari
        FROM database_hm h
+       LEFT JOIN users u ON u.id = h.user_id
        WHERE h.tanggal BETWEEN $1 AND $2
+         AND LOWER(TRIM(COALESCE(u.jabatan, h.jabatan, ''))) <> 'driver sarana'
        GROUP BY h.user_id, h.employee_id, h.nama_karyawan, h.jabatan, h.kode_unit
        ORDER BY h.nama_karyawan, h.kode_unit`,
       [tglMulai, tglAkhir]
@@ -134,6 +138,9 @@ async function buatHm(req, res, next) {
 
     if (!finalNama || !finalNama.trim()) {
       return res.status(400).json({ error: 'Nama karyawan wajib diisi atau pilih dari dropdown' });
+    }
+    if (!isJabatanEligibleForHm(finalJabatan)) {
+      return res.status(400).json({ error: 'Jabatan Driver Sarana tidak menggunakan Database HM' });
     }
     if (!kode_unit || !kode_unit.trim()) {
       return res.status(400).json({ error: 'Kode unit wajib diisi' });

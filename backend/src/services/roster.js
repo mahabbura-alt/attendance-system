@@ -236,7 +236,6 @@ function validateDateRange(start, end, maxDays = 366) {
 
 async function generateRosterRange(start, end, userId = null, dbClient = null, jabatan = null) {
   validateDateRange(start, end, Number.MAX_SAFE_INTEGER);
-  await ensureRosterSchema();
   const { pool } = require('../config/db');
   const db = dbClient || pool;
   const params = [start, end];
@@ -251,46 +250,66 @@ async function generateRosterRange(start, end, userId = null, dbClient = null, j
     jabatanFilter = `AND COALESCE(NULLIF(trim(roster_user.jabatan), ''), 'Tanpa Jabatan') = $${params.length}`;
   }
   await db.query(
-    `INSERT INTO employee_roster_daily
+    `WITH roster_candidates AS (
+       SELECT
+         a.user_id,
+         hari.tanggal,
+         td.status,
+         CASE
+           WHEN td.status = 'S' THEN shift_siang.id
+           WHEN td.status = 'M' THEN shift_malam.id
+           ELSE NULL
+         END AS shift_id,
+         a.id AS assignment_id,
+         ROW_NUMBER() OVER (
+           PARTITION BY a.user_id, hari.tanggal
+           ORDER BY a.effective_from DESC, a.created_at DESC, a.id DESC
+         ) AS candidate_rank
+       FROM employee_roster_assignments a
+       JOIN users roster_user ON roster_user.id = a.user_id
+       JOIN roster_templates rt ON rt.id = a.template_id AND rt.is_active = TRUE
+       CROSS JOIN LATERAL generate_series(
+         GREATEST(a.effective_from, $1::date),
+         LEAST(COALESCE(a.effective_to, $2::date), $2::date),
+         interval '1 day'
+       ) AS seri(tanggal_ts)
+       CROSS JOIN LATERAL (SELECT seri.tanggal_ts::date AS tanggal) hari
+       JOIN roster_template_days td
+         ON td.template_id = rt.id
+        AND td.day_index = MOD(
+          ((hari.tanggal - a.effective_from) + a.anchor_day_index - 1),
+          rt.cycle_days
+        ) + 1
+       LEFT JOIN LATERAL (
+         SELECT id FROM shifts
+         WHERE lintas_hari = FALSE
+         ORDER BY operational_start ASC, created_at ASC
+         LIMIT 1
+       ) shift_siang ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT id FROM shifts
+         WHERE lintas_hari = TRUE
+         ORDER BY operational_start ASC, created_at ASC
+         LIMIT 1
+       ) shift_malam ON TRUE
+       WHERE a.is_active = TRUE
+         AND a.effective_from <= $2::date
+         AND (a.effective_to IS NULL OR a.effective_to >= $1::date)
+         ${userFilter}
+         ${jabatanFilter}
+     )
+     INSERT INTO employee_roster_daily
        (user_id, tanggal, status, shift_id, assignment_id, source, updated_at)
      SELECT
-       a.user_id,
-       hari.tanggal,
-       td.status,
-       CASE
-         WHEN td.status = 'S' THEN shift_siang.id
-         WHEN td.status = 'M' THEN shift_malam.id
-         ELSE NULL
-       END,
-       a.id,
+       user_id,
+       tanggal,
+       status,
+       shift_id,
+       assignment_id,
        'generated',
        now()
-     FROM employee_roster_assignments a
-     JOIN users roster_user ON roster_user.id = a.user_id
-     JOIN roster_templates rt ON rt.id = a.template_id AND rt.is_active = TRUE
-     CROSS JOIN LATERAL generate_series(
-       GREATEST(a.effective_from, $1::date),
-       LEAST(COALESCE(a.effective_to, $2::date), $2::date),
-       interval '1 day'
-     ) AS seri(tanggal_ts)
-     CROSS JOIN LATERAL (SELECT seri.tanggal_ts::date AS tanggal) hari
-     JOIN roster_template_days td
-       ON td.template_id = rt.id
-      AND td.day_index = MOD(
-        ((hari.tanggal - a.effective_from) + a.anchor_day_index - 1),
-        rt.cycle_days
-      ) + 1
-     LEFT JOIN LATERAL (
-       SELECT id FROM shifts WHERE nama_shift ILIKE '%Siang%' ORDER BY created_at LIMIT 1
-     ) shift_siang ON TRUE
-     LEFT JOIN LATERAL (
-       SELECT id FROM shifts WHERE nama_shift ILIKE '%Malam%' ORDER BY created_at LIMIT 1
-     ) shift_malam ON TRUE
-     WHERE a.is_active = TRUE
-       AND a.effective_from <= $2::date
-       AND (a.effective_to IS NULL OR a.effective_to >= $1::date)
-       ${userFilter}
-       ${jabatanFilter}
+     FROM roster_candidates
+     WHERE candidate_rank = 1
      ON CONFLICT (user_id, tanggal) DO UPDATE SET
        status = EXCLUDED.status,
        shift_id = EXCLUDED.shift_id,

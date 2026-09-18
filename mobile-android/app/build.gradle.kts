@@ -16,24 +16,31 @@ android {
         // Disuplai dari gradle property API_BASE_URL (CI atau local.properties).
         // Nilai default sengaja tidak dapat dipakai agar konfigurasi produksi tidak terlewat.
         val apiBaseUrl = providers.gradleProperty("API_BASE_URL")
-            .orElse("http://10.0.2.2:3000/")
+            .orElse("https://attendance-system-eta-opal.vercel.app/")
             .get()
             .let { if (it.endsWith('/')) it else "$it/" }
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
+    val releaseStorePassword = providers.gradleProperty("OMOS_RELEASE_STORE_PASSWORD")
+        .orElse(providers.environmentVariable("OMOS_RELEASE_STORE_PASSWORD"))
+    val releaseKeyAlias = providers.gradleProperty("OMOS_RELEASE_KEY_ALIAS")
+        .orElse(providers.environmentVariable("OMOS_RELEASE_KEY_ALIAS"))
+    val releaseKeyPassword = providers.gradleProperty("OMOS_RELEASE_KEY_PASSWORD")
+        .orElse(providers.environmentVariable("OMOS_RELEASE_KEY_PASSWORD"))
+
     signingConfigs {
         create("release") {
             storeFile = file("pim-release.jks")
-            storePassword = "PimAbsensi2026!"
-            keyAlias = "pimkey"
-            keyPassword = "PimAbsensi2026!"
+            storePassword = releaseStorePassword.orNull
+            keyAlias = releaseKeyAlias.orNull
+            keyPassword = releaseKeyPassword.orNull
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            // Gunakan debug keystore standar agar build development tidak memerlukan secret produksi.
         }
         release {
             signingConfig = signingConfigs.getByName("release")

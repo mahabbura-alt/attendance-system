@@ -50,7 +50,14 @@ function statusAbsenPulang(shift, tanggalKerja, waktuPulang) {
     : tanggalKerja;
 
   const batasMin = gabungTanggalJam(hariPulangEkspektasi, shift.jam_pulang_min);
-  const akhirWindowWajar = gabungTanggalJam(hariPulangEkspektasi, '23:59:59');
+
+  // Window checkout wajar harus simetris antar shift (~6 jam grace dari
+  // jam_pulang_min). Siang: 18:00 -> 23:59:59 (tidak berubah). Shift lintas hari
+  // (Malam): 06:00 -> 11:59:59, bukan lagi 23:59:59 yang sebelumnya memberi
+  // grace ~18 jam dan membuat checkout sangat terlambat tetap dinilai tepat waktu.
+  const akhirWindowWajar = shift.lintas_hari
+    ? new Date(batasMin.getTime() + (6 * 60 * 60 * 1000) - 1000)
+    : gabungTanggalJam(hariPulangEkspektasi, '23:59:59');
 
   if (waktuPulang.getTime() < batasMin.getTime()) {
     return 'pulang awal';

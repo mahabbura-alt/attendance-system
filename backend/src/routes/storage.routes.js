@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { streamFoto } = require('../services/storage');
 
-// Endpoint untuk mem-proxy (stream) gambar dari MinIO ke klien
+// Endpoint kompatibilitas untuk membaca objek Supabase Storage.
 router.get('/view', async (req, res) => {
   const objectKey = req.query.key;
   if (!objectKey) {

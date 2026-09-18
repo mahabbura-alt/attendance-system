@@ -17,6 +17,19 @@
     return Math.floor((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000);
   }
 
+  // Mencari index (0-based) dari awal blok (run) pertama berstatus `status`
+  // pada larik cycle. Dipakai untuk re-anchor pratinjau saat admin menetapkan
+  // satu hari menjadi S/M: hari tsb dianggap sebagai awal blok shift pada pola.
+  function findRunStartIndex(cycle, status) {
+    if (!Array.isArray(cycle) || cycle.length === 0) return -1;
+    for (let index = 0; index < cycle.length; index += 1) {
+      const isRunStart = cycle[index] === status
+        && (index === 0 || cycle[index - 1] !== status);
+      if (isRunStart) return index;
+    }
+    return -1;
+  }
+
   function buildEmployeeCycle(employee) {
     const validStatuses = new Set(['S', 'M', 'CP', 'C', 'OFF']);
     const templateDays = Array.isArray(employee.template_days)
@@ -58,6 +71,21 @@
       const cycle = buildEmployeeCycle(employee);
       userChanges.sort((a, b) => a.tanggal.localeCompare(b.tanggal)).forEach((change) => {
         preview.set(rosterPreviewKey(userId, change.tanggal), change.status);
+
+        // S/M: re-anchor siklus. Hari tsb menjadi awal blok shift pada pola template,
+        // sehingga hari-hari berikutnya mengikuti pola mulai dari awal blok tsb.
+        if (change.status === 'S' || change.status === 'M') {
+          const runStartIndex = findRunStartIndex(cycle, change.status);
+          if (runStartIndex >= 0 && cycle.length) {
+            dates.forEach((date) => {
+              if (date < change.tanggal) return;
+              const cycleIndex = (diffDaysIso(change.tanggal, date) + runStartIndex) % cycle.length;
+              preview.set(rosterPreviewKey(userId, date), cycle[cycleIndex]);
+            });
+          }
+          return;
+        }
+
         if (change.status !== 'CP' && change.status !== 'OFF') return;
 
         const leaveDays = change.status === 'CP' ? Number(employee.roster_cuti_hari) : 1;

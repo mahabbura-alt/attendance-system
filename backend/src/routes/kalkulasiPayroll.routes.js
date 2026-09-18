@@ -1,10 +1,10 @@
 const express = require('express');
-const { requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { hitungKalkulasiPayroll, simpanConfigPayroll } = require('../controllers/kalkulasiPayrollController');
 const { cetakSlipGajiPdfAdmin } = require('../controllers/slipGajiController');
 
 const router = express.Router();
-router.use(requireAdmin);
+router.use(requireAuth, requireAdmin);
 
 router.get('/', hitungKalkulasiPayroll);
 router.post('/config', simpanConfigPayroll);

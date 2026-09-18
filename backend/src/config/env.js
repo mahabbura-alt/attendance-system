@@ -1,6 +1,8 @@
 const required = [
   'DATABASE_URL',
   'JWT_SECRET',
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
 ];
 
 function assertEnvironment() {

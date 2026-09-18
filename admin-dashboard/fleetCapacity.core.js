@@ -29,6 +29,7 @@
   let automaticAssignments = {};
   let loadingPromise = null;
   let saveTimer = null;
+  let saveQueue = Promise.resolve();
 
   const api = path => typeof global.getProdApiUrl === 'function' ? global.getProdApiUrl(path) : path;
   const auth = () => typeof global.getProdAuthHeaders === 'function' ? global.getProdAuthHeaders() : {};
@@ -46,6 +47,28 @@
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[character]);
+  const planningReferenceDate = () => {
+    const now = new Date();
+    const month = state.activeYear === now.getFullYear() ? now.getMonth() + 1 : 12;
+    const day = state.activeYear === now.getFullYear() ? now.getDate() : 31;
+    return `${state.activeYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+
+  async function reloadProductivityPlans() {
+    const effectiveFrom = encodeURIComponent(planningReferenceDate());
+    const [obResponse, coalResponse] = await Promise.all([
+      fetch(api(`/api/admin/production/productivity-plans/ob?effectiveFrom=${effectiveFrom}`), { headers: auth() }),
+      fetch(api(`/api/admin/production/productivity-plans/coal?effectiveFrom=${effectiveFrom}`), { headers: auth() }),
+    ]);
+    if (!obResponse.ok || !coalResponse.ok) throw new Error(`Productivity Planning HTTP ${!obResponse.ok ? obResponse.status : coalResponse.status}`);
+    const [ob, coal] = await Promise.all([
+      obResponse.ok ? obResponse.json() : {},
+      coalResponse.ok ? coalResponse.json() : {},
+    ]);
+    plans = [...parsePlans(ob, 'ob'), ...parsePlans(coal, 'coal')];
+    enrichPlans();
+    buildAutomaticAssignments();
+  }
 
   function fieldValue(table, name) {
     const field = table.querySelector(`[data-plan-productivity-field="${name}"]`);
@@ -55,6 +78,23 @@
   }
 
   function parsePlans(payload, type) {
+    const structured = Array.isArray(payload?.planningData?.fleetCatalog) ? payload.planningData.fleetCatalog : [];
+    if (structured.length) return structured.map((entry, index) => ({
+      id: entry.tableId || `${type}-${index}-${entry.loaderCode}`,
+      type,
+      values: entry,
+      loaderCode: entry.loaderCode,
+      dumpTruckCode: entry.dumpTruckCode || entry.dumpTruckCodes?.[0] || '',
+      dumpTruckIds: Array.isArray(entry.dumpTruckIds) ? entry.dumpTruckIds.map(String) : [],
+      requiredTrucks: Array.isArray(entry.dumpTruckIds) ? entry.dumpTruckIds.length : Math.max(0, Math.round(Number(entry.numberOfTruck) || 0)),
+      jobCode: entry.jobCode || '',
+      computed: {
+        loaderProductivity: Number(entry.loaderProductivity),
+        truckProductivity: Number(entry.truckProductivity),
+        fleetProductivity: Number(entry.fleetProductivity),
+        truckResults: Array.isArray(entry.truckResults) ? entry.truckResults : []
+      },
+    })).filter(plan => plan.loaderCode);
     const parser = new DOMParser();
     const documentCopy = parser.parseFromString(`<div>${payload?.contentHtml || ''}</div>`, 'text/html');
     return [...documentCopy.querySelectorAll('.plan-productivity-table')].map((table, index) => {
@@ -88,9 +128,13 @@
     [...documentCopy.querySelectorAll('.spo-table')]
       .filter(table => /^\s*deployed\s*$/i.test(table.querySelector('[data-spo-status]')?.textContent || ''))
       .forEach(table => {
-        const job = table.querySelector('[data-spo-job]')?.getAttribute('value')?.trim();
+        const stored = planningTables[table.dataset.spoTableId] || {};
+        const job = (stored.jobCode || table.querySelector('[data-spo-job]')?.value || table.querySelector('[data-spo-job]')?.getAttribute('value'))?.trim();
         const id = table.dataset.spoTableId;
-        if (job && id && !spoTablesByJob[job]) spoTablesByJob[job] = planningTables[id] || {};
+        if (job && id && !spoTablesByJob[job]) {
+          spoTablesByJob[job] = stored;
+          [stored.jobDescription, ...(stored.jobLegacyValues || [])].filter(Boolean).forEach(alias => { spoTablesByJob[String(alias).trim()] = stored; });
+        }
       });
 
     const tables = Object.values(planningTables);
@@ -106,13 +150,18 @@
     plans.forEach(plan => {
       plan.loaderUnit = byCode(plan.loaderCode);
       plan.dumpTruckUnit = byCode(plan.dumpTruckCode);
+      plan.dumpTruckUnits = (plan.dumpTruckIds || []).map(id => equipment.find(unit => unitKey(unit) === String(id))).filter(Boolean);
       plan.dumpTruckModel = String(plan.dumpTruckUnit?.tipe_alat || '').trim().toLowerCase();
-      plan.job = jobOfUnit(plan.loaderUnit);
+      plan.job = plan.jobCode || jobOfUnit(plan.loaderUnit);
       plan.unit = plan.type === 'coal' ? 'Ton' : 'BCM';
     });
   }
 
   function compatibleTrucks(plan) {
+    if (plan.dumpTruckIds?.length) {
+      const selected = new Set(plan.dumpTruckIds.map(String));
+      return equipment.filter(unit => selected.has(unitKey(unit)) && isDumpTruck(unit) && (!plan.job || jobOfUnit(unit) === plan.job));
+    }
     if (!plan.job || !plan.dumpTruckModel) return [];
     return equipment.filter(unit => isDumpTruck(unit)
       && jobOfUnit(unit) === plan.job
@@ -189,7 +238,11 @@
     }
 
     const loaderCapacity = loaderRate * loaderEwh;
-    const haulerCapacity = truckRate * truckEwhValues.reduce((sum, value) => sum + value, 0);
+    const perTruckRates = new Map((plan.computed.truckResults || []).map(result => [String(result.id), Number(result.productivity)]));
+    const haulerCapacity = assignedTrucks.reduce((sum, unit, index) => {
+      const rate = perTruckRates.get(unitKey(unit));
+      return sum + (Number.isFinite(rate) && rate > 0 ? rate : (truckRate / Math.max(1, assignedTrucks.length))) * truckEwhValues[index];
+    }, 0);
     const tolerance = Math.max(loaderCapacity, haulerCapacity) * 0.03;
     return {
       target: Math.min(loaderCapacity, haulerCapacity),
@@ -674,9 +727,9 @@
         pitRowOrder: state.pitRowOrder,
       }));
     } catch (error) { console.warn('Draft Fleet Periodic Setup tidak dapat disimpan:', error); }
-    const persist = async () => {
+    const run = async () => {
       const status = document.getElementById('fleetCapacityStatus');
-      if (status) status.textContent = 'Menyimpan…';
+      global.OMOSActionFeedback?.status(status, 'loading', 'Menyimpan perubahan…');
       try {
         const response = await fetch(api('/api/admin/production/productivity-plans/fleet-capacity'), {
           method: 'PUT',
@@ -688,14 +741,18 @@
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         try { localStorage.removeItem(PERIODIC_DRAFT_KEY); } catch (error) { console.warn('Draft Fleet Periodic Setup tidak dapat dibersihkan:', error); }
-        if (status) status.textContent = 'Tersimpan';
+        global.OMOSActionFeedback?.status(status, 'success', 'Tersimpan');
       } catch (error) {
         console.error('Gagal menyimpan Fleet Periodic Setup:', error);
-        if (status) status.textContent = 'Gagal menyimpan';
+        global.OMOSActionFeedback?.status(status, 'error', 'Gagal menyimpan');
       }
     };
-    if (immediate) return persist();
-    saveTimer = setTimeout(persist, 350);
+    const enqueue = () => {
+      saveQueue = saveQueue.catch(() => {}).then(run);
+      return saveQueue;
+    };
+    if (immediate) return enqueue();
+    saveTimer = setTimeout(enqueue, 350);
     return null;
   }
 
@@ -743,8 +800,17 @@
     const panel = document.getElementById('tab-prodFleetCapacity');
     if (!panel || panel.dataset.capacityBound) return;
     panel.dataset.capacityBound = 'true';
-    panel.addEventListener('change', event => {
-      if (event.target.matches('#fleetCapacityYear')) state.activeYear = Number(event.target.value);
+    panel.addEventListener('change', async event => {
+      if (event.target.matches('#fleetCapacityYear')) {
+        state.activeYear = Number(event.target.value);
+        try { await reloadProductivityPlans(); }
+        catch (error) {
+          console.warn('Versi Productivity Planning gagal dimuat:', error);
+          const status = document.getElementById('fleetCapacityStatus');
+          if (status) status.textContent = 'Gagal memuat versi planning';
+          return;
+        }
+      }
       else if (event.target.matches('#fleetCapacityJob')) state.jobFilter = event.target.value;
       else if (event.target.matches('#fleetCapacityType')) state.typeFilter = event.target.value;
       else if (event.target.matches('#fleetCapacityMode')) state.mode = event.target.value;
@@ -840,11 +906,12 @@
       fetch(api('/api/admin/production/master'), { headers: auth() }),
       fetch(api('/api/admin/production/productivity-plans/spo'), { headers: auth() }),
       fetch(api('/api/admin/production/productivity-plans/pa-ua-ewh'), { headers: auth() }),
-      fetch(api('/api/admin/production/productivity-plans/ob'), { headers: auth() }),
-      fetch(api('/api/admin/production/productivity-plans/coal'), { headers: auth() }),
+      fetch(api(`/api/admin/production/productivity-plans/ob?effectiveFrom=${encodeURIComponent(planningReferenceDate())}`), { headers: auth() }),
+      fetch(api(`/api/admin/production/productivity-plans/coal?effectiveFrom=${encodeURIComponent(planningReferenceDate())}`), { headers: auth() }),
       fetch(api('/api/admin/production/productivity-plans/fleet-capacity'), { headers: auth() }),
     ]);
     if (!responses[0].ok) throw new Error(`Master HTTP ${responses[0].status}`);
+    if (!responses[3].ok || !responses[4].ok) throw new Error(`Productivity Planning HTTP ${!responses[3].ok ? responses[3].status : responses[4].status}`);
     const payloads = await Promise.all(responses.map(async response => response.ok ? response.json() : {}));
     const [master, spo, pae, ob, coal, saved] = payloads;
 

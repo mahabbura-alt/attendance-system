@@ -16,6 +16,7 @@ data class AbsensiDto(
     @SerializedName("tanggal_kerja") val tanggal_kerja: String,
     @SerializedName("waktu_datang") val waktu_datang: String?,
     @SerializedName("waktu_pulang") val waktu_pulang: String?,
+    @SerializedName("is_pending_session") val is_pending_session: Boolean? = null,
     @SerializedName("status_datang") val status_datang: String?,
     @SerializedName("status_pulang") val status_pulang: String?
 )
@@ -54,7 +55,8 @@ data class ApiError(
 
 data class CheckLokasiRequest(
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val accuracy: Float?
 )
 
 data class CheckLokasiResponse(

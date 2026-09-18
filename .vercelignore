@@ -7,3 +7,25 @@ api/Absensi_PIM.apk
 mobile-android/
 node_modules/
 .git/
+
+# Konteks agent, dokumen handover, backup, dan utilitas lokal tidak dikirim ke production.
+.codex/
+.roo/
+.agents/
+Litellm/
+docs/
+outputs/
+tools/verify-production-data-ui.cjs
+backend/src/scripts/verify_production_data.js
+tmp/
+*.md
+*.xlsx
+*.xls
+*.ps1
+backend/backup_schema_*.json
+backend/src/scripts/backup_schema_snapshot.js
+backend/src/scripts/check_db_connection.js
+backend/src/scripts/check_migration_status.js
+backend/src/scripts/cleanup_test_fleet.js
+backend/src/scripts/test_km_only.js
+backend/src/scripts/verify_production_endpoints.js

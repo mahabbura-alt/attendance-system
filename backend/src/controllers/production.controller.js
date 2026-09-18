@@ -8,6 +8,7 @@
 
 const { pool } = require('../config/db');
 const ProductionAiEngine = require('../services/productionAi.service');
+const ProductivityPlanning = require('../services/productivityPlanning');
 
 // Helper untuk format tanggal YYYY-MM-DD
 function getTodayString() {
@@ -44,6 +45,16 @@ function calculateHmTotal(hmStart, hmFinish) {
   }
   if (finish < start) throw new Error('HM Akhir tidak boleh lebih kecil dari HM Start.');
   return Number((finish - start).toFixed(2));
+}
+
+// Daftar Work Log dipakai oleh beberapa layar. Pertahankan batas kecil untuk
+// pemanggilan umum, tetapi izinkan layar Input Data meminta satu periode penuh
+// tanpa membuat query tak terbatas.
+function resolveProductionLogLimit(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return 200;
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) return 200;
+  return Math.min(Math.max(parsed, 1), 2000);
 }
 
 function parseOptionalNonNegativeNumber(value, label) {
@@ -790,7 +801,8 @@ async function assertNoStandbyOverlapOutsideSession(db, equipmentId, startAt, fi
 async function getFuelReadingContext(db, input) {
   const shiftOrder = fuelShiftOrderSql('s');
   const [equipmentResult, duplicateResult, previousResult, nextResult] = await Promise.all([
-    db.query(`SELECT id, kode_alat, kelas_alat, class_unit, tipe_alat, fuel_rate_lph::float AS fuel_rate_lph
+    db.query(`SELECT id, kode_alat, kelas_alat, class_unit, tipe_alat, fuel_rate_lph::float AS fuel_rate_lph,
+                     COALESCE(km_only,FALSE) AS km_only
               FROM equipment WHERE id=$1 AND deleted_at IS NULL LIMIT 1`, [input.equipmentId]),
     db.query(`SELECT COUNT(*)::int AS total FROM fuel_logs
               WHERE equipment_id=$1 AND tanggal=$2 AND shift_id=$3 AND deleted_at IS NULL
@@ -823,6 +835,7 @@ async function getFuelReadingContext(db, input) {
 function calculateFuelReadingMetrics(input, context) {
   const issues = [];
   const warnings = [];
+  const kmOnly = Boolean(context.equipment?.km_only);
   const previousHm = nullableFiniteNumber(context.previous?.hm_reading);
   const previousKm = nullableFiniteNumber(context.previous?.odometer_reading);
   const nextHm = nullableFiniteNumber(context.next?.hm_reading);
@@ -831,7 +844,8 @@ function calculateFuelReadingMetrics(input, context) {
   const hasPreviousKm = previousKm !== null;
   const hasNextHm = nextHm !== null;
   const hasNextKm = nextKm !== null;
-  let hmDelta = hasPreviousHm ? input.hmReading - previousHm : null;
+  const hasHmReading = input.hmReading !== null;
+  let hmDelta = hasHmReading && hasPreviousHm ? input.hmReading - previousHm : null;
   let distanceKm = input.odometerReading !== null && hasPreviousKm ? input.odometerReading - previousKm : null;
 
   if (context.duplicateCount > 0) issues.push({ code: 'DUPLICATE_UNIT_SHIFT', message: 'Unit sudah memiliki pengisian pada tanggal dan shift yang sama.' });
@@ -843,7 +857,7 @@ function calculateFuelReadingMetrics(input, context) {
   } else {
     if (hmDelta !== null && hmDelta <= 0) issues.push({ code: 'HM_NOT_INCREASING', message: `HM harus lebih besar dari pembacaan sebelumnya (${previousHm.toFixed(2)}).` });
     if (distanceKm !== null && distanceKm <= 0) issues.push({ code: 'KM_NOT_INCREASING', message: `KM harus lebih besar dari pembacaan sebelumnya (${previousKm.toFixed(2)}).` });
-    if (hasNextHm && input.hmReading >= nextHm) issues.push({ code: 'HM_OVERLAPS_NEXT', message: `HM harus lebih kecil dari pembacaan berikutnya (${nextHm.toFixed(2)}).` });
+    if (hasHmReading && hasNextHm && input.hmReading >= nextHm) issues.push({ code: 'HM_OVERLAPS_NEXT', message: `HM harus lebih kecil dari pembacaan berikutnya (${nextHm.toFixed(2)}).` });
     if (input.odometerReading !== null && hasNextKm && input.odometerReading >= nextKm) issues.push({ code: 'KM_OVERLAPS_NEXT', message: `KM harus lebih kecil dari pembacaan berikutnya (${nextKm.toFixed(2)}).` });
   }
 
@@ -854,7 +868,7 @@ function calculateFuelReadingMetrics(input, context) {
   const variance = targetFuel !== null ? input.fuelFilled - targetFuel : null;
   const variancePct = targetFuel > 0 ? (variance / targetFuel) * 100 : null;
   if (variancePct !== null && variancePct > 20) warnings.push({ code: 'HIGH_FUEL_VARIANCE', message: `Fuel ${variancePct.toFixed(1)}% di atas target Standard Fuel Rate.` });
-  if (!hasPreviousHm) warnings.push({ code: 'HM_BASELINE_MISSING', message: 'Belum ada baseline HM sebelumnya; Ltr/Jam belum dapat dihitung.' });
+  if (!kmOnly && !hasPreviousHm) warnings.push({ code: 'HM_BASELINE_MISSING', message: 'Belum ada baseline HM sebelumnya; Ltr/Jam belum dapat dihitung.' });
   if (isFuelDistanceEquipment(context.equipment) && input.odometerReading === null) warnings.push({ code: 'KM_REQUIRED_FOR_MOBILE', message: 'Unit mobile belum memiliki pembacaan KM.' });
   if (input.odometerReading !== null && !hasPreviousKm) warnings.push({ code: 'KM_BASELINE_MISSING', message: 'Belum ada baseline KM sebelumnya; Ltr/Km belum dapat dihitung.' });
 
@@ -987,27 +1001,751 @@ async function analyzeHmHybrid(db, input) {
   return { status, tolerance, totalHm, dailyTotal, unitCode, previous: previousRow, next: nextRow, hardIssues, criticalIssues, warnings };
 }
 
-class ProductionController {
+const normalizePlanningJob = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-  static async ensureProductivityPlanStorage() {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS productivity_plans (
-        planning_type VARCHAR(20) PRIMARY KEY,
-        content_html TEXT NOT NULL,
-        data_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    await pool.query(`ALTER TABLE productivity_plans ADD COLUMN IF NOT EXISTS data_json JSONB NOT NULL DEFAULT '{}'::jsonb`);
+const decodePlanningHtml = value => String(value || '')
+  .replace(/&amp;/gi, '&')
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;|&apos;/gi, "'")
+  .replace(/&lt;/gi, '<')
+  .replace(/&gt;/gi, '>');
+
+function htmlAttribute(tag, name) {
+  const match = String(tag || '').match(new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, 'i'));
+  return decodePlanningHtml(match?.[2] || '');
+}
+
+function resolvePlanningJob(rawValue, jobs) {
+  const key = normalizePlanningJob(rawValue);
+  if (!key) return null;
+  return jobs.find(job => normalizePlanningJob(job.job_code) === key
+    || normalizePlanningJob(job.job_desc) === key
+    || (String(job.job_code).toUpperCase() === 'OB' && key === 'ob removal')) || null;
+}
+
+async function buildDeployedSpoJobsData(db = pool) {
+  const [planResult, jobsResult] = await Promise.all([
+    db.query("SELECT content_html, data_json FROM productivity_plans WHERE planning_type = 'spo' LIMIT 1"),
+    db.query('SELECT job_code, job_desc FROM master_job_codes WHERE deleted_at IS NULL ORDER BY job_code')
+  ]);
+  const plan = planResult.rows[0] || {};
+  const jobs = jobsResult.rows || [];
+  const deployed = new Set();
+  const add = value => {
+    const resolved = resolvePlanningJob(value, jobs);
+    if (resolved) deployed.add(String(resolved.job_code));
+  };
+
+  const data = plan.data_json && typeof plan.data_json === 'object' ? plan.data_json : {};
+  if (Array.isArray(data.deployedJobs)) {
+    data.deployedJobs.forEach(job => add(job?.jobCode || job?.job_code || job));
   }
+  Object.values(data.tables || {}).forEach(table => {
+    if (table?.deployed) add(table.jobCode || table.job_code || table.jobDescription);
+  });
+
+  // Compatibility path for SPO records saved before planningData v5.
+  if (!deployed.size && plan.content_html) {
+    const html = String(plan.content_html);
+    const starts = [...html.matchAll(/<div\b[^>]*class=(["'])[^"']*\bspo-table\b[^"']*\1[^>]*>/gi)].map(match => match.index);
+    starts.forEach((start, index) => {
+      const segment = html.slice(start, starts[index + 1] ?? html.length);
+      if (!/data-spo-status[^>]*>\s*Deployed\s*</i.test(segment)) return;
+      const control = segment.match(/<(?:input|select)\b[^>]*data-spo-job\b[^>]*>/i)?.[0] || '';
+      let value = htmlAttribute(control, 'value');
+      if (!value && /^<select/i.test(control)) {
+        const selectBlock = segment.match(/<select\b[^>]*data-spo-job\b[^>]*>[\s\S]*?<\/select>/i)?.[0] || '';
+        const selectedOption = selectBlock.match(/<option\b[^>]*selected[^>]*>/i)?.[0] || '';
+        value = htmlAttribute(selectedOption, 'value');
+      }
+      if (!value) value = segment.match(/data-spo-job-label[^>]*>\s*([^<]+)</i)?.[1] || '';
+      add(decodePlanningHtml(value));
+    });
+  }
+  return jobs.filter(job => deployed.has(String(job.job_code))).map(job => ({
+    jobCode: String(job.job_code),
+    jobDescription: String(job.job_desc || ''),
+  }));
+}
+
+async function getDeployedSpoJobCodes(db = pool) {
+  return new Set((await buildDeployedSpoJobsData(db)).map(job => job.jobCode));
+}
+
+async function getSpoPeriodEnd(db = pool) {
+  const result = await db.query("SELECT data_json FROM productivity_plans WHERE planning_type = 'spo' LIMIT 1");
+  const tables = Object.values(result.rows[0]?.data_json?.tables || {});
+  const years = tables.filter(table => table?.deployed)
+    .map(table => Number(table.endYear)).filter(year => Number.isInteger(year) && year >= 2000 && year <= 2100);
+  return years.length ? `${Math.max(...years)}-12-31` : null;
+}
+
+function rainfallPeriod(yearValue, monthValue) {
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error('Periode tahun dan bulan tidak valid.');
+  }
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const next = new Date(Date.UTC(year, month, 1));
+  const end = next.toISOString().slice(0, 10);
+  return { year, month, start, end };
+}
+
+function normalizeRainfallTime(value, label) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const match = text.match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
+  if (!match) throw new Error(`${label} harus menggunakan format jam HH:MM.`);
+  return `${match[1]}:${match[2]}:00`;
+}
+
+function normalizeRainfallRow(row, period) {
+  const operationalDate = String(row?.operational_date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(operationalDate) || operationalDate < period.start || operationalDate >= period.end) {
+    throw new Error(`Tanggal ${operationalDate || '-'} tidak berada dalam periode yang dipilih.`);
+  }
+  const rainStart = normalizeRainfallTime(row?.rain_start, 'Jam hujan mulai');
+  const rainFinish = normalizeRainfallTime(row?.rain_finish, 'Jam hujan selesai');
+  const slipperyStart = normalizeRainfallTime(row?.slippery_start, 'Slippery mulai');
+  const slipperyFinish = normalizeRainfallTime(row?.slippery_finish, 'Slippery selesai');
+  if (Boolean(rainStart) !== Boolean(rainFinish)) throw new Error('Jam hujan Mulai dan Selesai wajib diisi berpasangan.');
+  if (Boolean(slipperyStart) !== Boolean(slipperyFinish)) throw new Error('Jam Slippery Mulai dan Selesai wajib diisi berpasangan.');
+  if (!rainStart && !slipperyStart) throw new Error('Isi minimal satu interval Jam Hujan atau Slippery.');
+  const intensityRaw = row?.intensity_mm ?? row?.intensity;
+  const intensityText = String(intensityRaw ?? '').trim();
+  const intensityMm = intensityText === '' ? null : Number(intensityText);
+  if (rainStart && intensityMm == null) throw new Error('Intensitas hujan (mm) wajib diisi ketika Jam Hujan tersedia.');
+  if (intensityMm != null && (!Number.isFinite(intensityMm) || intensityMm < 0)) {
+    throw new Error('Intensitas hujan harus berupa angka non-negatif dalam mm.');
+  }
+  return {
+    id: String(row?.id || '').trim() || null,
+    operational_date: operationalDate,
+    shift_id: String(row?.shift_id || '').trim(),
+    area_name: String(row?.area_name || '').trim(),
+    job_code: String(row?.job_code || '').trim(),
+    rain_start: rainStart,
+    rain_finish: rainFinish,
+    intensity_mm: intensityMm == null ? null : Number(intensityMm.toFixed(1)),
+    slippery_start: slipperyStart,
+    slippery_finish: slipperyFinish,
+  };
+}
+
+const normalizeFleetPlanKey = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
+
+function planningFieldFromHtml(segment, fieldName) {
+  const escaped = String(fieldName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const selectBlock = String(segment || '').match(new RegExp(`<select\\b[^>]*data-plan-productivity-field=["']${escaped}["'][^>]*>[\\s\\S]*?<\\/select>`, 'i'))?.[0];
+  if (selectBlock) {
+    const selected = selectBlock.match(/<option\b[^>]*\bselected(?:\s*=\s*(["']).*?\1)?[^>]*>/i)?.[0]
+      || selectBlock.match(/<option\b[^>]*>/i)?.[0];
+    return htmlAttribute(selected, 'value');
+  }
+  const control = String(segment || '').match(new RegExp(`<(?:input|textarea)\\b[^>]*data-plan-productivity-field=["']${escaped}["'][^>]*>`, 'i'))?.[0] || '';
+  return htmlAttribute(control, 'value');
+}
+
+function legacyFleetCatalog(contentHtml, planningType) {
+  const html = String(contentHtml || '');
+  const starts = [...html.matchAll(/<div\b[^>]*class=(["'])[^"']*\bplan-productivity-table\b[^"']*\1[^>]*>/gi)];
+  return starts.map((match, index) => {
+    const segment = html.slice(match.index, starts[index + 1]?.index ?? html.length);
+    const rootTag = match[0];
+    const tableId = htmlAttribute(rootTag, 'data-plan-table-id') || `${planningType}-${index + 1}`;
+    const loaderCode = planningFieldFromHtml(segment, 'fleetName');
+    const material = planningFieldFromHtml(segment, 'material');
+    const productivityAttribute = htmlAttribute(rootTag, 'data-fleet-productivity');
+    let fleetProductivity = productivityAttribute === '' ? Number.NaN : Number(productivityAttribute);
+    let productivityUnit = htmlAttribute(rootTag, 'data-fleet-productivity-unit');
+    if (!Number.isFinite(fleetProductivity)) {
+      const output = segment.match(/Fleet\s*Prod\.<\/div>\s*<div[^>]*>\s*([0-9.,-]+)\s*(Ton\/Hr|bcm\/hr)/i);
+      if (output) {
+        fleetProductivity = Number(String(output[1]).replace(/,/g, ''));
+        productivityUnit = output[2];
+      }
+    }
+    return {
+      planRef: `${planningType}:${tableId}`,
+      tableId,
+      planningType,
+      loaderCode,
+      material,
+      fleetProductivity: Number.isFinite(fleetProductivity) ? fleetProductivity : null,
+      density: planningType === 'coal' && Number(planningFieldFromHtml(segment, 'density')) > 0 ? Number(planningFieldFromHtml(segment, 'density')) : null,
+      productivityUnit: productivityUnit || (planningType === 'coal' ? 'Ton/Hr' : 'BCM/Hr'),
+      source: 'legacy_html',
+    };
+  }).filter(entry => entry.loaderCode && entry.material);
+}
+
+async function loadEffectiveProductivityPlanRows(db = pool, operationalDate = null) {
+  const date = operationalDate ? normalizeDateOnly(operationalDate, 'Tanggal operasional planning') : null;
+  const [versionResult, legacyResult] = await Promise.all([
+    db.query(`
+      SELECT DISTINCT ON (planning_type)
+             planning_type, content_html, data_json, effective_from::text AS effective_from,
+             revision, updated_at
+      FROM productivity_plan_versions
+      WHERE ($1::date IS NULL OR effective_from <= $1::date)
+      ORDER BY planning_type, effective_from DESC, revision DESC`, [date]),
+    db.query("SELECT planning_type, content_html, data_json, updated_at FROM productivity_plans WHERE planning_type = 'pa-ua-ewh'"),
+  ]);
+  return [...versionResult.rows, ...legacyResult.rows];
+}
+
+async function validateLoaderFleetDatabase(db, planningType, data, effectiveFrom) {
+  const reject = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
+  if (!Array.isArray(data.parameters) || !Array.isArray(data.scenarios)
+    || !Array.isArray(data.haulerRows) || !Array.isArray(data.fleetSetups)) reject('Database Loader, Hauler, dan Setting Fleet wajib tersedia.');
+  if (data.fleetSetups.some(setting => !Array.isArray(setting.dumpTruckIds)))
+    reject('Daftar Dump Truck Setting Fleet tidak valid.');
+  const headers = Array.isArray(data.distanceHeadersMeters) && data.distanceHeadersMeters.length
+    ? data.distanceHeadersMeters.map(Number) : Array.from({ length: 16 }, (_, index) => 500 + index * 100);
+  if (headers.length > 80 || new Set(headers).size !== headers.length
+    || headers.some(distance => !Number.isInteger(distance) || distance < 500 || distance > 50000 || distance % 100 !== 0))
+    reject('Header jarak harus unik, 500–50.000 meter, dan berinterval 100 meter.');
+  data.distanceHeadersMeters = [...headers].sort((a, b) => a - b);
+  const materialMap = new Map();
+  data.parameters.forEach(parameter => {
+    const key = String(parameter.material || '').trim().toLocaleLowerCase('id-ID');
+    if (!key || materialMap.has(key)) reject('Nama material kosong atau duplikat.');
+    materialMap.set(key, parameter);
+  });
+  const ids = [...new Set([
+    ...data.scenarios.map(item => item.loaderId),
+    ...data.haulerRows.flatMap(item => [item.loaderId, item.truckId]),
+    ...data.fleetSetups.flatMap(item => item.dumpTruckIds || [])
+  ].filter(Boolean).map(String))];
+  const equipmentResult = ids.length ? await db.query(`SELECT id,kode_alat,kelas_alat,class_unit,tipe_alat,
+    kapasitas_unit,kapasitas_unit_uom,COALESCE(is_active,TRUE) AS is_active
+    FROM equipment WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL`, [ids]) : { rows: [] };
+  const equipment = new Map(equipmentResult.rows.map(unit => [String(unit.id), unit]));
+  const uniqueLoader = new Set();
+  const uniqueLoaderIds = new Set();
+  const loaders = new Map();
+  data.scenarios = data.scenarios.map((item, index) => {
+    const loader = equipment.get(String(item.loaderId));
+    const material = String(item.material || '').trim();
+    const parameter = materialMap.get(material.toLocaleLowerCase('id-ID'));
+    if (!loader || loader.kelas_alat !== 'Excavator' || !parameter) reject(`Loader record ${index + 1} tidak valid.`);
+    const key = `${loader.id}|${material.toLocaleLowerCase('id-ID')}`;
+    if (uniqueLoader.has(key)) reject(`Excavator ${loader.kode_alat} dan material ${material} sudah ada pada periode ini.`, 409);
+    uniqueLoader.add(key);
+    if (!(Number(parameter.fill) > 0) || !(Number(parameter.swell) > 0)
+      || (planningType === 'coal' && !(Number(parameter.density) > 0))) reject(`Parameter material ${material} belum lengkap.`);
+    const jobCodes = [...new Set((Array.isArray(item.jobCodes) ? item.jobCodes : []).map(code => String(code).trim()).filter(Boolean))];
+    const result = ProductivityPlanning.calculateLoaderProductivity({ planningType, scenario: item, parameter,
+      loader: { capacity: loader.kapasitas_unit } });
+    const id = String(item.id || item.tableId || `${planningType}-loader-${index + 1}`);
+    if (uniqueLoaderIds.has(id)) reject('ID Loader record duplikat.', 409);
+    uniqueLoaderIds.add(id);
+    const normalized = { id, loaderId: loader.id, loaderCode: loader.kode_alat, material,
+      jobCodes, cycleTimeLoading: item.cycleTimeLoading, workEffLoader: item.workEffLoader,
+      ...result, effectiveFrom, formulaVersion: 'loader-productivity-v1' };
+    loaders.set(id, { normalized, loader, parameter });
+    return normalized;
+  });
+  const uniqueHauler = new Set();
+  data.haulerRows.forEach(row => {
+    const loader = equipment.get(String(row.loaderId));
+    const truck = equipment.get(String(row.truckId));
+    const material = String(row.material || '').trim();
+    if (!loader || loader.kelas_alat !== 'Excavator' || !truck || truck.kelas_alat !== 'Dump Truck'
+      || !materialMap.has(material.toLocaleLowerCase('id-ID'))) reject('Relasi Hauler tidak valid.');
+    const key = `${loader.id}|${truck.id}|${material.toLocaleLowerCase('id-ID')}`;
+    if (uniqueHauler.has(key)) reject('Kombinasi excavator, Dump Truck, dan material Hauler duplikat.', 409);
+    uniqueHauler.add(key);
+    const supplied = field => String(row[field] ?? '').trim() !== '';
+    if ((supplied('capacity') && !(Number(row.capacity) > 0))
+      || (supplied('capacityUom') && !['bcm', 'ton'].includes(String(row.capacityUom).toLowerCase()))
+      || (supplied('loadedSpeed') && !(Number(row.loadedSpeed) > 0))
+      || (supplied('emptySpeed') && !(Number(row.emptySpeed) > 0))
+      || (supplied('spotDumpTime') && (!(Number(row.spotDumpTime) >= 0)))
+      || (supplied('workEfficiency') && !(Number(row.workEfficiency) > 0 && Number(row.workEfficiency) <= 1))
+      || (planningType === 'ob' && supplied('capacityUom') && String(row.capacityUom).toLowerCase() !== 'bcm')
+      || (Number(data.version) >= 7 && planningType === 'coal' && supplied('capacityUom')
+        && String(row.capacityUom).toLowerCase() !== 'ton'))
+      reject(`Parameter Hauler ${truck.kode_alat} / ${material} belum valid.`);
+  });
+  const uniqueSetting = new Set();
+  const uniqueSettingIds = new Set();
+  const uniquePlanRefs = new Set();
+  data.fleetCatalog = data.fleetSetups.map((setting, index) => {
+    const source = loaders.get(String(setting.loaderScenarioId));
+    if (!source) reject(`Setting Fleet ${index + 1} tidak memiliki Loader record.`);
+    const jobCode = String(setting.jobCode || '').trim();
+    if (!jobCode || !source.normalized.jobCodes.includes(jobCode)) reject('JOB Setting Fleet harus terhubung ke JOB Loader dari SPO.');
+    const key = `${source.loader.id}|${source.normalized.material.toLocaleLowerCase('id-ID')}|${jobCode}`;
+    if (uniqueSetting.has(key)) reject('Setting Fleet untuk excavator, material, dan JOB ini sudah ada.', 409);
+    uniqueSetting.add(key);
+    const distance = Number(setting.benchmarkDistanceMeters);
+    if (!data.distanceHeadersMeters.includes(distance))
+      reject('Jarak acuan Setting Fleet harus tersedia sebagai header jarak Hauler.');
+    const truckIds = [...new Set((setting.dumpTruckIds || []).map(String))];
+    const trucks = truckIds.map(id => equipment.get(id));
+    if (trucks.some(truck => !truck || truck.kelas_alat !== 'Dump Truck')) reject('Pilihan Dump Truck Setting Fleet tidak valid.');
+    const result = ProductivityPlanning.calculateFleetFromHaulerRows({ planningType,
+      scenario: { ...source.normalized, jobCode, benchmarkDistanceMeters: distance },
+      parameter: source.parameter, loader: { capacity: source.loader.kapasitas_unit },
+      trucks: trucks.map(truck => ({ id: truck.id, active: truck.is_active })),
+      haulerRows: data.haulerRows.filter(row => String(row.loaderId) === String(source.loader.id)
+        && String(row.material).trim().toLocaleLowerCase('id-ID') === source.normalized.material.toLocaleLowerCase('id-ID')) });
+    const id = String(setting.id || `${planningType}-setting-${index + 1}`);
+    const planRef = String(setting.planRef || `${planningType}:${id}`);
+    if (uniqueSettingIds.has(id) || uniquePlanRefs.has(planRef))
+      reject('ID atau referensi Setting Fleet duplikat.', 409);
+    uniqueSettingIds.add(id);
+    uniquePlanRefs.add(planRef);
+    data.fleetSetups[index] = { id, planRef, loaderScenarioId: source.normalized.id,
+      jobCode, dumpTruckIds: truckIds, benchmarkDistanceMeters: distance };
+    return { planRef, tableId: id, planningType, jobCode, loaderCode: source.loader.kode_alat,
+      dumpTruckCode: trucks[0]?.kode_alat || '', dumpTruckIds: truckIds,
+      dumpTruckCodes: trucks.map(truck => truck.kode_alat),
+      dumpTruckClasses: [...new Set(trucks.map(truck => truck.class_unit).filter(Boolean))],
+      numberOfTruck: trucks.length, material: source.normalized.material,
+      density: planningType === 'coal' ? result.density : null,
+      loaderProductivity: result.loaderProductivity, truckProductivity: result.truckFleetProductivity,
+      truckResults: result.truckResults, fleetProductivity: result.fleetProductivity,
+      complete: result.complete, productivityUnit: result.productivityUnit,
+      formulaVersion: result.formulaVersion, effectiveFrom };
+  });
+  data.version = Number(data.version) >= 7 ? 7 : 6;
+  data.formulaVersion = 'loader-fleet-database-v1';
+  data.effectiveFrom = effectiveFrom;
+  return data;
+}
+
+async function validateAndCalculatePlanningData(db, planningType, rawData, effectiveFrom) {
+  const data = rawData && typeof rawData === 'object' ? JSON.parse(JSON.stringify(rawData)) : {};
+  if (Number(data.version) >= 6) return validateLoaderFleetDatabase(db, planningType, data, effectiveFrom);
+  if (Number(data.version) < 4 || !Array.isArray(data.scenarios)) return data;
+  const databaseMode = Number(data.version) >= 5;
+  const parameters = Array.isArray(data.parameters) ? data.parameters : [];
+  const materialNames = new Set();
+  parameters.forEach(parameter => {
+    const material = String(parameter.material || '').trim();
+    if (!material) throw new Error('Nama material tidak boleh kosong.');
+    const key = material.toLocaleLowerCase('id-ID');
+    if (materialNames.has(key)) throw new Error(`Material ${material} tersedia lebih dari satu kali.`);
+    materialNames.add(key);
+  });
+  const equipmentIds = [...new Set([
+    ...data.scenarios.flatMap(scenario => [scenario.loaderId, ...(scenario.dumpTruckIds || [])]),
+    ...(databaseMode && Array.isArray(data.haulerRows) ? data.haulerRows.flatMap(row => [row.loaderId, row.truckId]) : [])
+  ].filter(Boolean).map(String))];
+  const equipmentResult = equipmentIds.length ? await db.query(`SELECT id,kode_alat,kelas_alat,class_unit,tipe_alat,
+      kapasitas_unit,kapasitas_unit_uom,COALESCE(is_active,TRUE) AS is_active
+    FROM equipment WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL`, [equipmentIds]) : { rows: [] };
+  const equipment = new Map(equipmentResult.rows.map(unit => [String(unit.id), unit]));
+  const uniqueFleetMaterial = new Set();
+  const uniqueHaulerRows = new Set();
+  if (databaseMode) {
+    if (!Array.isArray(data.haulerRows)) throw Object.assign(new Error('Database Hauler belum tersedia.'), { status: 400 });
+    data.haulerRows.forEach(row => {
+      const loader = equipment.get(String(row.loaderId));
+      const truck = equipment.get(String(row.truckId));
+      const material = String(row.material || '').trim();
+      if (!loader || loader.kelas_alat !== 'Excavator' || !truck || truck.kelas_alat !== 'Dump Truck'
+        || !parameters.some(parameter => String(parameter.material).trim().toLocaleLowerCase('id-ID') === material.toLocaleLowerCase('id-ID')))
+        throw Object.assign(new Error('Relasi excavator, Dump Truck, atau material Hauler tidak valid.'), { status: 400 });
+      const key = `${loader.id}|${truck.id}|${material.toLocaleLowerCase('id-ID')}`;
+      if (uniqueHaulerRows.has(key)) throw Object.assign(new Error('Kombinasi excavator, Dump Truck, dan material Hauler duplikat.'), { status: 409 });
+      uniqueHaulerRows.add(key);
+      const supplied = field => String(row[field] ?? '').trim() !== '';
+      if ((supplied('capacity') && !(Number(row.capacity) > 0))
+        || (supplied('capacityUom') && !['bcm', 'ton'].includes(String(row.capacityUom).toLowerCase()))
+        || (supplied('loadedSpeed') && !(Number(row.loadedSpeed) > 0))
+        || (supplied('emptySpeed') && !(Number(row.emptySpeed) > 0))
+        || (supplied('spotDumpTime') && Number(row.spotDumpTime) < 0)
+        || (supplied('workEfficiency') && !(Number(row.workEfficiency) > 0 && Number(row.workEfficiency) <= 1))
+        || (planningType === 'ob' && supplied('capacityUom') && String(row.capacityUom).toLowerCase() !== 'bcm'))
+        throw Object.assign(new Error(`Parameter Hauler ${truck.kode_alat} / ${material} belum valid.`), { status: 400 });
+    });
+  }
+  const catalog = [];
+  data.scenarios = data.scenarios.map((scenario, index) => {
+    const loader = equipment.get(String(scenario.loaderId));
+    if (!loader || loader.kelas_alat !== 'Excavator') throw new Error(`Excavator scenario ${index + 1} tidak tersedia pada List Equipment.`);
+    const key = `${loader.id}|${String(scenario.material || '').trim().toLocaleLowerCase('id-ID')}`;
+    if (uniqueFleetMaterial.has(key)) throw Object.assign(new Error(`Fleet ${loader.kode_alat} dengan material ${scenario.material} sudah tersedia pada periode ini.`), { status: 409 });
+    uniqueFleetMaterial.add(key);
+    const parameter = parameters.find(item => String(item.material) === String(scenario.material));
+    if (!parameter) throw new Error(`Material ${scenario.material || '-'} tidak tersedia pada Parameter.`);
+    if (databaseMode && (!Number.isInteger(Number(scenario.benchmarkDistanceMeters))
+      || Number(scenario.benchmarkDistanceMeters) < 500 || Number(scenario.benchmarkDistanceMeters) > 2000
+      || Number(scenario.benchmarkDistanceMeters) % 100 !== 0))
+      throw Object.assign(new Error('Jarak acuan Hauler harus 500–2000 meter dengan interval 100 meter.'), { status: 400 });
+    if (!(Number(parameter.fill) > 0) || !(Number(parameter.swell) > 0)) {
+      throw new Error(`Bucket Fill Factor dan Swell Factor ${scenario.material} harus lebih dari 0 sebelum scenario digunakan.`);
+    }
+    if (planningType === 'coal' && !(Number(parameter.density) > 0)) {
+      throw new Error(`Density ${scenario.material} harus lebih dari 0 Ton/BCM sebelum scenario digunakan.`);
+    }
+    const truckIds = [...new Set((scenario.dumpTruckIds || []).map(String))];
+    const trucks = truckIds.map(id => equipment.get(id)).filter(Boolean);
+    if (trucks.length !== truckIds.length || trucks.some(truck => truck.kelas_alat !== 'Dump Truck')) {
+      throw new Error(`Pilihan Dump Truck scenario ${index + 1} tidak valid.`);
+    }
+    if (Number(scenario.workEffLoader) < 0 || Number(scenario.workEffLoader) > 1
+      || Number(scenario.workEffFleet) < 0 || Number(scenario.workEffFleet) > 1) {
+      throw new Error('Work Efficiency harus berada pada rentang 0–1.');
+    }
+    const calculationInput = { planningType, scenario, parameter,
+      loader: { id: loader.id, capacity: loader.kapasitas_unit, capacityUom: loader.kapasitas_unit_uom },
+      trucks: trucks.map(truck => ({ id: truck.id, capacity: truck.kapasitas_unit, capacityUom: truck.kapasitas_unit_uom,
+        active: truck.is_active })) };
+    const result = databaseMode ? ProductivityPlanning.calculateFleetFromHaulerRows({
+      ...calculationInput, haulerRows: data.haulerRows.filter(row => String(row.loaderId) === String(loader.id)
+        && String(row.material).trim().toLocaleLowerCase('id-ID') === String(scenario.material).trim().toLocaleLowerCase('id-ID'))
+    }) : ProductivityPlanning.calculateHeterogeneousFleet(calculationInput);
+    const id = String(scenario.id || scenario.tableId || `${planningType}-${index + 1}`);
+    const normalized = {
+      ...scenario, id, tableId: id, planRef: String(scenario.planRef || `${planningType}:${id}`),
+      planningType, loaderId: loader.id, loaderCode: loader.kode_alat,
+      dumpTruckIds: trucks.map(truck => truck.id), dumpTruckCodes: trucks.map(truck => truck.kode_alat),
+      dumpTruckClasses: [...new Set(trucks.map(truck => truck.class_unit).filter(Boolean))],
+      dumpTruckSnapshots: trucks.map(truck => ({ id: truck.id, code: truck.kode_alat, classUnit: truck.class_unit,
+        type: truck.tipe_alat, capacity: truck.kapasitas_unit, capacityUom: truck.kapasitas_unit_uom })),
+      numberOfTruck: trucks.length, bucketCapacity: result.bucketCapacity,
+      bucketFillFactor: result.fill, swellFactor: result.swell,
+      density: planningType === 'coal' ? result.density : null,
+      loaderProductivity: result.loaderProductivity, truckProductivity: result.truckFleetProductivity,
+      truckResults: result.truckResults,
+      fleetMatch: result.fleetMatch, fleetProductivity: result.fleetProductivity, complete: result.complete,
+      productivityUnit: result.productivityUnit, formulaVersion: result.formulaVersion,
+      effectiveFrom
+    };
+    catalog.push({
+      planRef: normalized.planRef, tableId: id, planningType,
+      jobCode: String(normalized.jobCode || '').trim(), jobDescription: String(normalized.jobDescription || '').trim(),
+      loaderCode: loader.kode_alat, dumpTruckCode: trucks[0]?.kode_alat || '',
+      dumpTruckIds: normalized.dumpTruckIds, dumpTruckCodes: normalized.dumpTruckCodes,
+      dumpTruckClasses: normalized.dumpTruckClasses, numberOfTruck: normalized.numberOfTruck,
+      material: String(normalized.material || '').trim(), density: normalized.density,
+      loaderProductivity: normalized.loaderProductivity, truckProductivity: normalized.truckProductivity,
+      truckResults: normalized.truckResults,
+      fleetProductivity: normalized.fleetProductivity, complete: normalized.complete,
+      productivityUnit: normalized.productivityUnit,
+      formulaVersion: normalized.formulaVersion, effectiveFrom
+    });
+    return normalized;
+  });
+  (!databaseMode && Array.isArray(data.haulerProfiles) ? data.haulerProfiles : []).forEach(profile => {
+    const filled = ['loadingTime', 'loadedSpeed', 'emptySpeed', 'spotDumpTime', 'workEfficiency']
+      .some(field => String(profile[field] ?? '').trim() !== '');
+    if (!filled) return;
+    if (Number(profile.loadingTime) < 0 || Number(profile.spotDumpTime) < 0
+      || !(Number(profile.loadedSpeed) > 0) || !(Number(profile.emptySpeed) > 0)
+      || !(Number(profile.workEfficiency) > 0 && Number(profile.workEfficiency) <= 1)) {
+      throw new Error(`Parameter Hauler ${profile.material || '-'} / ${profile.classUnit || '-'} / ${profile.type || '-'} belum valid.`);
+    }
+  });
+  data.fleetCatalog = catalog;
+  data.formulaVersion = ProductivityPlanning.FLEET_FORMULA_VERSION;
+  data.haulerFormulaVersion = ProductivityPlanning.HAULER_FORMULA_VERSION;
+  data.effectiveFrom = effectiveFrom;
+  return data;
+}
+
+async function buildFleetPlanCatalogData(db = pool, operationalDate = null) {
+  if (operationalDate) {
+    const periodEnd = await getSpoPeriodEnd(db);
+    if (periodEnd && operationalDate > periodEnd) return [];
+  }
+  const [planRows, equipmentResult, jobsResult] = await Promise.all([
+    loadEffectiveProductivityPlanRows(db, operationalDate),
+    db.query("SELECT id, kode_alat, tipe_alat, class_unit FROM equipment WHERE deleted_at IS NULL"),
+    db.query("SELECT job_code, job_desc FROM master_job_codes WHERE deleted_at IS NULL"),
+  ]);
+  const plansByType = new Map((planRows || []).map(row => [row.planning_type, row]));
+  const paAssignments = plansByType.get('pa-ua-ewh')?.data_json?.assignments?.PA || {};
+  const equipmentByCode = new Map(equipmentResult.rows.map(unit => [normalizeFleetPlanKey(unit.kode_alat), unit]));
+  const masterJobs = jobsResult.rows || [];
+  const jobsByCode = new Map(masterJobs.map(job => [String(job.job_code), job]));
+
+  return ['ob', 'coal'].flatMap(planningType => {
+    const saved = plansByType.get(planningType) || {};
+    const structured = Array.isArray(saved.data_json?.fleetCatalog) ? saved.data_json.fleetCatalog : null;
+    const legacy = legacyFleetCatalog(saved.content_html, planningType);
+    const entries = structured || legacy;
+    return entries.map((entry, index) => {
+      const equipment = equipmentByCode.get(normalizeFleetPlanKey(entry.loaderCode));
+      const rawJob = String(entry.jobCode || paAssignments[equipment?.id] || paAssignments[entry.loaderCode] || '').trim();
+      // PA records created before the Master JOB integration may contain a
+      // description/legacy label (for example "OB Removal") instead of the
+      // canonical code ("OB"). Fleet Ritase stores the canonical code, so the
+      // catalog must normalize both generations to the same identifier.
+      const resolvedJob = resolvePlanningJob(rawJob, masterJobs);
+      const jobCode = String(resolvedJob?.job_code || '').trim();
+      const productivity = Number(entry.fleetProductivity);
+      return {
+        planRef: String(entry.planRef || `${planningType}:${entry.tableId || index + 1}`),
+        tableId: String(entry.tableId || index + 1),
+        planningType,
+        loaderCode: String(entry.loaderCode || '').trim(),
+        equipmentId: equipment?.id || null,
+        equipmentType: equipment?.tipe_alat || null,
+        equipmentClass: equipment?.class_unit || null,
+        material: String(entry.material || '').trim(),
+        density: planningType === 'coal' ? (entry.density ?? legacy.find(item => item.tableId === String(entry.tableId))?.density ?? null) : null,
+        jobCode: jobCode || null,
+        jobDescription: jobsByCode.get(jobCode)?.job_desc || null,
+        fleetProductivity: entry.complete === false ? null : Number.isFinite(productivity) && productivity > 0 ? productivity : null,
+        productivityUnit: planningType === 'coal' ? 'Ton/Hr' : 'BCM/Hr',
+        source: structured ? 'planning_data' : 'legacy_html',
+        updatedAt: saved.updated_at || null,
+        effectiveFrom: saved.effective_from || null,
+        revision: saved.revision || null,
+      };
+    }).filter(entry => entry.loaderCode && entry.material && entry.equipmentId);
+  });
+}
+
+function classifyRitaseProductivity({ plan, actual, complete, warningThreshold = 95, criticalThreshold = 85 }) {
+  const target = Number(plan);
+  const production = Number(actual);
+  if (!complete || !Number.isFinite(target) || target <= 0 || !Number.isFinite(production)) {
+    return { state: 'incomplete', achievement: null, shortfall: null };
+  }
+  if (production === 0) return { state: 'inactive', achievement: 0, shortfall: target };
+  const achievement = (production / target) * 100;
+  const shortfall = Math.max(0, target - production);
+  return {
+    state: achievement >= warningThreshold ? 'achieved' : achievement >= criticalThreshold ? 'near' : 'below',
+    achievement,
+    shortfall
+  };
+}
+
+const RITASE_DISTANCE_FORMULA_VERSION = 'weighted-final-distance-v1';
+
+function calculateWeightedFleetDistance({ setupDistanceKm, trucks = [], allocations = [] }) {
+  const setupDistance = Number(setupDistanceKm);
+  if (!Number.isFinite(setupDistance) || setupDistance <= 0) {
+    return { complete: false, status: 'missing-setup-distance', finalDistanceKm: null, totalVolume: 0, adjustedVolume: 0, formulaVersion: RITASE_DISTANCE_FORMULA_VERSION };
+  }
+
+  const truckById = new Map(trucks.map(truck => [String(truck.dump_truck_id), truck]));
+  const allocationBySlot = new Map();
+  for (const allocation of allocations) {
+    const truckId = String(allocation.dump_truck_id || '');
+    const hour = Number(allocation.period_hour);
+    const ritase = Number(allocation.ritase_count);
+    const distanceKm = Number(allocation.distance_km);
+    if (!truckById.has(truckId)) throw new Error('Dump truck pada alokasi jarak tidak terikat pada fleet ini.');
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('Jam alokasi jarak harus berada pada rentang 0-23.');
+    if (!Number.isInteger(ritase) || ritase <= 0) throw new Error('Ritase alokasi jarak harus berupa bilangan bulat lebih dari 0.');
+    if (!Number.isFinite(distanceKm) || distanceKm <= 0) throw new Error('Jarak aktual harus lebih dari 0 km.');
+    const key = `${truckId}:${hour}`;
+    if (!allocationBySlot.has(key)) allocationBySlot.set(key, []);
+    allocationBySlot.get(key).push({ ritase, distanceKm });
+    const availableRitase = Number(truckById.get(truckId)?.hours?.[hour]) || 0;
+    const allocatedRitase = allocationBySlot.get(key).reduce((sum, item) => sum + item.ritase, 0);
+    if (allocatedRitase > availableRitase) {
+      throw new Error(`Alokasi jarak dump truck jam ${String(hour).padStart(2, '0')}:00 melebihi ritase tersimpan.`);
+    }
+  }
+
+  let totalVolume = 0;
+  let adjustedVolume = 0;
+  let weightedDistanceVolume = 0;
+  const missingFactorTruckIds = [];
+
+  for (const truck of trucks) {
+    const truckId = String(truck.dump_truck_id);
+    const factor = Number(truck.factor_value);
+    const hours = truck.hours || {};
+    const hasProduction = Object.values(hours).some(value => Number(value) > 0);
+    if (hasProduction && (!Number.isFinite(factor) || factor <= 0)) {
+      missingFactorTruckIds.push(truckId);
+      continue;
+    }
+    for (const [rawHour, rawRitase] of Object.entries(hours)) {
+      const hour = Number(rawHour);
+      const totalRitase = Number(rawRitase) || 0;
+      if (totalRitase <= 0) continue;
+      const slotAllocations = allocationBySlot.get(`${truckId}:${hour}`) || [];
+      const allocatedRitase = slotAllocations.reduce((sum, item) => sum + item.ritase, 0);
+      if (allocatedRitase > totalRitase) {
+        throw new Error(`Alokasi jarak dump truck jam ${String(hour).padStart(2, '0')}:00 melebihi ritase tersimpan.`);
+      }
+      const slotVolume = totalRitase * factor;
+      totalVolume += slotVolume;
+      weightedDistanceVolume += (totalRitase - allocatedRitase) * factor * setupDistance;
+      for (const allocation of slotAllocations) {
+        const volume = allocation.ritase * factor;
+        adjustedVolume += volume;
+        weightedDistanceVolume += volume * allocation.distanceKm;
+      }
+    }
+  }
+
+  if (missingFactorTruckIds.length) {
+    return { complete: false, status: 'missing-truck-factor', finalDistanceKm: null, totalVolume, adjustedVolume, missingFactorTruckIds, formulaVersion: RITASE_DISTANCE_FORMULA_VERSION };
+  }
+  if (!(totalVolume > 0)) {
+    return { complete: false, status: 'no-production', finalDistanceKm: null, totalVolume: 0, adjustedVolume: 0, formulaVersion: RITASE_DISTANCE_FORMULA_VERSION };
+  }
+  return {
+    complete: true,
+    status: allocations.length ? 'adjusted' : 'setup-only',
+    finalDistanceKm: weightedDistanceVolume / totalVolume,
+    totalVolume,
+    adjustedVolume,
+    formulaVersion: RITASE_DISTANCE_FORMULA_VERSION
+  };
+}
+
+async function getFleetDistanceSnapshot(db, fleetId) {
+  const fleetResult = await db.query(`
+    SELECT id, tanggal, material_type, material_detail, jarak_km
+    FROM fleet_mappings
+    WHERE id = $1 AND deleted_at IS NULL
+    LIMIT 1`, [fleetId]);
+  const fleet = fleetResult.rows[0];
+  if (!fleet) throw new Error('Fleet tidak ditemukan.');
+
+  const category = fleet.material_type === 'Coal' ? 'Coal' : 'OB';
+  const truckRows = await db.query(`
+    SELECT fmt.dump_truck_id, e.kode_alat, e.tipe_alat, tf.factor_value,
+           rl.period_hour, rl.ritase_count
+    FROM fleet_mapping_trucks fmt
+    JOIN equipment e ON e.id = fmt.dump_truck_id AND e.deleted_at IS NULL
+    LEFT JOIN ritase_logs rl ON rl.fleet_mapping_id = fmt.fleet_mapping_id
+      AND rl.dump_truck_id = fmt.dump_truck_id AND rl.deleted_at IS NULL
+    LEFT JOIN LATERAL (
+      SELECT factor_value
+      FROM truck_factors
+      WHERE tanggal <= $2::date AND kategori = $3
+        AND tipe_alat = e.tipe_alat AND UPPER(material) = UPPER(COALESCE($4, ''))
+      ORDER BY tanggal DESC
+      LIMIT 1
+    ) tf ON TRUE
+    WHERE fmt.fleet_mapping_id = $1
+    ORDER BY e.kode_alat, rl.period_hour`, [fleetId, fleet.tanggal, category, fleet.material_detail]);
+
+  const trucksById = new Map();
+  for (const row of truckRows.rows) {
+    const key = String(row.dump_truck_id);
+    if (!trucksById.has(key)) trucksById.set(key, {
+      dump_truck_id: row.dump_truck_id,
+      kode_alat: row.kode_alat,
+      tipe_alat: row.tipe_alat,
+      factor_value: row.factor_value === null ? null : Number(row.factor_value),
+      hours: {}
+    });
+    if (row.period_hour !== null && row.period_hour !== undefined) {
+      trucksById.get(key).hours[Number(row.period_hour)] = Number(row.ritase_count) || 0;
+    }
+  }
+
+  const allocationResult = await db.query(`
+    SELECT rda.id, rda.dump_truck_id, e.kode_alat, rda.period_hour,
+           rda.ritase_count, rda.input_distance, rda.input_unit,
+           rda.distance_km, rda.notes, rda.formula_version,
+           rda.created_at, rda.updated_at
+    FROM ritase_distance_allocations rda
+    JOIN equipment e ON e.id = rda.dump_truck_id
+    WHERE rda.fleet_mapping_id = $1 AND rda.deleted_at IS NULL
+    ORDER BY rda.period_hour, e.kode_alat, rda.distance_km`, [fleetId]);
+  const allocations = allocationResult.rows.map(row => ({
+    ...row,
+    period_hour: Number(row.period_hour),
+    ritase_count: Number(row.ritase_count),
+    input_distance: Number(row.input_distance),
+    distance_km: Number(row.distance_km)
+  }));
+  const trucks = [...trucksById.values()];
+  const summary = calculateWeightedFleetDistance({ setupDistanceKm: fleet.jarak_km, trucks, allocations });
+  return { fleet, trucks, allocations, summary };
+}
+
+async function getRitaseHourlySnapshot(db, fleetId, periodHour) {
+  const hour = Number(periodHour);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('Jam kejadian harus berada pada rentang 0-23.');
+  const fleetResult = await db.query(`
+    SELECT fm.*, e.kode_alat AS excavator_kode
+    FROM fleet_mappings fm
+    JOIN equipment e ON e.id = fm.excavator_id AND e.deleted_at IS NULL
+    WHERE fm.id = $1 AND fm.deleted_at IS NULL
+    LIMIT 1`, [fleetId]);
+  const fleet = fleetResult.rows[0];
+  if (!fleet) throw new Error('Fleet tidak ditemukan.');
+
+  const catalog = await buildFleetPlanCatalogData(db, fleet.tanggal);
+  const matches = catalog.filter(entry => normalizeFleetPlanKey(entry.loaderCode) === normalizeFleetPlanKey(fleet.excavator_kode)
+    && normalizeFleetPlanKey(entry.material) === normalizeFleetPlanKey(fleet.material_detail)
+    && String(entry.jobCode || '') === String(fleet.job_code || ''));
+  if (matches.length !== 1 || !Number.isFinite(Number(matches[0]?.fleetProductivity)) || Number(matches[0].fleetProductivity) <= 0) {
+    throw new Error(matches.length > 1 ? 'Fleet Productivity ambigu; terdapat lebih dari satu plan yang cocok.' : 'Fleet Productivity belum tersedia untuk kombinasi fleet, material, dan JOB ini.');
+  }
+
+  const category = fleet.material_type === 'Coal' ? 'Coal' : 'OB';
+  const trucks = await db.query(`
+    SELECT fmt.dump_truck_id, e.tipe_alat,
+           rl.ritase_count,
+           tf.factor_value
+    FROM fleet_mapping_trucks fmt
+    JOIN equipment e ON e.id = fmt.dump_truck_id AND e.deleted_at IS NULL
+    LEFT JOIN ritase_logs rl ON rl.fleet_mapping_id = fmt.fleet_mapping_id
+      AND rl.dump_truck_id = fmt.dump_truck_id AND rl.period_hour = $2 AND rl.deleted_at IS NULL
+    LEFT JOIN LATERAL (
+      SELECT factor_value
+      FROM truck_factors
+      WHERE tanggal <= $3::date AND kategori = $4
+        AND tipe_alat = e.tipe_alat AND UPPER(material) = UPPER(COALESCE($5, ''))
+      ORDER BY tanggal DESC
+      LIMIT 1
+    ) tf ON TRUE
+    WHERE fmt.fleet_mapping_id = $1
+    ORDER BY e.kode_alat`, [fleetId, hour, fleet.tanggal, category, fleet.material_detail]);
+  const complete = trucks.rows.length > 0 && trucks.rows.every(row => row.ritase_count !== null && row.factor_value !== null);
+  const actual = complete
+    ? trucks.rows.reduce((total, row) => total + Number(row.ritase_count) * Number(row.factor_value), 0)
+    : null;
+  const plan = Number(matches[0].fleetProductivity);
+  const result = classifyRitaseProductivity({ plan, actual, complete });
+  return {
+    fleet,
+    plan,
+    actual,
+    unit: matches[0].productivityUnit || (category === 'Coal' ? 'Ton/Hr' : 'BCM/Hr'),
+    complete,
+    ...result
+  };
+}
+
+class ProductionController {
 
   static async getProductivityPlan(req, res) {
     try {
       const planningType = String(req.params.planningType || '').toLowerCase();
-      if (!['ob', 'coal', 'spo', 'pa-ua-ewh', 'fleet-capacity', 'unit-mapping'].includes(planningType)) return res.status(400).json({ error: 'Jenis planning tidak valid.' });
-      await ProductionController.ensureProductivityPlanStorage();
+      if (!['ob', 'coal', 'spo', 'pa-ua-ewh', 'fleet-capacity', 'unit-mapping', 'hauler'].includes(planningType)) return res.status(400).json({ error: 'Jenis planning tidak valid.' });
+      if (planningType === 'ob' || planningType === 'coal') {
+        const requestedDate = req.query.effectiveFrom ? normalizeDateOnly(req.query.effectiveFrom, 'Tanggal berlaku') : null;
+        const [result, periodEnd] = await Promise.all([pool.query(`
+          SELECT id, content_html, data_json, effective_from::text AS effective_from,
+                 revision, created_at, updated_at
+          FROM productivity_plan_versions
+          WHERE planning_type = $1 AND ($2::date IS NULL OR effective_from <= $2::date)
+          ORDER BY effective_from DESC, revision DESC LIMIT 1`, [planningType, requestedDate]), getSpoPeriodEnd(pool)]);
+        const row = requestedDate && periodEnd && requestedDate > periodEnd ? null : result.rows[0];
+        return res.json({
+          contentHtml: row?.content_html || null,
+          planningData: row?.data_json || null,
+          updatedAt: row?.updated_at || null,
+          effectiveFrom: row?.effective_from || null,
+          requestedEffectiveFrom: requestedDate,
+          revision: row?.revision || null,
+          versionId: row?.id || null,
+          isInherited: Boolean(row && requestedDate && row.effective_from !== requestedDate),
+          periodEnd,
+        });
+      }
       const result = await pool.query('SELECT content_html, data_json, updated_at FROM productivity_plans WHERE planning_type = $1', [planningType]);
-      res.json({ contentHtml: result.rows[0]?.content_html || null, planningData: result.rows[0]?.data_json || null, updatedAt: result.rows[0]?.updated_at || null });
+      return res.json({ contentHtml: result.rows[0]?.content_html || null, planningData: result.rows[0]?.data_json || null, updatedAt: result.rows[0]?.updated_at || null });
     } catch (err) { res.status(500).json({ error: err.message }); }
   }
 
@@ -1015,15 +1753,108 @@ class ProductionController {
     try {
       const planningType = String(req.params.planningType || '').toLowerCase();
       const contentHtml = String(req.body?.contentHtml || '');
-      const planningData = req.body?.planningData && typeof req.body.planningData === 'object' ? req.body.planningData : {};
-      if (!['ob', 'coal', 'spo', 'pa-ua-ewh', 'fleet-capacity', 'unit-mapping'].includes(planningType) || !contentHtml) return res.status(400).json({ error: 'Data planning tidak valid.' });
-      await ProductionController.ensureProductivityPlanStorage();
+      let planningData = req.body?.planningData && typeof req.body.planningData === 'object' ? req.body.planningData : {};
+      if (!['ob', 'coal', 'spo', 'pa-ua-ewh', 'fleet-capacity', 'unit-mapping', 'hauler'].includes(planningType) || !contentHtml) return res.status(400).json({ error: 'Data planning tidak valid.' });
+      if (planningType === 'ob' || planningType === 'coal') {
+        const effectiveFrom = normalizeDateOnly(req.body?.effectiveFrom || jakartaDateParts(new Date()).date, 'Tanggal berlaku');
+        const expectedRevision = req.body?.revision == null ? null : Number(req.body.revision);
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const periodEnd = await getSpoPeriodEnd(client);
+          if (periodEnd && effectiveFrom > periodEnd)
+            throw Object.assign(new Error(`Tanggal setup melewati akhir periode SPO (${periodEnd}).`), { status: 422 });
+          try {
+            planningData = await validateAndCalculatePlanningData(client, planningType, planningData, effectiveFrom);
+          } catch (validationError) {
+            if (!validationError.status) validationError.status = 400;
+            throw validationError;
+          }
+          const fleetCatalog = Array.isArray(planningData.fleetCatalog) ? planningData.fleetCatalog : [];
+          const deployedJobs = await getDeployedSpoJobCodes(client);
+          if (Number(planningData.version) >= 6) {
+            const invalidLoaderJob = planningData.scenarios.flatMap(item => item.jobCodes || [])
+              .find(code => !deployedJobs.has(String(code)));
+            if (invalidLoaderJob) throw Object.assign(new Error(`JOB ${invalidLoaderJob} pada Loader tidak tersedia di SPO Deployed.`), { status: 400 });
+          }
+          const invalidJob = fleetCatalog.find(entry => entry.jobCode && !deployedJobs.has(String(entry.jobCode)));
+          if (invalidJob) throw Object.assign(new Error(`JOB ${invalidJob.jobCode} tidak tersedia pada tabel SPO berstatus Deployed.`), { status: 400 });
+          if (Number(planningData.version) >= 2 && fleetCatalog.some(entry => !String(entry.jobCode || '').trim())) {
+            throw Object.assign(new Error('Setiap Fleet Planning wajib memiliki JOB dari SPO berstatus Deployed.'), { status: 400 });
+          }
+          const current = await client.query(`SELECT * FROM productivity_plan_versions
+            WHERE planning_type=$1 AND effective_from=$2::date FOR UPDATE`, [planningType, effectiveFrom]);
+          const previousRow = current.rows[0] || null;
+          if (previousRow && (expectedRevision === null || expectedRevision !== Number(previousRow.revision))) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'Versi planning telah berubah. Muat ulang halaman sebelum menyimpan.', currentRevision: previousRow.revision });
+          }
+          const previousVersion = await client.query(`SELECT id FROM productivity_plan_versions
+            WHERE planning_type=$1 AND effective_from<$2::date ORDER BY effective_from DESC LIMIT 1`, [planningType, effectiveFrom]);
+          const saved = await client.query(`
+            INSERT INTO productivity_plan_versions
+              (planning_type,effective_from,content_html,data_json,revision,previous_version_id,created_by,updated_by)
+            VALUES($1,$2,$3,$4::jsonb,1,$5,$6,$6)
+            ON CONFLICT(planning_type,effective_from) DO UPDATE SET
+              content_html=EXCLUDED.content_html,
+              data_json=EXCLUDED.data_json,
+              revision=productivity_plan_versions.revision+1,
+              updated_by=EXCLUDED.updated_by,
+              updated_at=now()
+            RETURNING id,effective_from::text AS effective_from,revision,updated_at`,
+          [planningType, effectiveFrom, contentHtml, JSON.stringify(planningData), previousVersion.rows[0]?.id || null, req.user?.id || null]);
+          await client.query(`INSERT INTO productivity_plan_version_audit
+            (version_id,planning_type,effective_from,revision,previous_data_json,new_data_json,changed_by)
+            VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7)`,
+          [saved.rows[0].id, planningType, effectiveFrom, saved.rows[0].revision,
+            previousRow ? JSON.stringify(previousRow.data_json) : null, JSON.stringify(planningData), req.user?.id || null]);
+          const latest = await client.query(`SELECT content_html,data_json FROM productivity_plan_versions
+            WHERE planning_type=$1 ORDER BY effective_from DESC,revision DESC LIMIT 1`, [planningType]);
+          await client.query(`INSERT INTO productivity_plans(planning_type,content_html,data_json,updated_at)
+            VALUES($1,$2,$3::jsonb,now()) ON CONFLICT(planning_type) DO UPDATE SET
+            content_html=EXCLUDED.content_html,data_json=EXCLUDED.data_json,updated_at=now()`,
+          [planningType, latest.rows[0].content_html, JSON.stringify(latest.rows[0].data_json)]);
+          await client.query('COMMIT');
+          return res.json({ success: true, ...saved.rows[0] });
+        } catch (error) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw error;
+        } finally { client.release(); }
+      }
       const result = await pool.query(`
         INSERT INTO productivity_plans (planning_type, content_html, data_json, updated_at) VALUES ($1, $2, $3::jsonb, CURRENT_TIMESTAMP)
         ON CONFLICT (planning_type) DO UPDATE SET content_html = EXCLUDED.content_html, data_json = EXCLUDED.data_json, updated_at = CURRENT_TIMESTAMP
         RETURNING updated_at`, [planningType, contentHtml, JSON.stringify(planningData)]);
       res.json({ success: true, updatedAt: result.rows[0].updated_at });
+    } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+  }
+
+  static async getProductivityPlanHistory(req, res) {
+    try {
+      const planningType = String(req.params.planningType || '').toLowerCase();
+      if (!['ob', 'coal'].includes(planningType)) return res.status(400).json({ error: 'Riwayat hanya tersedia untuk OB dan Coal.' });
+      const result = await pool.query(`SELECT id,effective_from::text AS effective_from,revision,created_at,updated_at
+        FROM productivity_plan_versions WHERE planning_type=$1 ORDER BY effective_from DESC,revision DESC`, [planningType]);
+      res.json({ versions: result.rows });
     } catch (err) { res.status(500).json({ error: err.message }); }
+  }
+
+  static async getFleetPlanCatalog(req, res) {
+    try {
+      const operationalDate = req.query.tanggal ? normalizeDateOnly(req.query.tanggal, 'Tanggal operasional') : null;
+      const catalog = await buildFleetPlanCatalogData(pool, operationalDate);
+      res.json({ catalog });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  static async getDeployedSpoJobs(req, res) {
+    try {
+      res.json({ jobs: await buildDeployedSpoJobsData(pool) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   }
 
   // =========================================================
@@ -1074,6 +1905,21 @@ class ProductionController {
           AND LOWER(TRIM(COALESCE(departemen, ''))) = 'maintenance'
         ORDER BY nama
       `);
+      const productionSupervisors = await pool.query(`
+        SELECT id, nama, jabatan, departemen
+        FROM users
+        WHERE role = 'karyawan'
+          AND is_active = TRUE
+          AND LOWER(TRIM(COALESCE(departemen, ''))) IN ('produksi', 'production')
+          AND (
+            LOWER(COALESCE(jabatan, '')) LIKE '%pengawas%'
+            OR LOWER(COALESCE(jabatan, '')) LIKE '%supervisor%'
+            OR LOWER(COALESCE(jabatan, '')) LIKE '%foreman%'
+            OR LOWER(COALESCE(jabatan, '')) LIKE '%group leader%'
+            OR LOWER(COALESCE(jabatan, '')) LIKE '%shift boss%'
+          )
+        ORDER BY nama
+      `);
 
       res.json({
         pits: pits.rows,
@@ -1086,6 +1932,7 @@ class ProductionController {
         jobCodes: jobCodes.rows,
         operators: operators.rows,
         personnel: personnel.rows,
+        productionSupervisors: productionSupervisors.rows,
         pitAreas,
         problemCodes: problemCodes.rows
       });
@@ -1097,14 +1944,14 @@ class ProductionController {
   // Tambah / Update Unit Alat Berat (Parameter List Unit)
   static async createEquipment(req, res) {
     try {
-      const { kode_alat, kelas_alat, class_unit, tipe_alat, brand, date_in, fuel_rate_lph, status_alat, lokasi, keterangan, kapasitas_unit, kapasitas_unit_uom } = req.body;
+      const { kode_alat, kelas_alat, class_unit, tipe_alat, brand, date_in, fuel_rate_lph, status_alat, lokasi, keterangan, kapasitas_unit, kapasitas_unit_uom, km_only } = req.body;
       if (!kode_alat || !kelas_alat || !tipe_alat) {
         return res.status(400).json({ error: 'Kode Unit, Kelas, dan Tipe Wajib diisi.' });
       }
 
       const query = `
-        INSERT INTO equipment (kode_alat, kelas_alat, class_unit, tipe_alat, brand, date_in, fuel_rate_lph, status_alat, lokasi, keterangan, kapasitas_unit, kapasitas_unit_uom)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        INSERT INTO equipment (kode_alat, kelas_alat, class_unit, tipe_alat, brand, date_in, fuel_rate_lph, status_alat, lokasi, keterangan, kapasitas_unit, kapasitas_unit_uom, km_only)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         ON CONFLICT (kode_alat) DO UPDATE SET
           kelas_alat = EXCLUDED.kelas_alat,
           class_unit = EXCLUDED.class_unit,
@@ -1117,13 +1964,15 @@ class ProductionController {
           keterangan = EXCLUDED.keterangan,
           kapasitas_unit = EXCLUDED.kapasitas_unit,
           kapasitas_unit_uom = EXCLUDED.kapasitas_unit_uom,
+          km_only = EXCLUDED.km_only,
           deleted_at = NULL
         RETURNING *
       `;
       const result = await pool.query(query, [
         kode_alat.toUpperCase(), kelas_alat, (class_unit || '').trim() || null, tipe_alat, brand || 'Caterpillar',
         date_in || getTodayString(), parseFloat(fuel_rate_lph || 35.0), normalizeEquipmentStatus(status_alat),
-        lokasi || '', keterangan || '', parseCapacityValue(kapasitas_unit), resolveCapacityUom(kelas_alat, kapasitas_unit, kapasitas_unit_uom)
+        lokasi || '', keterangan || '', parseCapacityValue(kapasitas_unit), resolveCapacityUom(kelas_alat, kapasitas_unit, kapasitas_unit_uom),
+        Boolean(km_only)
       ]);
 
       res.status(201).json(result.rows[0]);
@@ -1135,17 +1984,18 @@ class ProductionController {
   static async updateEquipment(req, res) {
     try {
       const { id } = req.params;
-      const { kode_alat, kelas_alat, class_unit, tipe_alat, brand, date_in, fuel_rate_lph, status_alat, lokasi, keterangan, kapasitas_unit, kapasitas_unit_uom } = req.body;
+      const { kode_alat, kelas_alat, class_unit, tipe_alat, brand, date_in, fuel_rate_lph, status_alat, lokasi, keterangan, kapasitas_unit, kapasitas_unit_uom, km_only } = req.body;
       const query = `
         UPDATE equipment
-        SET kode_alat = $1, kelas_alat = $2, class_unit = $3, tipe_alat = $4, brand = $5, date_in = $6, fuel_rate_lph = $7, status_alat = $8, lokasi = $9, keterangan = $10, kapasitas_unit = $11, kapasitas_unit_uom = $12, deleted_at = NULL
-        WHERE id = $13
+        SET kode_alat = $1, kelas_alat = $2, class_unit = $3, tipe_alat = $4, brand = $5, date_in = $6, fuel_rate_lph = $7, status_alat = $8, lokasi = $9, keterangan = $10, kapasitas_unit = $11, kapasitas_unit_uom = $12, km_only = $13, deleted_at = NULL
+        WHERE id = $14
         RETURNING *
       `;
       const result = await pool.query(query, [
         kode_alat.toUpperCase(), kelas_alat, (class_unit || '').trim() || null, tipe_alat, brand || 'Caterpillar',
         date_in ? date_in.split('T')[0] : getTodayString(), parseFloat(fuel_rate_lph || 35.0), normalizeEquipmentStatus(status_alat),
-        lokasi || '', keterangan || '', parseCapacityValue(kapasitas_unit), resolveCapacityUom(kelas_alat, kapasitas_unit, kapasitas_unit_uom), id
+        lokasi || '', keterangan || '', parseCapacityValue(kapasitas_unit), resolveCapacityUom(kelas_alat, kapasitas_unit, kapasitas_unit_uom),
+        Boolean(km_only), id
       ]);
       res.json(result.rows[0]);
     } catch (err) {
@@ -1156,6 +2006,23 @@ class ProductionController {
   static async deleteEquipment(req, res) {
     try {
       const { id } = req.params;
+      // Tindakan pencegahan: jangan izinkan menghapus unit yang masih punya
+      // breakdown aktif (status='open'). Jika diizinkan, breakdown log-nya akan
+      // menjadi "orphan" (equipment tidak ada di master) dan hilang dari tabel
+      // breakdown aktif. Wajib selesaikan/verifikasi breakdown terlebih dahulu.
+      const openBd = await pool.query(
+        `SELECT bl.id, e.kode_alat
+         FROM breakdown_logs bl
+         LEFT JOIN equipment e ON bl.equipment_id = e.id
+         WHERE bl.equipment_id = $1 AND bl.deleted_at IS NULL AND bl.status = 'open'
+         LIMIT 1`,
+        [id]
+      );
+      if (openBd.rows.length) {
+        return res.status(409).json({
+          error: `Unit ${openBd.rows[0].kode_alat || ''} masih memiliki breakdown aktif dan tidak dapat dihapus. Selesaikan breakdown tersebut terlebih dahulu.`
+        });
+      }
       await pool.query("UPDATE equipment SET deleted_at = NOW() WHERE id = $1", [id]);
       res.json({ message: 'Unit berhasil dihapus dari master parameter.' });
     } catch (err) {
@@ -1186,8 +2053,8 @@ class ProductionController {
         }
 
         const result = await client.query(`
-          INSERT INTO equipment (kode_alat, kelas_alat, class_unit, tipe_alat, brand, date_in, fuel_rate_lph, status_alat, lokasi, keterangan, kapasitas_unit, kapasitas_unit_uom)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          INSERT INTO equipment (kode_alat, kelas_alat, class_unit, tipe_alat, brand, date_in, fuel_rate_lph, status_alat, lokasi, keterangan, kapasitas_unit, kapasitas_unit_uom, km_only)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
           ON CONFLICT (kode_alat) DO UPDATE SET
             kelas_alat = EXCLUDED.kelas_alat,
             class_unit = EXCLUDED.class_unit,
@@ -1200,6 +2067,7 @@ class ProductionController {
             keterangan = EXCLUDED.keterangan,
             kapasitas_unit = EXCLUDED.kapasitas_unit,
             kapasitas_unit_uom = EXCLUDED.kapasitas_unit_uom,
+            km_only = EXCLUDED.km_only,
             deleted_at = NULL
           RETURNING id, kode_alat
         `, [
@@ -1208,6 +2076,7 @@ class ProductionController {
           Number(row.fuel_rate_lph || 35), normalizeEquipmentStatus(row.status_alat),
           String(row.lokasi || '').trim(), String(row.keterangan || '').trim(),
           parseCapacityValue(row.kapasitas_unit), resolveCapacityUom(jenisAlat, row.kapasitas_unit, row.kapasitas_unit_uom),
+          Boolean(row.km_only),
         ]);
         imported.push(result.rows[0]);
       }
@@ -1487,7 +2356,7 @@ class ProductionController {
   // =========================================================
   static async getProductionLogs(req, res) {
     try {
-      const { tanggal, shift_id, equipment_id, search, year, month } = req.query;
+      const { tanggal, shift_id, equipment_id, search, year, month, limit } = req.query;
       let query = `
         SELECT mpl.*, 
                s.nama_shift, 
@@ -1545,7 +2414,8 @@ class ProductionController {
         idx++;
       }
 
-      query += ` ORDER BY mpl.tanggal DESC, mpl.created_at DESC LIMIT 200`;
+      query += ` ORDER BY mpl.tanggal DESC, mpl.created_at DESC LIMIT $${idx++}`;
+      params.push(resolveProductionLogLimit(limit));
       const result = await pool.query(query, params);
       res.json(result.rows);
     } catch (err) {
@@ -1811,6 +2681,7 @@ class ProductionController {
           hm_anomaly_status = $11,
           hm_anomaly_reason = $12,
           hm_anomaly_details = $13::jsonb,
+          status = 'submitted',
           hm_validated_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $14 AND deleted_at IS NULL
@@ -1846,6 +2717,7 @@ class ProductionController {
           ) AS previous_km,
           COUNT(*) OVER (PARTITION BY fl.equipment_id, fl.tanggal, fl.shift_id)::int AS duplicate_count,
           e.kode_alat, e.kelas_alat, e.class_unit, e.tipe_alat, e.fuel_rate_lph::float AS fuel_rate_lph,
+          COALESCE(e.km_only,FALSE) AS km_only,
           s.nama_shift, u.nama AS nama_operator
         FROM fuel_logs fl
         LEFT JOIN equipment e ON fl.equipment_id=e.id
@@ -1949,7 +2821,7 @@ class ProductionController {
       const shiftOrder = fuelShiftOrderSql('s');
       const [equipmentResult, logResult] = await Promise.all([
         pool.query(`SELECT id, kode_alat, kelas_alat, class_unit, tipe_alat, fuel_rate_lph::float AS fuel_rate_lph,
-                           status_alat, lokasi
+                           status_alat, lokasi, COALESCE(km_only,FALSE) AS km_only
                     FROM equipment WHERE deleted_at IS NULL AND COALESCE(is_active,TRUE)=TRUE
                     ORDER BY kelas_alat, kode_alat`),
         pool.query(`WITH ordered AS (
@@ -2067,7 +2939,6 @@ class ProductionController {
       const hmReading = parseOptionalNonNegativeNumber(body.hm_reading ?? body.hm_finish, 'HM aktual');
       const odometerReading = parseOptionalNonNegativeNumber(body.odometer_reading, 'KM/Odometer');
       const fuelFilled = parseOptionalNonNegativeNumber(body.fuel_filled, 'Fuel diisikan');
-      if (hmReading === null) return res.status(400).json({ error: 'HM aktual saat pengisian wajib diisi.' });
       if (fuelFilled === null || fuelFilled <= 0) return res.status(400).json({ error: 'Volume Fuel diisikan harus lebih besar dari 0 liter.' });
       const shiftResult = await client.query(`SELECT nama_shift, ${fuelShiftOrderSql('shifts')} AS shift_order FROM shifts WHERE id=$1 LIMIT 1`, [shift_id]);
       if (!shiftResult.rows.length) return res.status(400).json({ error: 'Shift tidak ditemukan.' });
@@ -2077,13 +2948,21 @@ class ProductionController {
         shiftOrder: Number(shiftResult.rows[0].shift_order),
       });
       if (!context.equipment) return res.status(400).json({ error: 'Kode unit tidak ditemukan.' });
+      const kmOnly = Boolean(context.equipment.km_only);
+      if (hmReading === null && !kmOnly) return res.status(400).json({ error: 'HM aktual saat pengisian wajib diisi.' });
+      if (kmOnly && odometerReading === null) return res.status(400).json({ error: 'Unit Km-only wajib mengisi pembacaan KM/Odometer.' });
       const metrics = calculateFuelReadingMetrics({
         hmReading, odometerReading, fuelFilled, isMeterReset,
         meterResetReason: body.meter_reset_reason,
       }, context);
       if (metrics.issues.length) return res.status(422).json({ code: metrics.issues[0].code, error: metrics.issues[0].message, validation: metrics });
       const actorId = await resolveExistingUserId(client, req.user?.id);
-      const hmStart = Number.isFinite(Number(context.previous?.hm_reading)) ? Number(context.previous.hm_reading) : hmReading;
+      const hasHm = hmReading !== null;
+      const hmStart = hasHm && Number.isFinite(Number(context.previous?.hm_reading)) ? Number(context.previous.hm_reading) : (hasHm ? hmReading : 0);
+      const hmFinish = hasHm ? hmReading : 0;
+      const totalHm = hasHm ? (metrics.hmDelta || 0) : 0;
+      const hmReadingDb = hasHm ? hmReading : null;
+      const hmDeltaDb = hasHm ? (metrics.hmDelta || 0) : null;
       await client.query('BEGIN');
       const result = await client.query(`
         INSERT INTO fuel_logs (
@@ -2091,11 +2970,11 @@ class ProductionController {
           odometer_reading,hm_delta,distance_km,fuel_filled,fuel_remaining,fuel_consumption,
           fuel_per_hm,fuel_per_km,remark,source_type,fuel_ticket_no,record_status,approval_status,
           is_meter_reset,meter_reset_reason,anomaly_status,anomaly_details,attachment_url,created_by,updated_by
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$6,$8,$7,$9,$10,0,$10,$11,$12,$13,$14,$15,'draft','draft',$16,$17,$18,$19::jsonb,$20,$21,$21)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,$12,$13,$14,$15,$16,$17,'draft','draft',$18,$19,$20,$21::jsonb,$22,$23,$23)
         RETURNING *
       `, [
-        tanggal, shift_id, equipment_id, operator_id || null, hmStart, hmReading, metrics.hmDelta || 0,
-        odometerReading, metrics.distanceKm, fuelFilled, metrics.fuelPerHm, metrics.fuelPerKm,
+        tanggal, shift_id, equipment_id, operator_id || null, hmStart, hmFinish, totalHm, hmReadingDb,
+        odometerReading, hmDeltaDb, metrics.distanceKm, fuelFilled, metrics.fuelPerHm, metrics.fuelPerKm,
         String(body.remark || '').trim(), String(body.source_type || 'manual').trim() || 'manual',
         String(body.fuel_ticket_no || '').trim() || null, isMeterReset, String(body.meter_reset_reason || '').trim() || null,
         metrics.anomalyStatus, JSON.stringify({ warnings: metrics.warnings, issues: metrics.issues }),
@@ -2125,7 +3004,7 @@ class ProductionController {
       const hmReading = parseOptionalNonNegativeNumber(body.hm_reading ?? body.hm_finish ?? before.hm_reading ?? before.hm_finish, 'HM aktual');
       const odometerReading = parseOptionalNonNegativeNumber(body.odometer_reading ?? before.odometer_reading, 'KM/Odometer');
       const fuelFilled = parseOptionalNonNegativeNumber(body.fuel_filled ?? before.fuel_filled, 'Fuel diisikan');
-      if (hmReading === null || fuelFilled === null || fuelFilled <= 0) return res.status(400).json({ error: 'HM aktual dan volume Fuel wajib diisi.' });
+      if (fuelFilled === null || fuelFilled <= 0) return res.status(400).json({ error: 'Volume Fuel diisikan harus lebih besar dari 0 liter.' });
       const shiftResult = await client.query(`SELECT ${fuelShiftOrderSql('shifts')} AS shift_order FROM shifts WHERE id=$1 LIMIT 1`, [shiftId]);
       if (!shiftResult.rows.length) return res.status(400).json({ error: 'Shift tidak ditemukan.' });
       const isMeterReset = body.is_meter_reset === undefined ? Boolean(before.is_meter_reset) : parseBooleanInput(body.is_meter_reset);
@@ -2135,22 +3014,30 @@ class ProductionController {
         shiftOrder: Number(shiftResult.rows[0].shift_order),
       });
       if (!context.equipment) return res.status(400).json({ error: 'Kode unit tidak ditemukan.' });
+      const kmOnly = Boolean(context.equipment.km_only);
+      if (hmReading === null && !kmOnly) return res.status(400).json({ error: 'HM aktual saat pengisian wajib diisi.' });
+      if (kmOnly && odometerReading === null) return res.status(400).json({ error: 'Unit Km-only wajib mengisi pembacaan KM/Odometer.' });
       const metrics = calculateFuelReadingMetrics({ hmReading, odometerReading, fuelFilled, isMeterReset, meterResetReason }, context);
       if (metrics.issues.length) return res.status(422).json({ code: metrics.issues[0].code, error: metrics.issues[0].message, validation: metrics });
       const actorId = await resolveExistingUserId(client, req.user?.id);
-      const hmStart = Number.isFinite(Number(context.previous?.hm_reading)) ? Number(context.previous.hm_reading) : hmReading;
+      const hasHm = hmReading !== null;
+      const hmStart = hasHm && Number.isFinite(Number(context.previous?.hm_reading)) ? Number(context.previous.hm_reading) : (hasHm ? hmReading : 0);
+      const hmFinish = hasHm ? hmReading : 0;
+      const totalHm = hasHm ? (metrics.hmDelta || 0) : 0;
+      const hmReadingDb = hasHm ? hmReading : null;
+      const hmDeltaDb = hasHm ? (metrics.hmDelta || 0) : null;
       await client.query('BEGIN');
       const result = await client.query(`
         UPDATE fuel_logs SET tanggal=$1,shift_id=$2,equipment_id=$3,operator_id=$4,
-          hm_start=$5,hm_finish=$6,total_hm=$7,hm_reading=$6,odometer_reading=$8,hm_delta=$7,
-          distance_km=$9,fuel_filled=$10,fuel_remaining=0,fuel_consumption=$10,fuel_per_hm=$11,
-          fuel_per_km=$12,remark=$13,source_type=$14,fuel_ticket_no=$15,record_status='draft',
-          approval_status='draft',approved_by=NULL,approved_at=NULL,is_meter_reset=$16,meter_reset_reason=$17,
-          anomaly_status=$18,anomaly_details=$19::jsonb,attachment_url=$20,updated_by=$21,updated_at=CURRENT_TIMESTAMP
-        WHERE id=$22 AND deleted_at IS NULL RETURNING *
+          hm_start=$5,hm_finish=$6,total_hm=$7,hm_reading=$8,odometer_reading=$9,hm_delta=$10,
+          distance_km=$11,fuel_filled=$12,fuel_remaining=0,fuel_consumption=$12,fuel_per_hm=$13,
+          fuel_per_km=$14,remark=$15,source_type=$16,fuel_ticket_no=$17,record_status='draft',
+          approval_status='draft',approved_by=NULL,approved_at=NULL,is_meter_reset=$18,meter_reset_reason=$19,
+          anomaly_status=$20,anomaly_details=$21::jsonb,attachment_url=$22,updated_by=$23,updated_at=CURRENT_TIMESTAMP
+        WHERE id=$24 AND deleted_at IS NULL RETURNING *
       `, [
-        tanggal, shiftId, equipmentId, body.operator_id ?? before.operator_id, hmStart, hmReading, metrics.hmDelta || 0,
-        odometerReading, metrics.distanceKm, fuelFilled, metrics.fuelPerHm, metrics.fuelPerKm,
+        tanggal, shiftId, equipmentId, body.operator_id ?? before.operator_id, hmStart, hmFinish, totalHm, hmReadingDb,
+        odometerReading, hmDeltaDb, metrics.distanceKm, fuelFilled, metrics.fuelPerHm, metrics.fuelPerKm,
         String(body.remark ?? before.remark ?? '').trim(), String(body.source_type ?? before.source_type ?? 'manual').trim(),
         String(body.fuel_ticket_no ?? before.fuel_ticket_no ?? '').trim() || null, isMeterReset,
         String(meterResetReason || '').trim() || null, metrics.anomalyStatus,
@@ -2868,6 +3755,9 @@ class ProductionController {
       const periodEndDate = new Date(Date.UTC(year, month, 1));
       const periodEnd = periodEndDate.toISOString().slice(0, 10);
       const periodDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      // Batas waktu aktif (Asia/Jakarta) untuk window "aktif selama periode" (carry-over).
+      const fromTs = `${periodStart}T00:00:00+07:00`;
+      const toTs = `${periodEnd}T00:00:00+07:00`;
 
       const query = `
         SELECT
@@ -2947,13 +3837,19 @@ class ProductionController {
           WHERE v.breakdown_id = bl.id
         ) verifications ON TRUE
         WHERE bl.deleted_at IS NULL
-          AND bl.tanggal >= $1::date
-          AND bl.tanggal < $2::date
+          AND (
+            -- Dilaporkan dalam periode berjalan
+            (bl.tanggal >= $1::date AND bl.tanggal < $2::date)
+            OR
+            -- Masih aktif selama periode (carry-over dari periode sebelumnya).
+            -- $3 = fromTs (awal periode), $4 = toTs (akhir periode).
+            (bl.start_time < $4::timestamptz AND COALESCE(bl.finish_time, now()) > $3::timestamptz)
+          )
         ORDER BY e.kode_alat, bl.start_time DESC
         LIMIT 500
       `;
       const [result, equipmentSummary, bdSummary] = await Promise.all([
-        pool.query(query, [periodStart, periodEnd]),
+        pool.query(query, [periodStart, periodEnd, fromTs, toTs]),
         pool.query(`SELECT COUNT(*)::int AS total FROM equipment WHERE deleted_at IS NULL`),
         pool.query(`
           WITH bounds AS (
@@ -3206,6 +4102,173 @@ class ProductionController {
     }
   }
 
+  static async editBreakdownStatusSegment(req, res) {
+    const client = await pool.connect();
+    try {
+      const actorId = await resolveExistingUserId(client, req.user?.id);
+      if (!actorId) throw new Error('User tidak ditemukan. Silakan login ulang.');
+      await client.query('BEGIN');
+
+      const incidentResult = await client.query(`
+        SELECT * FROM breakdown_logs WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+      `, [req.params.id]);
+      const incident = incidentResult.rows[0];
+      if (!incident) {
+        const missing = new Error('Insiden breakdown tidak ditemukan.');
+        missing.statusCode = 404;
+        throw missing;
+      }
+      if (incident.status === 'resolved') throw new Error('Breakdown yang sudah selesai (resolved) tidak dapat diedit timeline-nya.');
+
+      const segResult = await client.query(`
+        SELECT * FROM breakdown_status_history
+        WHERE breakdown_id = $1
+        ORDER BY started_at ASC
+        FOR UPDATE
+      `, [incident.id]);
+      const segments = segResult.rows;
+      const idx = segments.findIndex(seg => seg.id === req.params.segmentId);
+      if (idx === -1) {
+        const missing = new Error('Segmen timeline tidak ditemukan.');
+        missing.statusCode = 404;
+        throw missing;
+      }
+      const seg = segments[idx];
+
+      const hasStatus = req.body.status !== undefined && req.body.status !== null && String(req.body.status).trim() !== '';
+      const hasStarted = req.body.started_at !== undefined && req.body.started_at !== null && String(req.body.started_at).trim() !== '';
+      const hasEnded = req.body.ended_at !== undefined && req.body.ended_at !== null && String(req.body.ended_at).trim() !== '';
+      const hasNote = req.body.note !== undefined;
+
+      let newStatus = seg.status;
+      if (hasStatus) newStatus = normalizeBreakdownStatus(req.body.status);
+
+      let newStarted = new Date(seg.started_at);
+      if (hasStarted) newStarted = normalizeBreakdownTimestamp(req.body.started_at, 'Waktu mulai segmen');
+      let newEnded = seg.ended_at ? new Date(seg.ended_at) : null;
+      if (hasEnded) {
+        if (seg.ended_at === null) throw new Error('Segmen yang masih aktif tidak memiliki waktu selesai.');
+        newEnded = normalizeBreakdownTimestamp(req.body.ended_at, 'Waktu selesai segmen');
+      }
+      const newNote = hasNote ? (String(req.body.note).trim() || null) : seg.note;
+
+      const prev = idx > 0 ? segments[idx - 1] : null;
+      const next = idx < segments.length - 1 ? segments[idx + 1] : null;
+
+      // --- batasan status ---
+      if (seg.ended_at === null) {
+        if (seg.status === 'awaiting_verification' && hasStatus && newStatus !== 'awaiting_verification') {
+          throw new Error('Segmen Menunggu Verifikasi tidak dapat diubah statusnya; selesaikan melalui Verifikasi Ready.');
+        }
+        if (newStatus === 'awaiting_verification' || newStatus === 'resolved') {
+          throw new Error('Segmen aktif tidak dapat diubah menjadi Menunggu Verifikasi / Ready.');
+        }
+      } else if (newStatus === 'awaiting_verification' || newStatus === 'resolved') {
+        throw new Error('Segmen tertutup hanya dapat berisi status progres / waiting.');
+      }
+
+      // --- urutan waktu & batas kontiguitas ---
+      if (newEnded && newEnded < newStarted) throw new Error('Waktu selesai segmen tidak boleh lebih awal dari waktu mulai.');
+      if (prev && newStarted < new Date(prev.started_at)) throw new Error('Waktu mulai segmen tidak boleh lebih awal dari segmen sebelumnya.');
+      if (!prev && newStarted < new Date(incident.start_time)) throw new Error('Waktu mulai segmen pertama tidak boleh lebih awal dari waktu mulai breakdown.');
+      if (next && newEnded) {
+        const nextEnd = next.ended_at ? new Date(next.ended_at) : null;
+        if (nextEnd && newEnded > nextEnd) throw new Error('Waktu selesai segmen tidak boleh melewati akhir segmen berikutnya.');
+        if (!nextEnd && newEnded.getTime() > Date.now() + 5 * 60 * 1000) throw new Error('Waktu selesai segmen tidak boleh berada di masa depan.');
+      }
+
+      // --- terapkan perubahan segmen ---
+      await client.query(`
+        UPDATE breakdown_status_history
+        SET status = $2, started_at = $3, ended_at = $4, note = $5, changed_by = $6
+        WHERE id = $1
+      `, [seg.id, newStatus, newStarted.toISOString(), newEnded ? newEnded.toISOString() : null, newNote, actorId]);
+
+      // sesuaikan segmen tetangga agar timeline tetap kontigu
+      if (prev) {
+        await client.query(`UPDATE breakdown_status_history SET ended_at = $2 WHERE id = $1`, [prev.id, newStarted.toISOString()]);
+      }
+      if (next && newEnded) {
+        await client.query(`UPDATE breakdown_status_history SET started_at = $2 WHERE id = $1`, [next.id, newEnded.toISOString()]);
+      }
+
+      // sinkronkan start_time breakdown bila segmen pertama diedit
+      if (!prev && newStarted.getTime() !== new Date(incident.start_time).getTime()) {
+        await client.query(`UPDATE breakdown_logs SET start_time = $2, updated_by = $3, updated_at = now() WHERE id = $1`, [incident.id, newStarted.toISOString(), actorId]);
+      }
+
+      // perbarui current_status bila segmen aktif diubah statusnya
+      if (seg.ended_at === null && newStatus !== seg.status) {
+        await client.query(`
+          UPDATE breakdown_logs SET current_status = $2, updated_by = $3, updated_at = now()
+          WHERE id = $1
+        `, [incident.id, newStatus, actorId]);
+      }
+
+      // hitung ulang total jam breakdown
+      const elapsedHours = await calculateStoredBreakdownHours(client, incident.id);
+      await client.query(`
+        UPDATE breakdown_logs SET total_breakdown_hours = $2, updated_at = now()
+        WHERE id = $1
+      `, [incident.id, elapsedHours]);
+
+      await client.query('COMMIT');
+      res.json({ success: true, id: incident.id, segment_id: seg.id });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      res.status(err.statusCode || 400).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  }
+
+  // Ubah PIC (Person In Charge) maintenance pada insiden breakdown yang belum resolved.
+  static async updateBreakdownPic(req, res) {
+    const client = await pool.connect();
+    try {
+      const actorId = await resolveExistingUserId(client, req.user?.id);
+      if (!actorId) throw new Error('User tidak ditemukan. Silakan login ulang.');
+      const picId = String(req.body.pic_id || '').trim() || null;
+      if (!picId) throw new Error('PIC Maintenance harus dipilih.');
+
+      await client.query('BEGIN');
+
+      const incidentResult = await client.query(`
+        SELECT * FROM breakdown_logs WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+      `, [req.params.id]);
+      const incident = incidentResult.rows[0];
+      if (!incident) {
+        const missing = new Error('Insiden breakdown tidak ditemukan.');
+        missing.statusCode = 404;
+        throw missing;
+      }
+      if (incident.status === 'resolved') throw new Error('Breakdown yang sudah selesai (resolved) tidak dapat diubah PIC-nya.');
+
+      // Pastikan PIC yang dipilih adalah karyawan maintenance yang valid.
+      const picResult = await client.query(`
+        SELECT id, nama FROM users
+        WHERE id = $1 AND is_active = TRUE
+          AND LOWER(TRIM(COALESCE(departemen, ''))) = 'maintenance'
+      `, [picId]);
+      const pic = picResult.rows[0];
+      if (!pic) throw new Error('PIC Maintenance yang dipilih tidak ditemukan / tidak aktif.');
+
+      await client.query(`
+        UPDATE breakdown_logs
+        SET pic_id = $2, updated_by = $3, updated_at = now()
+        WHERE id = $1
+      `, [incident.id, pic.id, actorId]);
+
+      await client.query('COMMIT');
+      res.json({ success: true, id: incident.id, pic_id: pic.id, pic_name: pic.nama });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      res.status(err.statusCode || 400).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  }
+
   static async verifyBreakdownReady(req, res) {
     const client = await pool.connect();
     try {
@@ -3385,6 +4448,52 @@ class ProductionController {
       res.status(201).json(part);
     } catch (err) {
       res.status(400).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  }
+
+  // Hapus insiden breakdown beserta seluruh data terkait (soft-delete pada
+  // breakdown_logs & breakdown_parts; hard-delete pada breakdown_status_history
+  // & breakdown_ready_verifications karena tabel tsb tidak memiliki kolom deleted_at).
+  // Tujuan: koreksi kesalahan input. Data yang terhapus tidak lagi mempengaruhi
+  // Breakdown History maupun Unit Performance. Standby_logs otomatis hasil
+  // verifikasi (source_type='breakdown_verification') TIDAK ikut dihapus, dan
+  // status unit (equipment.status_alat) dibiarkan apa adanya.
+  static async deleteBreakdownLog(req, res) {
+    const client = await pool.connect();
+    try {
+      const actorId = await resolveExistingUserId(client, req.user?.id);
+      await client.query('BEGIN');
+      const incidentResult = await client.query(`
+        SELECT bl.*, e.kode_alat
+        FROM breakdown_logs bl
+        LEFT JOIN equipment e ON e.id = bl.equipment_id
+        WHERE bl.id = $1 AND bl.deleted_at IS NULL
+        FOR UPDATE OF bl
+      `, [req.params.id]);
+      const incident = incidentResult.rows[0];
+      if (!incident) {
+        const missing = new Error('Insiden breakdown tidak ditemukan atau sudah dihapus.');
+        missing.statusCode = 404;
+        throw missing;
+      }
+
+      // Hapus seluruh data terkait breakdown ini.
+      await client.query(`DELETE FROM breakdown_ready_verifications WHERE breakdown_id = $1`, [incident.id]);
+      await client.query(`DELETE FROM breakdown_status_history WHERE breakdown_id = $1`, [incident.id]);
+      await client.query(`UPDATE breakdown_parts SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE breakdown_id = $1 AND deleted_at IS NULL`, [incident.id]);
+      await client.query(`
+        UPDATE breakdown_logs
+        SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND deleted_at IS NULL
+      `, [incident.id, actorId]);
+
+      await client.query('COMMIT');
+      res.json({ success: true, id: incident.id, kode_alat: incident.kode_alat || null });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      res.status(err.statusCode || 400).json({ error: err.message });
     } finally {
       client.release();
     }
@@ -3810,6 +4919,15 @@ class ProductionController {
           [fleet.id]
         );
         fleet.trucks = truckRes.rows;
+        const picRes = await pool.query(`
+          SELECT u.id, u.nama, u.jabatan
+          FROM fleet_mapping_pics fmp
+          JOIN users u ON u.id = fmp.user_id
+          WHERE fmp.fleet_mapping_id = $1 AND fmp.deleted_at IS NULL
+          ORDER BY u.nama`, [fleet.id]);
+        fleet.pics = picRes.rows;
+        fleet.pic_user_ids = picRes.rows.map(pic => pic.id);
+        fleet.pic_names = picRes.rows.map(pic => pic.nama).join(', ') || null;
       }
 
       res.json(result.rows);
@@ -3820,68 +4938,223 @@ class ProductionController {
 
   static async createFleetMapping(req, res) {
     try {
-      const { tanggal, shift_id, nama_fleet, excavator_id, loading_point_id, disposal_id, material_type, dump_truck_ids, pit_area, job_code, jarak_km, material_detail } = req.body;
+      const { tanggal, shift_id, nama_fleet, excavator_id, loading_point_id, disposal_id, material_type, dump_truck_ids, pit_area, job_code, jarak_km, material_detail, fleet_plan_ref, pic_user_id, pic_user_ids, fleet_mapping_id } = req.body;
 
-      if (!tanggal || !shift_id || !excavator_id) {
-        return res.status(400).json({ error: 'Tanggal, Shift, dan Excavator wajib diisi.' });
+      if (!tanggal || !shift_id || !excavator_id || !String(job_code || '').trim()) {
+        return res.status(400).json({ error: 'Tanggal, Shift, Excavator, dan JOB wajib diisi.' });
       }
 
-      const nama = (nama_fleet || '').trim() || null;
+      // Nama fleet otomatis mengikuti kode unit excavator bila tidak dikirim
+      // (sesuai label UI: "nama fleet otomatis mengikuti kode unit").
+      const exc = await pool.query(
+        `SELECT id, kode_alat FROM equipment WHERE id = $1 AND deleted_at IS NULL`,
+        [excavator_id]
+      );
+      if (!exc.rows.length) return res.status(400).json({ error: 'Excavator tidak tersedia pada List Equipment.' });
+      let nama = (nama_fleet || '').trim() || exc.rows[0].kode_alat;
       const matType = material_type || 'Overburden';
       const area = (pit_area || '').trim() || null;
       const job = (job_code || '').trim() || null;
+      const deployedSpoJobs = await getDeployedSpoJobCodes(pool);
+      if (!deployedSpoJobs.has(job)) {
+        return res.status(400).json({ error: `JOB ${job || '-'} tidak tersedia pada tabel SPO berstatus Deployed.` });
+      }
       const jarak = (jarak_km === '' || jarak_km == null) ? null : Number(jarak_km);
       const materialDetail = (material_detail || '').trim() || null;
+      const picUserIds = [...new Set((Array.isArray(pic_user_ids) ? pic_user_ids : [pic_user_id])
+        .map(value => String(value || '').trim()).filter(Boolean))];
+      const picUserId = picUserIds[0] || null; // compatibility primary PIC for legacy consumers
+      if (picUserIds.length) {
+        const pic = await pool.query(`
+          SELECT id FROM users
+          WHERE id = ANY($1::uuid[]) AND role = 'karyawan' AND is_active = TRUE
+            AND LOWER(TRIM(COALESCE(departemen, ''))) IN ('produksi', 'production')
+            AND (
+              LOWER(COALESCE(jabatan, '')) LIKE '%pengawas%'
+              OR LOWER(COALESCE(jabatan, '')) LIKE '%supervisor%'
+              OR LOWER(COALESCE(jabatan, '')) LIKE '%foreman%'
+              OR LOWER(COALESCE(jabatan, '')) LIKE '%group leader%'
+              OR LOWER(COALESCE(jabatan, '')) LIKE '%shift boss%'
+            )
+          `, [picUserIds]);
+        if (pic.rows.length !== picUserIds.length) return res.status(400).json({ error: 'Setiap PIC harus merupakan pengawas aktif dari Departemen Produksi.' });
+      }
+      const catalog = await buildFleetPlanCatalogData(pool, tanggal);
+      const selectedPlan = catalog.find(entry => entry.planRef === String(fleet_plan_ref || '')
+        && String(entry.equipmentId) === String(excavator_id)
+        && normalizeFleetPlanKey(entry.material) === normalizeFleetPlanKey(materialDetail)
+        && String(entry.jobCode || '') === job);
+      if (!selectedPlan) {
+        return res.status(400).json({ error: 'Kombinasi Excavator, Material, dan JOB tidak tersedia pada Productivity Planning/assignment PA.' });
+      }
+      if (!Number.isFinite(selectedPlan.fleetProductivity) || selectedPlan.fleetProductivity <= 0) {
+        return res.status(400).json({ error: 'Fleet Productivity pada planning belum valid.' });
+      }
+      const duplicatePlans = catalog.filter(entry => String(entry.equipmentId) === String(excavator_id)
+        && normalizeFleetPlanKey(entry.material) === normalizeFleetPlanKey(materialDetail)
+        && String(entry.jobCode || '') === job);
+      if (duplicatePlans.length > 1) {
+        return res.status(409).json({ error: 'Terdapat lebih dari satu Fleet Planning untuk kombinasi Excavator, Material, dan JOB yang sama. Rapikan duplikat planning terlebih dahulu.' });
+      }
+      const expectedMaterialType = selectedPlan.planningType === 'coal' ? 'Coal' : 'Overburden';
+      if (matType !== expectedMaterialType) {
+        return res.status(400).json({ error: 'Kategori material tidak sesuai sumber Productivity Planning.' });
+      }
 
-      // Upsert: satu fleet per (tanggal, shift, excavator). Hindari duplikat fleet
-      // saat "Tambah Fleet" atau "Edit Fleet" dipakai berulang pada shift yang sama.
-      const find = await pool.query(
+      // Identitas operasional fleet: tanggal + shift + excavator + PIT/Area +
+      // JOB + material. Nama fleet mengikuti excavator sehingga tidak menjadi
+      // pembeda. Satu dari tiga konteks PIT/Area, JOB, atau material yang
+      // berbeda menghasilkan tabel fleet berbeda; kombinasi yang sama ditolak.
+      // Normalisasi trim/case dilakukan di backend agar tidak dapat dilewati
+      // oleh payload frontend yang berbeda kapitalisasi/spasi.
+      const requestedFleetId = String(fleet_mapping_id || '').trim() || null;
+      if (requestedFleetId) {
+        const existing = await pool.query(
+          'SELECT id FROM fleet_mappings WHERE id = $1 AND deleted_at IS NULL',
+          [requestedFleetId]
+        );
+        if (!existing.rows.length) return res.status(404).json({ error: 'Fleet yang akan diedit tidak ditemukan atau sudah dihapus.' });
+      }
+      const duplicate = await pool.query(
         `SELECT id FROM fleet_mappings
          WHERE deleted_at IS NULL AND tanggal = $1 AND shift_id = $2 AND excavator_id = $3
-         ORDER BY created_at DESC LIMIT 1`,
-        [tanggal, shift_id, excavator_id]
+           AND LOWER(BTRIM(COALESCE(pit_area, ''))) = LOWER(BTRIM(COALESCE($4, '')))
+           AND LOWER(BTRIM(COALESCE(job_code, ''))) = LOWER(BTRIM(COALESCE($5, '')))
+           AND LOWER(BTRIM(COALESCE(material_detail, ''))) = LOWER(BTRIM(COALESCE($6, '')))
+           AND ($7::uuid IS NULL OR id <> $7::uuid)
+         LIMIT 1`,
+        [tanggal, shift_id, excavator_id, area, job, materialDetail, requestedFleetId]
       );
+      if (duplicate.rows.length) {
+        return res.status(409).json({
+          error: 'Fleet dengan Excavator, PIT/Area, JOB, dan Material yang sama sudah ada pada tanggal serta shift ini. Ubah salah satu konteks operasional atau edit tabel fleet yang sudah ada.'
+        });
+      }
 
       let fleetId;
-      if (find.rows.length) {
-        fleetId = find.rows[0].id;
+      if (requestedFleetId) {
+        fleetId = requestedFleetId;
         await pool.query(
           `UPDATE fleet_mappings
-           SET nama_fleet = COALESCE($1, nama_fleet),
-               pit_area = COALESCE($2, pit_area),
-               job_code = COALESCE($3, job_code),
-               jarak_km = COALESCE($4, jarak_km),
+           SET nama_fleet = $1,
+               pit_area = $2,
+               job_code = $3,
+               jarak_km = $4,
                material_type = $5,
-               material_detail = COALESCE($6, material_detail),
-               loading_point_id = COALESCE($7, loading_point_id),
-               disposal_id = COALESCE($8, disposal_id),
-               deleted_at = NULL
-           WHERE id = $9`,
-          [nama, area, job, jarak, matType, materialDetail, loading_point_id || null, disposal_id || null, fleetId]
+                material_detail = $6,
+                loading_point_id = $7,
+                disposal_id = $8,
+                pic_user_id = $9,
+                deleted_at = NULL
+           WHERE id = $10`,
+          [nama, area, job, jarak, matType, materialDetail, loading_point_id || null, disposal_id || null, picUserId, fleetId]
         );
       } else {
         const ins = await pool.query(
           `INSERT INTO fleet_mappings
-             (tanggal, shift_id, nama_fleet, excavator_id, loading_point_id, disposal_id, material_type, material_detail, pit_area, job_code, jarak_km)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             (tanggal, shift_id, nama_fleet, excavator_id, loading_point_id, disposal_id, material_type, material_detail, pit_area, job_code, jarak_km, pic_user_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING id`,
-          [tanggal, shift_id, nama, excavator_id, loading_point_id || null, disposal_id || null, matType, materialDetail, area, job, jarak]
+          [tanggal, shift_id, nama, excavator_id, loading_point_id || null, disposal_id || null, matType, materialDetail, area, job, jarak, picUserId]
         );
         fleetId = ins.rows[0].id;
       }
 
-      // Ganti seluruh ikatan dump truck fleet dengan daftar baru
+      // Ganti seluruh ikatan dump truck fleet dengan daftar baru. Alokasi
+      // jarak milik truck yang dilepas dipertahankan sebagai histori soft-delete.
+      const actorId = await resolveExistingUserId(pool, req.user?.id);
+      const activeTruckIds = Array.isArray(dump_truck_ids)
+        ? [...new Set(dump_truck_ids.map(value => String(value || '').trim()).filter(Boolean))]
+        : [];
+      if (activeTruckIds.length) {
+        await pool.query(`
+          UPDATE ritase_distance_allocations
+          SET deleted_at = now(), updated_at = now(), updated_by = $3
+          WHERE fleet_mapping_id = $1 AND deleted_at IS NULL
+            AND NOT (dump_truck_id = ANY($2::uuid[]))`, [fleetId, activeTruckIds, actorId]);
+      } else {
+        await pool.query(`
+          UPDATE ritase_distance_allocations
+          SET deleted_at = now(), updated_at = now(), updated_by = $2
+          WHERE fleet_mapping_id = $1 AND deleted_at IS NULL`, [fleetId, actorId]);
+      }
       await pool.query("DELETE FROM fleet_mapping_trucks WHERE fleet_mapping_id = $1", [fleetId]);
-      if (Array.isArray(dump_truck_ids) && dump_truck_ids.length) {
-        for (const truckId of [...new Set(dump_truck_ids)]) {
+      if (activeTruckIds.length) {
+        for (const truckId of activeTruckIds) {
           await pool.query("INSERT INTO fleet_mapping_trucks (fleet_mapping_id, dump_truck_id) VALUES ($1, $2)", [fleetId, truckId]);
         }
+      }
+
+      // Riwayat hubungan PIC dipertahankan dengan soft delete; daftar aktif
+      // selalu mengikuti checklist terakhir yang disimpan user.
+      await pool.query('UPDATE fleet_mapping_pics SET deleted_at = now() WHERE fleet_mapping_id = $1 AND deleted_at IS NULL', [fleetId]);
+      for (const picId of picUserIds) {
+        await pool.query(`
+          INSERT INTO fleet_mapping_pics (fleet_mapping_id, user_id, created_by)
+          VALUES ($1, $2, $3)`, [fleetId, picId, actorId]);
       }
 
       const fleet = (await pool.query("SELECT * FROM fleet_mappings WHERE id = $1", [fleetId])).rows[0];
       res.status(201).json(fleet);
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  }
+
+  // Hapus (soft delete) satu fleet mapping beserta seluruh ritase_logs terkait.
+  // Data tidak dihapus permanen agar tetap dapat diaudit/dipulihkan; seluruh
+  // query produksi hanya membaca baris dengan deleted_at IS NULL.
+  static async deleteFleetMapping(req, res) {
+    const client = await pool.connect();
+    try {
+      const { id } = req.params;
+      if (!id) return res.status(400).json({ error: 'ID fleet wajib diisi.' });
+
+      await client.query('BEGIN');
+
+      const find = await client.query(
+        `SELECT id, nama_fleet, tanggal, shift_id, excavator_id
+         FROM fleet_mappings
+         WHERE id = $1 AND deleted_at IS NULL
+         FOR UPDATE`,
+        [id]
+      );
+      const fleet = find.rows[0];
+      if (!fleet) {
+        await client.query('ROLLBACK').catch(() => {});
+        return res.status(404).json({ error: 'Fleet tidak ditemukan atau sudah dihapus.' });
+      }
+
+      // Soft delete seluruh ritase yang terikat pada fleet ini.
+      await client.query(
+        `UPDATE ritase_logs
+         SET deleted_at = CURRENT_TIMESTAMP
+         WHERE fleet_mapping_id = $1 AND deleted_at IS NULL`,
+        [id]
+      );
+
+      await client.query(
+        `UPDATE ritase_distance_allocations
+         SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, updated_by = $2
+         WHERE fleet_mapping_id = $1 AND deleted_at IS NULL`,
+        [id, await resolveExistingUserId(client, req.user?.id)]
+      );
+
+      // Soft delete header fleet.
+      await client.query(
+        `UPDATE fleet_mappings
+         SET deleted_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND deleted_at IS NULL`,
+        [id]
+      );
+
+      await client.query('COMMIT');
+      res.json({ success: true, id: fleet.id, nama_fleet: fleet.nama_fleet || null });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      res.status(500).json({ error: err.message });
+    } finally {
+      client.release();
     }
   }
 
@@ -3894,25 +5167,57 @@ class ProductionController {
 
       const fleetRes = await pool.query(`
         SELECT fm.*, e.kode_alat AS excavator_kode, e.tipe_alat AS excavator_tipe,
-               jc.job_desc, s.nama_shift, s.operational_start, s.operational_end, s.lintas_hari
+               jc.job_desc, s.nama_shift, s.operational_start, s.operational_end, s.lintas_hari,
+               s.change_shift_start, s.change_shift_end, s.break_start, s.break_end,
+               pic.nama AS pic_name, pic.jabatan AS pic_position,
+               COALESCE(pics.pic_user_ids, ARRAY[]::uuid[]) AS pic_user_ids,
+               COALESCE(pics.pic_names, pic.nama) AS pic_names
         FROM fleet_mappings fm
         LEFT JOIN equipment e ON fm.excavator_id = e.id
         LEFT JOIN master_job_codes jc ON fm.job_code = jc.job_code
         LEFT JOIN shifts s ON fm.shift_id = s.id
+        LEFT JOIN users pic ON fm.pic_user_id = pic.id
+        LEFT JOIN LATERAL (
+          SELECT ARRAY_AGG(u.id ORDER BY u.nama) AS pic_user_ids,
+                 STRING_AGG(u.nama, ', ' ORDER BY u.nama) AS pic_names
+          FROM fleet_mapping_pics fmp
+          JOIN users u ON u.id = fmp.user_id
+          WHERE fmp.fleet_mapping_id = fm.id AND fmp.deleted_at IS NULL
+        ) pics ON TRUE
         WHERE fm.deleted_at IS NULL AND fm.tanggal = $1
         ${shift_id ? 'AND fm.shift_id = $2' : ''}
         ORDER BY fm.created_at ASC
       `, shift_id ? [tanggal, shift_id] : [tanggal]);
 
       const fleets = fleetRes.rows;
+      const fleetPlanCatalog = await buildFleetPlanCatalogData(pool, tanggal);
       for (const fleet of fleets) {
+        const matches = fleetPlanCatalog.filter(entry => normalizeFleetPlanKey(entry.loaderCode) === normalizeFleetPlanKey(fleet.excavator_kode)
+          && normalizeFleetPlanKey(entry.material) === normalizeFleetPlanKey(fleet.material_detail)
+          && String(entry.jobCode || '') === String(fleet.job_code || ''));
+        const plan = matches.length === 1 ? matches[0] : null;
+        fleet.plan_productivity = plan?.fleetProductivity ?? null;
+        fleet.plan_productivity_unit = plan?.productivityUnit ?? null;
+        fleet.plan_source = plan?.planningType ?? null;
+        fleet.plan_updated_at = plan?.updatedAt ?? null;
+        fleet.plan_status = matches.length > 1 ? 'ambiguous' : plan ? 'synced' : 'missing';
+
+        const distanceCategory = fleet.material_type === 'Coal' ? 'Coal' : 'OB';
         const truckRes = await pool.query(`
-          SELECT fmt.dump_truck_id, e.kode_alat, e.tipe_alat
+          SELECT fmt.dump_truck_id, e.kode_alat, e.tipe_alat, tf.factor_value
           FROM fleet_mapping_trucks fmt
           JOIN equipment e ON fmt.dump_truck_id = e.id
+          LEFT JOIN LATERAL (
+            SELECT factor_value
+            FROM truck_factors
+            WHERE tanggal <= $2::date AND kategori = $3
+              AND tipe_alat = e.tipe_alat AND UPPER(material) = UPPER(COALESCE($4, ''))
+            ORDER BY tanggal DESC
+            LIMIT 1
+          ) tf ON TRUE
           WHERE fmt.fleet_mapping_id = $1
           ORDER BY e.kode_alat
-        `, [fleet.id]);
+        `, [fleet.id, fleet.tanggal, distanceCategory, fleet.material_detail]);
 
         const hourRes = await pool.query(`
           SELECT dump_truck_id, period_hour, ritase_count
@@ -3930,10 +5235,60 @@ class ProductionController {
           dump_truck_id: t.dump_truck_id,
           kode_alat: t.kode_alat,
           tipe_alat: t.tipe_alat,
+          factor_value: t.factor_value === null ? null : Number(t.factor_value),
           hours: hoursByTruck[t.dump_truck_id] || {},
           total_ritase: Object.values(hoursByTruck[t.dump_truck_id] || {}).reduce((a, b) => a + b, 0)
         }));
         fleet.total_ritase = fleet.trucks.reduce((a, t) => a + t.total_ritase, 0);
+
+        const distanceAllocationRes = await pool.query(`
+          SELECT rda.id, rda.dump_truck_id, e.kode_alat, rda.period_hour,
+                 rda.ritase_count, rda.input_distance, rda.input_unit,
+                 rda.distance_km, rda.notes, rda.formula_version,
+                 rda.created_at, rda.updated_at
+          FROM ritase_distance_allocations rda
+          JOIN equipment e ON e.id = rda.dump_truck_id
+          WHERE rda.fleet_mapping_id = $1 AND rda.deleted_at IS NULL
+          ORDER BY rda.period_hour, e.kode_alat, rda.distance_km`, [fleet.id]);
+        fleet.distance_allocations = distanceAllocationRes.rows.map(row => ({
+          ...row,
+          period_hour: Number(row.period_hour),
+          ritase_count: Number(row.ritase_count),
+          input_distance: Number(row.input_distance),
+          distance_km: Number(row.distance_km)
+        }));
+        try {
+          fleet.distance_summary = calculateWeightedFleetDistance({
+            setupDistanceKm: fleet.jarak_km,
+            trucks: fleet.trucks,
+            allocations: fleet.distance_allocations
+          });
+        } catch (distanceError) {
+          fleet.distance_summary = {
+            complete: false,
+            status: 'invalid-allocation',
+            finalDistanceKm: null,
+            formulaVersion: RITASE_DISTANCE_FORMULA_VERSION,
+            error: distanceError.message
+          };
+        }
+
+        const exceptionRes = await pool.query(`
+          SELECT pe.id, pe.period_hour, pe.plan_productivity, pe.actual_productivity,
+                 pe.productivity_unit, pe.achievement_percentage, pe.shortfall_production,
+                 pe.status, pe.notes, pe.evidence_url,
+                 COALESCE(json_agg(json_build_object(
+                   'id', pp.id, 'problem_code_id', pp.problem_code_id,
+                   'code', pp.problem_code_snapshot, 'category', pp.problem_category_snapshot,
+                   'problem', pp.problem_description_snapshot, 'impact_minutes', pp.impact_minutes
+                 ) ORDER BY pp.created_at) FILTER (WHERE pp.id IS NOT NULL), '[]'::json) AS problems
+          FROM ritase_productivity_exceptions pe
+          LEFT JOIN ritase_productivity_exception_problems pp
+            ON pp.exception_id = pe.id AND pp.deleted_at IS NULL
+          WHERE pe.fleet_mapping_id = $1 AND pe.deleted_at IS NULL
+          GROUP BY pe.id
+          ORDER BY pe.period_hour`, [fleet.id]);
+        fleet.productivity_exceptions = exceptionRes.rows;
       }
 
       res.json(fleets);
@@ -3974,26 +5329,233 @@ class ProductionController {
         `, [tanggal, shift_id, fleet_mapping_id, excavator_id, dump_truck_id, mat, hour, count, userId]);
         saved++;
       }
+      // Menurunkan ritase tidak boleh membuat alokasi jarak aktual lebih besar
+      // daripada ritase pada dump truck dan jam yang sama.
+      await getFleetDistanceSnapshot(client, fleet_mapping_id);
       await client.query('COMMIT');
       res.json({ ok: true, saved });
     } catch (err) {
       await client.query('ROLLBACK');
-      res.status(500).json({ error: err.message });
+      const status = /^Alokasi jarak/.test(String(err.message || '')) ? 400 : 500;
+      res.status(status).json({ error: err.message });
     } finally {
       client.release();
     }
   }
 
-  // Truck Factor: acuan payload per ritase -> produksi, per periode.
+  static async getRitaseDistanceSummary(req, res) {
+    try {
+      const fleetId = String(req.query?.fleet_mapping_id || '').trim();
+      if (!fleetId) return res.status(400).json({ error: 'fleet_mapping_id wajib diisi.' });
+      const snapshot = await getFleetDistanceSnapshot(pool, fleetId);
+      res.json(snapshot);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async saveRitaseDistanceAllocations(req, res) {
+    const client = await pool.connect();
+    try {
+      const fleetId = String(req.body?.fleet_mapping_id || '').trim();
+      const inputRows = req.body?.allocations;
+      if (!fleetId) return res.status(400).json({ error: 'fleet_mapping_id wajib diisi.' });
+      if (!Array.isArray(inputRows)) return res.status(400).json({ error: 'allocations harus berupa array.' });
+      if (inputRows.length > 500) return res.status(400).json({ error: 'Maksimal 500 alokasi jarak per fleet.' });
+
+      await client.query('BEGIN');
+      const current = await getFleetDistanceSnapshot(client, fleetId);
+      const knownTruckIds = new Set(current.trucks.map(truck => String(truck.dump_truck_id)));
+      const normalized = [];
+      const uniqueKeys = new Set();
+      for (const row of inputRows) {
+        const dumpTruckId = String(row?.dump_truck_id || '').trim();
+        const hour = Number(row?.period_hour);
+        const ritase = Number(row?.ritase_count);
+        const inputDistance = Number(row?.input_distance);
+        const inputUnit = String(row?.input_unit || '').trim().toLowerCase();
+        const notes = String(row?.notes || '').trim();
+        if (!knownTruckIds.has(dumpTruckId)) throw new Error('Dump truck pada alokasi jarak tidak terikat pada fleet ini.');
+        if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('Jam alokasi jarak harus berada pada rentang 0-23.');
+        if (!Number.isInteger(ritase) || ritase <= 0) throw new Error('Ritase alokasi jarak harus berupa bilangan bulat lebih dari 0.');
+        if (!Number.isFinite(inputDistance) || inputDistance <= 0) throw new Error('Jarak aktual harus lebih dari 0.');
+        if (!['m', 'km'].includes(inputUnit)) throw new Error('Satuan jarak harus m atau km.');
+        const distanceKm = inputUnit === 'm' ? inputDistance / 1000 : inputDistance;
+        const uniqueKey = `${dumpTruckId}:${hour}:${distanceKm}`;
+        if (uniqueKeys.has(uniqueKey)) throw new Error('Terdapat alokasi dump truck, jam, dan jarak yang duplikat.');
+        uniqueKeys.add(uniqueKey);
+        normalized.push({
+          dump_truck_id: dumpTruckId,
+          period_hour: hour,
+          ritase_count: ritase,
+          input_distance: inputDistance,
+          input_unit: inputUnit,
+          distance_km: distanceKm,
+          notes
+        });
+      }
+
+      calculateWeightedFleetDistance({
+        setupDistanceKm: current.fleet.jarak_km,
+        trucks: current.trucks,
+        allocations: normalized
+      });
+
+      const actorId = await resolveExistingUserId(client, req.user?.id);
+      await client.query(`
+        UPDATE ritase_distance_allocations
+        SET deleted_at = now(), updated_at = now(), updated_by = $2
+        WHERE fleet_mapping_id = $1 AND deleted_at IS NULL`, [fleetId, actorId]);
+      for (const row of normalized) {
+        await client.query(`
+          INSERT INTO ritase_distance_allocations
+            (fleet_mapping_id, dump_truck_id, period_hour, ritase_count,
+             input_distance, input_unit, distance_km, notes, formula_version,
+             created_by, updated_by)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`, [
+          fleetId, row.dump_truck_id, row.period_hour, row.ritase_count,
+          row.input_distance, row.input_unit, row.distance_km, row.notes || null,
+          RITASE_DISTANCE_FORMULA_VERSION, actorId
+        ]);
+      }
+      const saved = await getFleetDistanceSnapshot(client, fleetId);
+      await client.query('COMMIT');
+      res.json({ ok: true, ...saved });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  }
+
+  static async getRitaseProductivityExceptions(req, res) {
+    try {
+      const { tanggal, shift_id, fleet_mapping_id } = req.query;
+      const params = [];
+      const clauses = ['pe.deleted_at IS NULL'];
+      if (tanggal) { params.push(normalizeDateOnly(tanggal)); clauses.push(`pe.tanggal = $${params.length}`); }
+      if (shift_id) { params.push(shift_id); clauses.push(`pe.shift_id = $${params.length}`); }
+      if (fleet_mapping_id) { params.push(fleet_mapping_id); clauses.push(`pe.fleet_mapping_id = $${params.length}`); }
+      const result = await pool.query(`
+        SELECT pe.*, e.kode_alat AS fleet_code, fm.nama_fleet, fm.pic_user_id,
+               u.nama AS pic_name, COALESCE(pics.pic_names, u.nama) AS pic_names, jc.job_desc, s.nama_shift,
+               COALESCE(json_agg(json_build_object(
+                 'id', pp.id, 'problem_code_id', pp.problem_code_id,
+                 'code', pp.problem_code_snapshot, 'category', pp.problem_category_snapshot,
+                 'problem', pp.problem_description_snapshot, 'impact_minutes', pp.impact_minutes
+               ) ORDER BY pp.created_at) FILTER (WHERE pp.id IS NOT NULL), '[]'::json) AS problems
+        FROM ritase_productivity_exceptions pe
+        JOIN fleet_mappings fm ON fm.id = pe.fleet_mapping_id
+        JOIN equipment e ON e.id = pe.excavator_id
+        LEFT JOIN users u ON u.id = fm.pic_user_id
+        LEFT JOIN LATERAL (
+          SELECT STRING_AGG(pic_user.nama, ', ' ORDER BY pic_user.nama) AS pic_names
+          FROM fleet_mapping_pics fmp
+          JOIN users pic_user ON pic_user.id = fmp.user_id
+          WHERE fmp.fleet_mapping_id = fm.id AND fmp.deleted_at IS NULL
+        ) pics ON TRUE
+        LEFT JOIN master_job_codes jc ON jc.job_code = pe.job_code
+        LEFT JOIN shifts s ON s.id = pe.shift_id
+        LEFT JOIN ritase_productivity_exception_problems pp
+          ON pp.exception_id = pe.id AND pp.deleted_at IS NULL
+        WHERE ${clauses.join(' AND ')}
+        GROUP BY pe.id, e.kode_alat, fm.nama_fleet, fm.pic_user_id, u.nama, pics.pic_names, jc.job_desc, s.nama_shift
+        ORDER BY pe.tanggal DESC, s.nama_shift, e.kode_alat, pe.period_hour
+        LIMIT 1000`, params);
+      res.json(result.rows);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  static async saveRitaseProductivityException(req, res) {
+    const client = await pool.connect();
+    try {
+      const { fleet_mapping_id, period_hour, problems, notes, evidence_url } = req.body || {};
+      if (!fleet_mapping_id) return res.status(400).json({ error: 'Fleet wajib diisi.' });
+      if (!Array.isArray(problems) || !problems.length) return res.status(400).json({ error: 'Pilih minimal satu problem productivity.' });
+      const normalizedProblems = problems.map((item, index) => {
+        const problemCodeId = String(item.problem_code_id || '').trim();
+        const duration = Number(item.impact_minutes);
+        if (!problemCodeId) throw new Error(`Problem ke-${index + 1} wajib dipilih.`);
+        if (!Number.isFinite(duration) || duration <= 0 || duration > 60) throw new Error(`Durasi problem ke-${index + 1} harus lebih dari 0 dan maksimal 60 menit.`);
+        return { problemCodeId, duration };
+      });
+      if (new Set(normalizedProblems.map(item => item.problemCodeId)).size !== normalizedProblems.length) {
+        return res.status(400).json({ error: 'Kode problem yang sama tidak boleh dipilih lebih dari sekali pada jam yang sama.' });
+      }
+      const evidenceUrl = String(evidence_url || '').trim() || null;
+      if (evidenceUrl) {
+        let parsed;
+        try { parsed = new URL(evidenceUrl); } catch (_) { return res.status(400).json({ error: 'URL lampiran tidak valid.' }); }
+        if (!['http:', 'https:'].includes(parsed.protocol)) return res.status(400).json({ error: 'URL lampiran harus menggunakan http atau https.' });
+      }
+
+      await client.query('BEGIN');
+      const snapshot = await getRitaseHourlySnapshot(client, fleet_mapping_id, period_hour);
+      if (!snapshot.complete) throw new Error('Data ritase atau Truck Factor pada jam ini belum lengkap. Simpan ritase dan lengkapi factor terlebih dahulu.');
+      if (snapshot.state === 'inactive') throw new Error('Fleet tidak beroperasi pada jam ini; problem productivity tidak dapat dicatat.');
+      const codeIds = normalizedProblems.map(item => item.problemCodeId);
+      const codes = await client.query(`
+        SELECT id, kategori, kode, problem FROM master_problem_codes
+        WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`, [codeIds]);
+      if (codes.rows.length !== codeIds.length) throw new Error('Satu atau lebih kode problem tidak lagi tersedia pada Parameter.');
+      const actorId = await resolveExistingUserId(client, req.user?.id);
+      const saved = await client.query(`
+        INSERT INTO ritase_productivity_exceptions
+          (fleet_mapping_id, tanggal, shift_id, excavator_id, pit_area, job_code, material,
+           period_hour, plan_productivity, actual_productivity, productivity_unit,
+           achievement_percentage, shortfall_production, notes, evidence_url, created_by, updated_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)
+        ON CONFLICT (fleet_mapping_id, period_hour) WHERE deleted_at IS NULL
+        DO UPDATE SET plan_productivity=EXCLUDED.plan_productivity,
+          actual_productivity=EXCLUDED.actual_productivity, productivity_unit=EXCLUDED.productivity_unit,
+          achievement_percentage=EXCLUDED.achievement_percentage, shortfall_production=EXCLUDED.shortfall_production,
+          notes=EXCLUDED.notes, evidence_url=EXCLUDED.evidence_url, updated_by=EXCLUDED.updated_by,
+          status='open', updated_at=now()
+        RETURNING *`, [fleet_mapping_id, snapshot.fleet.tanggal, snapshot.fleet.shift_id,
+          snapshot.fleet.excavator_id, snapshot.fleet.pit_area, snapshot.fleet.job_code,
+          snapshot.fleet.material_detail || snapshot.fleet.material_type, Number(period_hour), snapshot.plan,
+          snapshot.actual, snapshot.unit, snapshot.achievement, snapshot.shortfall,
+          String(notes || '').trim() || null, evidenceUrl, actorId]);
+      const exceptionId = saved.rows[0].id;
+      await client.query('UPDATE ritase_productivity_exception_problems SET deleted_at=now() WHERE exception_id=$1 AND deleted_at IS NULL', [exceptionId]);
+      const byId = new Map(codes.rows.map(row => [String(row.id), row]));
+      for (const item of normalizedProblems) {
+        const code = byId.get(item.problemCodeId);
+        await client.query(`
+          INSERT INTO ritase_productivity_exception_problems
+            (exception_id, problem_code_id, problem_code_snapshot, problem_category_snapshot,
+             problem_description_snapshot, impact_minutes, created_by)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)`, [exceptionId, code.id, code.kode, code.kategori, code.problem, item.duration, actorId]);
+      }
+      await client.query('COMMIT');
+      res.json({ ok: true, exception: saved.rows[0] });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      res.status(400).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  }
+
+  // Truck Factor is effective-dated: a value saved on a date remains active
+  // until a newer version for the same category, truck type and material exists.
   static async getTruckFactors(req, res) {
     try {
       const { tanggal } = req.query;
       if (!tanggal) return res.status(400).json({ error: 'Parameter tanggal wajib diisi.' });
       const result = await pool.query(
-        `SELECT kategori, tipe_alat, material, factor_value
+        `SELECT DISTINCT ON (kategori, tipe_alat, UPPER(material))
+                kategori,
+                tipe_alat,
+                UPPER(material) AS material,
+                factor_value,
+                to_char(tanggal, 'YYYY-MM-DD') AS source_tanggal
          FROM truck_factors
-         WHERE tanggal = $1
-         ORDER BY kategori, tipe_alat, material`,
+         WHERE tanggal <= $1::date
+         ORDER BY kategori, tipe_alat, UPPER(material), tanggal DESC`,
         [tanggal]
       );
       res.json(result.rows);
@@ -4132,6 +5694,104 @@ class ProductionController {
   // =========================================================
   // 6. DAILY DASHBOARD
   // =========================================================
+  static async getRainfallLogs(req, res) {
+    try {
+      const now = new Date();
+      const period = rainfallPeriod(req.query.year || now.getFullYear(), req.query.month || now.getMonth() + 1);
+      const [areaResult, shiftResult, jobs, logResult] = await Promise.all([
+        pool.query(`SELECT DISTINCT TRIM(lokasi) AS area_name FROM equipment WHERE deleted_at IS NULL AND NULLIF(TRIM(lokasi), '') IS NOT NULL ORDER BY area_name`),
+        pool.query(`SELECT id, nama_shift FROM shifts WHERE LOWER(nama_shift) LIKE '%siang%' OR LOWER(nama_shift) LIKE '%malam%' ORDER BY nama_shift`),
+        buildDeployedSpoJobsData(pool),
+        pool.query(`
+          SELECT rl.id, rl.operational_date::text, rl.shift_id, s.nama_shift, rl.area_name, rl.job_code,
+                 jc.job_desc, rl.rain_start::text, rl.rain_finish::text, rl.intensity_mm,
+                 rl.slippery_start::text, rl.slippery_finish::text, rl.updated_at
+          FROM rainfall_logs rl
+          LEFT JOIN shifts s ON s.id = rl.shift_id
+          LEFT JOIN master_job_codes jc ON jc.job_code = rl.job_code
+          WHERE rl.deleted_at IS NULL AND rl.operational_date >= $1::date AND rl.operational_date < $2::date
+          ORDER BY rl.area_name, rl.operational_date, s.nama_shift, rl.created_at
+        `, [period.start, period.end]),
+      ]);
+      const areaMap = new Map();
+      areaResult.rows.forEach(row => {
+        const area = String(row.area_name || '').trim();
+        const key = area.replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
+        if (area && !areaMap.has(key)) areaMap.set(key, area);
+      });
+      res.json({
+        period: { year: period.year, month: period.month },
+        areas: [...areaMap.values()],
+        shifts: shiftResult.rows,
+        jobs,
+        rows: logResult.rows,
+      });
+    } catch (err) {
+      res.status(/tidak valid/i.test(err.message) ? 400 : 500).json({ error: err.message });
+    }
+  }
+
+  static async saveRainfallLogs(req, res) {
+    const client = await pool.connect();
+    try {
+      const period = rainfallPeriod(req.body?.year, req.body?.month);
+      const sourceRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+      if (!sourceRows.length || sourceRows.length > 1000) return res.status(400).json({ error: 'Data curah hujan wajib berisi 1-1000 baris.' });
+      const rows = sourceRows.map(row => normalizeRainfallRow(row, period));
+      await client.query('BEGIN');
+      const [jobs, areasResult, shiftsResult] = await Promise.all([
+        getDeployedSpoJobCodes(client),
+        client.query(`SELECT DISTINCT TRIM(lokasi) AS area_name FROM equipment WHERE deleted_at IS NULL AND NULLIF(TRIM(lokasi), '') IS NOT NULL`),
+        client.query(`SELECT id FROM shifts WHERE LOWER(nama_shift) LIKE '%siang%' OR LOWER(nama_shift) LIKE '%malam%'`),
+      ]);
+      const areas = new Map(areasResult.rows.map(row => {
+        const area = String(row.area_name || '').trim();
+        return [area.replace(/\s+/g, ' ').toLocaleLowerCase('id-ID'), area];
+      }));
+      const shifts = new Set(shiftsResult.rows.map(row => String(row.id)));
+      const actorId = req.user?.id || null;
+      const saved = [];
+      for (const row of rows) {
+        const areaKey = row.area_name.replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
+        if (!areas.has(areaKey)) throw new Error(`Area ${row.area_name || '-'} tidak tersedia pada Lokasi List Equipment.`);
+        if (!jobs.has(row.job_code)) throw new Error(`JOB ${row.job_code || '-'} tidak tersedia pada SPO berstatus Deployed.`);
+        if (!shifts.has(row.shift_id)) throw new Error('Shift harus dipilih dari master Shift Siang/Malam.');
+        row.area_name = areas.get(areaKey);
+        if (row.id) {
+          const before = await client.query('SELECT * FROM rainfall_logs WHERE id=$1 AND deleted_at IS NULL FOR UPDATE', [row.id]);
+          if (!before.rows[0]) throw new Error('Data curah hujan yang akan diperbarui tidak ditemukan.');
+          const result = await client.query(`
+            UPDATE rainfall_logs SET operational_date=$1, shift_id=$2, area_name=$3, job_code=$4,
+              rain_start=$5, rain_finish=$6, intensity_mm=$7, slippery_start=$8, slippery_finish=$9,
+              updated_by=$10, updated_at=now()
+            WHERE id=$11 AND deleted_at IS NULL RETURNING *
+          `, [row.operational_date, row.shift_id, row.area_name, row.job_code, row.rain_start, row.rain_finish,
+            row.intensity_mm, row.slippery_start, row.slippery_finish, actorId, row.id]);
+          await client.query(`INSERT INTO rainfall_log_audit (rainfall_log_id, action, previous_value, new_value, actor_id) VALUES ($1,'update',$2::jsonb,$3::jsonb,$4)`,
+            [row.id, JSON.stringify(before.rows[0]), JSON.stringify(result.rows[0]), actorId]);
+          saved.push(result.rows[0]);
+        } else {
+          const result = await client.query(`
+            INSERT INTO rainfall_logs (operational_date, shift_id, area_name, job_code, rain_start, rain_finish,
+              intensity_mm, slippery_start, slippery_finish, created_by, updated_by)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) RETURNING *
+          `, [row.operational_date, row.shift_id, row.area_name, row.job_code, row.rain_start, row.rain_finish,
+            row.intensity_mm, row.slippery_start, row.slippery_finish, actorId]);
+          await client.query(`INSERT INTO rainfall_log_audit (rainfall_log_id, action, new_value, actor_id) VALUES ($1,'create',$2::jsonb,$3)`,
+            [result.rows[0].id, JSON.stringify(result.rows[0]), actorId]);
+          saved.push(result.rows[0]);
+        }
+      }
+      await client.query('COMMIT');
+      res.json({ success: true, saved });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      res.status(/tidak tersedia|tidak ditemukan|wajib|harus|maksimal|periode|tanggal/i.test(err.message) ? 400 : 500).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  }
+
   static async getDailyDashboard(req, res) {
     try {
       const tgl = req.query.tanggal || getTodayString();
@@ -4204,64 +5864,6 @@ class ProductionController {
           { jam: '15:00', coal: 350, ob: 1050 },
           { jam: '17:00', coal: 290, ob: 890 }
         ]
-      });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  }
-
-  // =========================================================
-  // 7. SHIFT REPORT
-  // =========================================================
-  static async getShiftReport(req, res) {
-    try {
-      const { tanggal, shift_id } = req.query;
-      const tgl = tanggal || getTodayString();
-      const operationalBounds = operationalDayBounds(tgl);
-      let standbyWindowStart = operationalBounds.start;
-      let standbyWindowEnd = operationalBounds.end;
-      if (shift_id) {
-        const shiftResult = await pool.query('SELECT nama_shift FROM shifts WHERE id=$1 LIMIT 1', [shift_id]);
-        const shiftName = String(shiftResult.rows[0]?.nama_shift || '');
-        if (/siang/i.test(shiftName)) {
-          standbyWindowEnd = operationalBounds.dayEnd;
-        } else if (/malam/i.test(shiftName)) {
-          standbyWindowStart = operationalBounds.dayEnd;
-        }
-      }
-
-      const prod = await pool.query(`
-        SELECT material, SUM(ritase_count) as total_rit, SUM(production_volume) as total_vol
-        FROM ritase_logs WHERE deleted_at IS NULL AND tanggal = $1 GROUP BY material
-      `, [tgl]);
-
-      const stb = await pool.query(`
-        SELECT msc.kategori, COALESCE(SUM(
-          GREATEST(0, EXTRACT(EPOCH FROM (
-            LEAST(COALESCE(sl.finish_time, NOW()), $2::timestamptz)
-            - GREATEST(sl.start_time, $1::timestamptz)
-          )) / 3600)
-        ), 0) AS hours
-        FROM standby_logs sl JOIN master_standby_codes msc ON sl.standby_code_id = msc.id
-        WHERE sl.deleted_at IS NULL
-          AND sl.lifecycle_status IN ('open','confirmed')
-          AND sl.start_time < $2::timestamptz
-          AND COALESCE(sl.finish_time, NOW()) > $1::timestamptz
-        GROUP BY msc.kategori
-      `, [standbyWindowStart.toISOString(), standbyWindowEnd.toISOString()]);
-
-      const bd = await pool.query(`
-        SELECT e.kode_alat, mbc.kategori, bl.total_breakdown_hours
-        FROM breakdown_logs bl JOIN equipment e ON bl.equipment_id = e.id JOIN master_breakdown_codes mbc ON bl.breakdown_code_id = mbc.id
-        WHERE bl.deleted_at IS NULL AND bl.tanggal = $1
-      `, [tgl]);
-
-      res.json({
-        tanggal: tgl,
-        production: prod.rows,
-        standby: stb.rows,
-        breakdown: bd.rows,
-        supervisorNote: 'Shift berjalan dengan lancar tanpa kendala K3. P2H alat berat dilaksanakan 100% tepat waktu.'
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -4429,6 +6031,7 @@ module.exports = ProductionController;
 module.exports.isDozerEquipmentType = isDozerEquipmentType;
 module.exports.resolveCapacityUom = resolveCapacityUom;
 module.exports.calculateHmTotal = calculateHmTotal;
+module.exports.resolveProductionLogLimit = resolveProductionLogLimit;
 module.exports.calculateFuelReadingMetrics = calculateFuelReadingMetrics;
 module.exports.calculateBreakdownCalendarMetrics = calculateBreakdownCalendarMetrics;
 module.exports.calculateUnitPerformanceMetrics = calculateUnitPerformanceMetrics;
@@ -4443,3 +6046,16 @@ module.exports.assertStandbySessionIntervals = assertStandbySessionIntervals;
 module.exports.assertStandbyLogDeletable = assertStandbyLogDeletable;
 module.exports.calculateStandbyMohhControl = calculateStandbyMohhControl;
 module.exports.intervalOverlapHours = intervalOverlapHours;
+module.exports.resolvePlanningJob = resolvePlanningJob;
+module.exports.getDeployedSpoJobCodes = getDeployedSpoJobCodes;
+module.exports.buildDeployedSpoJobsData = buildDeployedSpoJobsData;
+module.exports.getSpoPeriodEnd = getSpoPeriodEnd;
+module.exports.legacyFleetCatalog = legacyFleetCatalog;
+// Export the data builder under a distinct name so it cannot overwrite the
+// Express handler `ProductionController.getFleetPlanCatalog` above.
+module.exports.buildFleetPlanCatalogData = buildFleetPlanCatalogData;
+module.exports.validateAndCalculatePlanningData = validateAndCalculatePlanningData;
+module.exports.classifyRitaseProductivity = classifyRitaseProductivity;
+module.exports.calculateWeightedFleetDistance = calculateWeightedFleetDistance;
+module.exports.rainfallPeriod = rainfallPeriod;
+module.exports.normalizeRainfallRow = normalizeRainfallRow;

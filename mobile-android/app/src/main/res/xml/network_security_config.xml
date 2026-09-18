@@ -1,10 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Izinkan traffic ke Vercel Cloud dan local fallbacks -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">attendance-system-eta-opal.vercel.app</domain>
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain>
-    </domain-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

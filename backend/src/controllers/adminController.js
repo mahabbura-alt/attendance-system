@@ -1,6 +1,9 @@
 const { pool } = require('../config/db');
 const { getUrlFoto } = require('../services/storage');
 const { autoCloseExpiredSessions } = require('../services/attendanceSession');
+const { getRosterMap, resolveDailyCategory } = require('../services/roster');
+const { rosterStatusForShift } = require('../services/attendancePolicy');
+const { statusAbsenDatang } = require('../utils/shiftValidator');
 const { buatWorkbookAbsensi } = require('../services/attendanceExcel');
 const bcrypt = require('bcrypt');
 
@@ -14,29 +17,70 @@ async function daftarShift(req, res, next) {
   }
 }
 
-/** GET /api/admin/absensi — semua data absensi, join nama karyawan dan shift */
+function buatQueryAbsensiTerfilter(filter = {}, { batasi = true } = {}) {
+  const { tanggal_dari, tanggal_sampai, shift, departemen, jabatan, nama, q } = filter;
+  let queryStr = `
+      SELECT
+        COALESCE(a.id::text, kp.id::text) AS id,
+        COALESCE(a.user_id, kp.user_id) AS user_id,
+        u.nama,
+        u.email,
+        u.departemen,
+        u.jabatan,
+        COALESCE(s.nama_shift, '-') AS nama_shift,
+        COALESCE(a.tanggal_kerja, kp.tanggal)::text AS tanggal_kerja,
+        a.waktu_datang,
+        a.waktu_pulang,
+        COALESCE(kp.kategori, a.status_datang) AS status_datang,
+        a.status_pulang,
+        a.foto_datang_url,
+        a.foto_pulang_url,
+        kp.kategori AS kategori_manual,
+        (a.id IS NULL) AS manual_only
+      FROM absensi a
+      FULL OUTER JOIN keterangan_presensi kp
+        ON kp.user_id = a.user_id
+       AND kp.tanggal = a.tanggal_kerja
+      LEFT JOIN users u ON u.id = COALESCE(a.user_id, kp.user_id)
+      LEFT JOIN shifts s ON s.id = COALESCE(a.shift_id, u.shift_id)
+      WHERE 1=1
+        AND (a.id IS NOT NULL OR kp.kategori = 'hadir_manual')
+    `;
+  const params = [];
+
+  if (tanggal_dari) {
+    params.push(tanggal_dari);
+    queryStr += ` AND COALESCE(a.tanggal_kerja, kp.tanggal) >= $${params.length}::date`;
+  }
+  if (tanggal_sampai) {
+    params.push(tanggal_sampai);
+    queryStr += ` AND COALESCE(a.tanggal_kerja, kp.tanggal) <= $${params.length}::date`;
+  }
+  const filterKolom = [
+    ['shift', shift, "COALESCE(s.nama_shift, '-')"],
+    ['departemen', departemen, "COALESCE(u.departemen, '')"],
+    ['jabatan', jabatan, "COALESCE(u.jabatan, '')"],
+    ['nama', nama, "COALESCE(u.nama, '')"],
+  ];
+  filterKolom.forEach(([, value, column]) => {
+    if (!value) return;
+    params.push(value);
+    queryStr += ` AND LOWER(${column}) = LOWER($${params.length})`;
+  });
+  if (q) {
+    params.push(`%${q}%`);
+    queryStr += ` AND (COALESCE(u.nama, '') ILIKE $${params.length} OR COALESCE(u.departemen, '') ILIKE $${params.length} OR COALESCE(u.jabatan, '') ILIKE $${params.length})`;
+  }
+  queryStr += ' ORDER BY COALESCE(a.tanggal_kerja, kp.tanggal) DESC, a.waktu_datang DESC NULLS LAST';
+  if (batasi) queryStr += ' LIMIT 500';
+  return { queryStr, params };
+}
+
+/** GET /api/admin/absensi - data absensi sesuai filter periode */
 async function semuaAbsensi(req, res, next) {
   try {
-    // Filter opsional: tanggal_dari, tanggal_sampai
-    const { tanggal_dari, tanggal_sampai } = req.query;
-    let queryStr = `
-      SELECT a.*, u.nama, u.email, s.nama_shift
-      FROM absensi a
-      JOIN users u ON u.id = a.user_id
-      JOIN shifts s ON s.id = a.shift_id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (tanggal_dari) {
-      params.push(tanggal_dari);
-      queryStr += ` AND a.tanggal_kerja >= $${params.length}`;
-    }
-    if (tanggal_sampai) {
-      params.push(tanggal_sampai);
-      queryStr += ` AND a.tanggal_kerja <= $${params.length}`;
-    }
-    queryStr += ' ORDER BY a.tanggal_kerja DESC LIMIT 500';
+    await autoCloseExpiredSessions();
+    const { queryStr, params } = buatQueryAbsensiTerfilter(req.query);
 
     const { rows } = await pool.query(queryStr, params);
 
@@ -62,35 +106,16 @@ function validasiRangeAbsensi(filter) {
   return null;
 }
 
-/** GET /api/admin/absensi/export.xlsx - workbook sesuai rentang tanggal aktif */
+/** GET /api/admin/absensi/export.xlsx - workbook sesuai seluruh filter aktif */
 async function exportAbsensiExcel(req, res, next) {
   try {
     await autoCloseExpiredSessions();
     const errorRange = validasiRangeAbsensi(req.query);
     if (errorRange) return res.status(400).json({ error: errorRange });
-
-    const { tanggal_dari, tanggal_sampai } = req.query;
-    let queryStr = `
-      SELECT a.*, u.nama, u.email, u.departemen, u.jabatan, s.nama_shift
-      FROM absensi a
-      JOIN users u ON u.id = a.user_id
-      JOIN shifts s ON s.id = a.shift_id
-      WHERE 1=1
-    `;
-    const params = [];
-    if (tanggal_dari) {
-      params.push(tanggal_dari);
-      queryStr += ` AND a.tanggal_kerja >= $${params.length}`;
-    }
-    if (tanggal_sampai) {
-      params.push(tanggal_sampai);
-      queryStr += ` AND a.tanggal_kerja <= $${params.length}`;
-    }
-    queryStr += ' ORDER BY a.tanggal_kerja DESC';
-
+    const { queryStr, params } = buatQueryAbsensiTerfilter(req.query, { batasi: false });
     const { rows } = await pool.query(queryStr, params);
     const output = buatWorkbookAbsensi(rows, req.query);
-    const namaFile = `absensi_${tanggal_dari}_${tanggal_sampai}.xlsx`;
+    const namaFile = `absensi_${req.query.tanggal_dari}_${req.query.tanggal_sampai}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${namaFile}"`);
     return res.send(output);
@@ -116,15 +141,51 @@ async function editAbsensiManual(req, res, next) {
       return res.status(400).json({ error: 'Field "alasan" wajib diisi untuk keperluan audit' });
     }
 
+    // datetime-local tidak membawa zona waktu. Klien wajib mengirim instant
+    // dengan offset eksplisit agar edit admin tidak bergantung pada zona browser.
+    for (const field of ['waktu_datang', 'waktu_pulang']) {
+      if (!Object.prototype.hasOwnProperty.call(perubahan, field)) continue;
+      const value = perubahan[field];
+      if (typeof value !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) || Number.isNaN(Date.parse(value))) {
+        return res.status(400).json({ error: `${field} harus berupa tanggal-jam dengan zona waktu eksplisit (WIB +07:00 atau UTC Z)` });
+      }
+      perubahan[field] = new Date(value).toISOString();
+    }
+
     await client.query('BEGIN');
 
-    const { rows: dataLama } = await client.query('SELECT * FROM absensi WHERE id = $1 FOR UPDATE', [id]);
+    const { rows: dataLama } = await client.query(
+      'SELECT *, tanggal_kerja::text AS tanggal_kerja_iso FROM absensi WHERE id = $1 FOR UPDATE',
+      [id]
+    );
     if (!dataLama[0]) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Data absensi tidak ditemukan' });
     }
 
+    let shiftDipilih = null;
+    if (Object.prototype.hasOwnProperty.call(perubahan, 'shift_id')) {
+      const { rows: shiftRows } = await client.query('SELECT * FROM shifts WHERE id = $1', [perubahan.shift_id]);
+      shiftDipilih = shiftRows[0] || null;
+      if (!shiftDipilih) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Shift yang dipilih tidak ditemukan' });
+      }
+
+      // Jika status tidak dipilih manual, hitung ulang memakai waktu datang
+      // yang tersimpan/perubahannya agar kombinasi shift dan status tetap konsisten.
+      const waktuDatang = perubahan.waktu_datang || dataLama[0].waktu_datang;
+      if (!Object.prototype.hasOwnProperty.call(perubahan, 'status_datang') && waktuDatang) {
+        perubahan.status_datang = statusAbsenDatang(
+          shiftDipilih,
+          dataLama[0].tanggal_kerja_iso,
+          new Date(waktuDatang)
+        );
+      }
+    }
+
     const kolomDiizinkan = [
+      'shift_id',
       'waktu_datang', 'lokasi_datang_lat', 'lokasi_datang_lng', 'status_datang',
       'waktu_pulang', 'lokasi_pulang_lat', 'lokasi_pulang_lng', 'status_pulang',
     ];
@@ -149,6 +210,42 @@ async function editAbsensiManual(req, res, next) {
       `UPDATE absensi SET ${setClauses.join(', ')}, updated_at = now() WHERE id = $${i} RETURNING *`,
       values
     );
+
+    if (shiftDipilih) {
+      const rosterStatus = rosterStatusForShift(shiftDipilih);
+      if (rosterStatus) {
+        const catatanRoster = `Sinkron manual dari Edit Absensi: ${alasan}`;
+        await client.query(
+          `INSERT INTO employee_roster_daily
+             (user_id,tanggal,status,shift_id,assignment_id,source,catatan,updated_by)
+           VALUES (
+             $1,$2::date,$3,$4,
+             (SELECT assignment_id FROM employee_roster_daily WHERE user_id=$1 AND tanggal=$2::date LIMIT 1),
+             'manual_override',$5,$6
+           )
+           ON CONFLICT (user_id,tanggal) DO UPDATE SET
+             status=EXCLUDED.status,
+             shift_id=EXCLUDED.shift_id,
+             source='manual_override',
+             catatan=EXCLUDED.catatan,
+             updated_by=EXCLUDED.updated_by,
+             updated_at=now()`,
+          [dataBaru[0].user_id, dataBaru[0].tanggal_kerja, rosterStatus, shiftDipilih.id, catatanRoster, req.user.id]
+        );
+        await client.query(
+          `INSERT INTO roster_audit_log (admin_id,user_id,aksi,detail)
+           VALUES ($1,$2,'sync_admin_shift',$3::jsonb)`,
+          [req.user.id, dataBaru[0].user_id, JSON.stringify({
+            tanggal: dataBaru[0].tanggal_kerja,
+            absensi_id: id,
+            shift_before: dataLama[0].shift_id,
+            shift_after: shiftDipilih.id,
+            roster_after: rosterStatus,
+            alasan,
+          })]
+        );
+      }
+    }
 
     await client.query(
       `INSERT INTO audit_log (admin_id, absensi_id, data_sebelum, data_sesudah, alasan)
@@ -197,13 +294,17 @@ async function auditLogAbsensi(req, res, next) {
  */
 async function rekapPerforma(req, res, next) {
   try {
-    const { periode = 'bulanan', tanggal_referensi, user_id } = req.query;
+    await autoCloseExpiredSessions();
+    const { periode = 'bulanan', tanggal_referensi, tanggal_mulai, tanggal_akhir, user_id } = req.query;
 
     const ref = tanggal_referensi ? new Date(tanggal_referensi) : new Date();
 
     let tanggalMulai, tanggalAkhir;
 
-    if (periode === 'harian') {
+    if (periode === 'rentang' && tanggal_mulai && tanggal_akhir) {
+      tanggalMulai = new Date(`${tanggal_mulai}T00:00:00Z`);
+      tanggalAkhir = new Date(`${tanggal_akhir}T00:00:00Z`);
+    } else if (periode === 'harian') {
       tanggalMulai = new Date(ref);
       tanggalAkhir = new Date(ref);
     } else if (periode === 'mingguan') {
@@ -225,10 +326,15 @@ async function rekapPerforma(req, res, next) {
 
     const mulaiStr = tanggalMulai.toISOString().split('T')[0];
     const akhirStr = tanggalAkhir.toISOString().split('T')[0];
+    const isHariTunggal = mulaiStr === akhirStr;
 
-    const totalHariKerja = (periode === 'harian') ? (ref.getDay() === 0 ? 0 : 1) : hitungHariKerja(tanggalMulai, tanggalAkhir);
+    const tanggalTunggal = new Date(`${mulaiStr}T00:00:00Z`);
+    const totalHariKerja = isHariTunggal ? (tanggalTunggal.getUTCDay() === 0 ? 0 : 1) : hitungHariKerja(tanggalMulai, tanggalAkhir);
 
-    const params = [mulaiStr, akhirStr];
+    const refWIB = new Date(ref.getTime() + 7 * 60 * 60 * 1000);
+    const refStr = (mulaiStr === akhirStr) ? mulaiStr : refWIB.toISOString().split('T')[0];
+
+    const params = [mulaiStr, akhirStr, refStr];
     let whereUser = '';
     if (user_id) {
       params.push(user_id);
@@ -254,10 +360,10 @@ async function rekapPerforma(req, res, next) {
          COUNT(DISTINCT kp.id) FILTER (WHERE kp.kategori = 'alpa')                AS alpa_manual,
          (
            SELECT kp2.kategori FROM keterangan_presensi kp2
-           WHERE kp2.user_id = u.id AND kp2.tanggal = $1 LIMIT 1
+           WHERE kp2.user_id = u.id AND kp2.tanggal = $3 LIMIT 1
          ) AS kategori_harian
        FROM users u
-       LEFT JOIN absensi a ON a.user_id = u.id AND a.tanggal_kerja BETWEEN $1 AND $2
+       LEFT JOIN absensi a ON a.user_id = u.id AND a.tanggal_kerja BETWEEN $1::date AND $2::date
        LEFT JOIN keterangan_presensi kp ON kp.user_id = u.id AND kp.tanggal BETWEEN $1 AND $2
        WHERE u.role = 'karyawan' AND u.is_active = TRUE
        ${whereUser}
@@ -266,11 +372,13 @@ async function rekapPerforma(req, res, next) {
       params
     );
 
-    const [absensiRes, kpRes] = await Promise.all([
+    const [absensiRes, kpRes, rosterMap] = await Promise.all([
       pool.query(
-        `SELECT user_id, tanggal_kerja::text AS tgl_str, waktu_datang, status_datang, status_pulang, COALESCE(percobaan_pulang_awal, 0) AS percobaan_pulang_awal
+        `SELECT user_id,
+                tanggal_kerja::text AS tgl_str,
+                waktu_datang, status_datang, status_pulang, COALESCE(percobaan_pulang_awal, 0) AS percobaan_pulang_awal
          FROM absensi
-         WHERE tanggal_kerja BETWEEN $1 AND $2`,
+         WHERE tanggal_kerja BETWEEN $1::date AND $2::date`,
         [mulaiStr, akhirStr]
       ),
       pool.query(
@@ -278,7 +386,8 @@ async function rekapPerforma(req, res, next) {
          FROM keterangan_presensi
          WHERE tanggal BETWEEN $1 AND $2`,
         [mulaiStr, akhirStr]
-      )
+      ),
+      getRosterMap(mulaiStr, akhirStr),
     ]);
 
     const mapAbsensi = new Map();
@@ -315,7 +424,7 @@ async function rekapPerforma(req, res, next) {
 
       let hariKerjaIndiv = 0;
       if (effMulaiStr <= effAkhirStr) {
-        if (periode === 'harian') {
+        if (isHariTunggal) {
           const refDate = new Date(`${mulaiStr}T00:00:00Z`);
           const isSun = (refDate.getUTCDay() === 0);
           if (isSun || mulaiStr < tglBuatStr || mulaiStr > hariIniStr) {
@@ -328,23 +437,23 @@ async function rekapPerforma(req, res, next) {
         }
       }
 
-      const hadirAbsen = Number(r.hadir);
-      const hadirManual = Number(r.hadir_manual);
-      const hadir = hadirAbsen + hadirManual;
+      let hadirAbsen = Number(r.hadir);
+      let hadirManual = Number(r.hadir_manual);
+      let hadir = hadirAbsen + hadirManual;
 
-      const izin = Number(r.izin);
-      const sakit = Number(r.sakit);
-      const cuti = Number(r.cuti);
-      const off = Number(r.off);
+      let izin = Number(r.izin);
+      let sakit = Number(r.sakit);
+      let cuti = Number(r.cuti);
+      let off = Number(r.off);
       const alpaManual = Number(r.alpa_manual);
 
-      const effHariKerja = Math.max(0, hariKerjaIndiv - off);
+      let effHariKerja = Math.max(0, hariKerjaIndiv - off);
       const alpaOtomatis = Math.max(0, effHariKerja - hadir - izin - sakit - cuti - alpaManual);
-      const alpa = alpaManual + alpaOtomatis;
-      const tidakHadir = alpa + izin + sakit + cuti;
+      let alpa = alpaManual + alpaOtomatis;
+      let tidakHadir = alpa + izin + sakit + cuti;
 
       let katHarian = r.kategori_harian;
-      if (periode === 'harian') {
+      if (isHariTunggal) {
         if (mulaiStr > hariIniStr) {
           katHarian = 'belum_terjadi';
         } else if (mulaiStr < tglBuatStr) {
@@ -366,40 +475,59 @@ async function rekapPerforma(req, res, next) {
         const key = `${r.id}_${dStr}`;
         const absRec = mapAbsensi.get(key);
         const kpRec = mapKp.get(key);
+        const rosterRec = rosterMap.get(key);
 
         let hHadir = 0, hAlpa = 0, hIzin = 0, hSakit = 0, hCuti = 0, hOff = 0;
         let katHarianRow = '';
-        let ketTextRow = '—';
+        let ketTextRow = '-';
+        let sumberRow = '';
+        let expectedWork = false;
 
         if (dStr > hariIniStr) {
           katHarianRow = 'belum_terjadi';
-          ketTextRow = '— (Belum Terjadi)';
+          ketTextRow = '- (Belum Terjadi)';
+          sumberRow = rosterRec ? 'roster' : 'system';
         } else if (dStr < tglBuatStr) {
           katHarianRow = 'belum_terdaftar';
-          ketTextRow = '— (Belum Terdaftar)';
-        } else if (kpRec) {
-          katHarianRow = kpRec.kategori;
-          if (kpRec.kategori === 'hadir_manual') { hHadir = 1; ketTextRow = 'Hadir Manual'; }
-          else if (kpRec.kategori === 'izin') { hIzin = 1; ketTextRow = 'Izin'; }
-          else if (kpRec.kategori === 'sakit') { hSakit = 1; ketTextRow = 'Sakit'; }
-          else if (kpRec.kategori === 'cuti') { hCuti = 1; ketTextRow = 'Cuti'; }
-          else if (kpRec.kategori === 'off') { hOff = 1; ketTextRow = 'OFF / Hari Libur'; }
-          else if (kpRec.kategori === 'alpa') { hAlpa = 1; ketTextRow = 'Alpa'; }
-        } else if (absRec && absRec.waktu_datang) {
-          hHadir = 1;
-          katHarianRow = 'hadir_kamera';
-          ketTextRow = absRec.status_datang === 'telat' ? 'Hadir (Telat)' : 'Hadir (Kamera)';
-        } else if (dayOfWeek === 0) {
-          hOff = 1;
-          katHarianRow = 'off';
-          ketTextRow = 'OFF (Hari Minggu)';
+          ketTextRow = '- (Belum Terdaftar)';
+          sumberRow = 'system';
         } else {
-          hAlpa = 1;
-          katHarianRow = 'alpa';
-          ketTextRow = 'Alpa';
+          const resolved = resolveDailyCategory({
+            hasAttendance: Boolean(absRec && absRec.waktu_datang),
+            manualCategory: kpRec?.kategori || null,
+            rosterStatus: rosterRec?.status || null,
+            isSunday: dayOfWeek === 0,
+          });
+          katHarianRow = resolved.category;
+          sumberRow = resolved.source;
+          expectedWork = resolved.expectedWork;
+          if (resolved.category === 'hadir_kamera') {
+            hHadir = 1;
+            const konflik = rosterRec && ['C', 'OFF'].includes(rosterRec.status)
+              ? ` - Masuk saat roster ${rosterRec.status}` : '';
+            ketTextRow = `${absRec.status_datang === 'telat' ? 'Hadir (Telat)' : 'Hadir (Kamera)'}${konflik}`;
+          } else if (resolved.category === 'hadir_manual') {
+            hHadir = 1;
+            ketTextRow = 'Hadir Manual';
+          } else if (resolved.category === 'izin') {
+            hIzin = 1;
+            ketTextRow = 'Izin';
+          } else if (resolved.category === 'sakit') {
+            hSakit = 1;
+            ketTextRow = 'Sakit';
+          } else if (resolved.category === 'cuti') {
+            hCuti = 1;
+            ketTextRow = rosterRec?.status === 'CP' ? 'Cuti Periodik' : (rosterRec ? 'Cuti Khusus' : 'Cuti');
+          } else if (resolved.category === 'off') {
+            hOff = 1;
+            ketTextRow = rosterRec ? 'OFF Roster' : (kpRec ? 'OFF / Hari Libur' : 'OFF (Hari Minggu)');
+          } else {
+            hAlpa = 1;
+            ketTextRow = rosterRec ? `Alpa - Jadwal Shift ${rosterRec.status}` : 'Alpa';
+          }
         }
 
-        const hTidakHadir = hAlpa + hIzin + hSakit + hCuti;
+        const hTidakHadir = hAlpa + hIzin + hSakit + (sumberRow.startsWith('roster') ? 0 : hCuti);
 
         rincianHarian.push({
           tanggal: dStr,
@@ -411,6 +539,9 @@ async function rekapPerforma(req, res, next) {
           sakit: hSakit,
           cuti: hCuti,
           off: hOff,
+          expected_work: expectedWork ? 1 : 0,
+          roster_status: rosterRec?.status || null,
+          sumber: sumberRow,
           telat: (absRec && absRec.status_datang === 'telat') ? 1 : 0,
           checkout_lewat: (absRec && absRec.status_pulang === 'checkout lewat') ? 1 : 0,
           percobaan_pulang_awal: (absRec && absRec.percobaan_pulang_awal) ? Number(absRec.percobaan_pulang_awal) : 0,
@@ -420,6 +551,23 @@ async function rekapPerforma(req, res, next) {
 
         curDate.setUTCDate(curDate.getUTCDate() + 1);
       }
+
+      // KPI wajib berasal dari status harian yang sudah dideduplikasi. Satu tanggal hanya
+      // boleh menyumbang satu kategori; absensi kamera adalah sumber aktual utama.
+      hadirAbsen = rincianHarian.filter((h) => h.kategori === 'hadir_kamera').length;
+      hadirManual = rincianHarian.filter((h) => h.kategori === 'hadir_manual').length;
+      hadir = rincianHarian.reduce((total, h) => total + h.hadir, 0);
+      izin = rincianHarian.reduce((total, h) => total + h.izin, 0);
+      sakit = rincianHarian.reduce((total, h) => total + h.sakit, 0);
+      cuti = rincianHarian.reduce((total, h) => total + h.cuti, 0);
+      alpa = rincianHarian.reduce((total, h) => total + h.alpa, 0);
+      tidakHadir = rincianHarian.reduce((total, h) => total + h.tidak_hadir, 0);
+      off = rincianHarian.filter((h) => h.kategori === 'off' && h.sumber !== 'legacy').length;
+      effHariKerja = rincianHarian.reduce((total, h) => total + h.expected_work, 0);
+      if (isHariTunggal && rincianHarian[0]) katHarian = rincianHarian[0].kategori;
+      const telat = rincianHarian.reduce((total, h) => total + h.telat, 0);
+      const checkoutLewat = rincianHarian.reduce((total, h) => total + h.checkout_lewat, 0);
+      const percobaanPulangAwal = rincianHarian.reduce((total, h) => total + h.percobaan_pulang_awal, 0);
 
       return {
         id: r.id,
@@ -433,9 +581,9 @@ async function rekapPerforma(req, res, next) {
         hadir_manual: hadirManual,
         tidak_hadir: tidakHadir,
         kategori_harian: katHarian,
-        telat: Number(r.telat),
-        checkout_lewat: Number(r.checkout_lewat),
-        percobaan_pulang_awal: Number(r.percobaan_pulang_awal || 0),
+        telat,
+        checkout_lewat: checkoutLewat,
+        percobaan_pulang_awal: percobaanPulangAwal,
         izin,
         sakit,
         cuti,
@@ -482,6 +630,15 @@ async function simpanKeteranganPresensi(req, res, next) {
 
     if (!kategori) {
       await pool.query('DELETE FROM keterangan_presensi WHERE user_id = $1 AND tanggal = $2', [user_id, tanggal]);
+      if (prevKategori === 'hadir_manual') {
+        await pool.query(
+          `DELETE FROM absensi
+           WHERE user_id = $1 AND tanggal_kerja = $2::date
+             AND foto_datang_url IS NULL AND lokasi_datang_lat IS NULL AND lokasi_datang_lng IS NULL
+             AND face_match_score_datang IS NULL`,
+          [user_id, tanggal]
+        );
+      }
       return res.json({ message: 'Keterangan presensi berhasil dihapus' });
     }
 
@@ -498,6 +655,30 @@ async function simpanKeteranganPresensi(req, res, next) {
        RETURNING *`,
       [user_id, tanggal, kategori, catatan || null]
     );
+
+    // Hadir manual hanya disimpan di keterangan_presensi. Dashboard Absensi dan portal
+    // menggabungkan tabel ini saat membaca data, sehingga tidak perlu jam datang/pulang palsu.
+    const tglClean = String(tanggal).split('T')[0];
+
+    const { rows: existingAbs } = await pool.query(
+      `SELECT id, status_datang, foto_datang_url, lokasi_datang_lat, lokasi_datang_lng, face_match_score_datang
+       FROM absensi
+       WHERE user_id = $1
+         AND tanggal_kerja = $2::date
+       LIMIT 1`,
+      [user_id, tglClean]
+    );
+
+    // Bersihkan record sintetis dari versi lama. Bukti kamera/GPS/biometrik tidak disentuh.
+    const syntheticManual = existingAbs[0]
+      && prevKategori === 'hadir_manual'
+      && !existingAbs[0].foto_datang_url
+      && existingAbs[0].lokasi_datang_lat == null
+      && existingAbs[0].lokasi_datang_lng == null
+      && existingAbs[0].face_match_score_datang == null;
+    if (syntheticManual) {
+      await pool.query(`DELETE FROM absensi WHERE id = $1`, [existingAbs[0].id]);
+    }
 
     // Format Audit Log string: contoh: admin utama - 08:12 30/07/26 - manual cuti - ilham SPV Produksi Produksi
     const now = new Date();
@@ -697,7 +878,7 @@ async function prosesRegistrasi(req, res, next) {
     // Daftarkan sampel foto ke CompreFace di background (TANPA memblokir response ke klien)
     if (aksi === 'disetujui') {
       const { daftarkanWajahReferensi } = require('../services/compreface');
-      const { minioClient, BUCKET } = require('../config/minio');
+      const { getUrlFoto } = require('../services/storage');
       const fotoKeys = [reg.foto_referensi_1_url, reg.foto_referensi_2_url, reg.foto_referensi_3_url].filter(Boolean);
       const comprefaceSubject = reg.email;
       
@@ -705,16 +886,10 @@ async function prosesRegistrasi(req, res, next) {
         for (const key of fotoKeys) {
           try {
             let buffer;
-            if (key.startsWith('http://') || key.startsWith('https://')) {
-              const axios = require('axios');
-              const resp = await axios.get(key, { responseType: 'arraybuffer', timeout: 10000 });
-              buffer = Buffer.from(resp.data);
-            } else if (minioClient && typeof minioClient.getObject === 'function') {
-              const stream = await minioClient.getObject(BUCKET, key);
-              const chunks = [];
-              for await (const chunk of stream) chunks.push(chunk);
-              buffer = Buffer.concat(chunks);
-            }
+            const axios = require('axios');
+            const photoUrl = await getUrlFoto(key);
+            const resp = await axios.get(photoUrl, { responseType: 'arraybuffer', timeout: 10000 });
+            buffer = Buffer.from(resp.data);
             if (buffer) {
               await daftarkanWajahReferensi(buffer, comprefaceSubject);
             }
@@ -834,7 +1009,10 @@ async function buatSubAdmin(req, res, next) {
     }
 
     const passwordHash = await bcrypt.hash(password.trim(), 10);
-    const perms = Array.isArray(permissions) ? JSON.stringify(permissions) : JSON.stringify(["absensi", "karyawan", "performa", "registrasi", "payroll", "hm", "kalkulasiPayroll"]);
+    // Kolom permissions bertipe text[] (ARRAY), jadi kirim array JS langsung (pg meng-serialize otomatis)
+    const perms = Array.isArray(permissions)
+      ? permissions
+      : ["absensi", "karyawan", "performa", "roster", "registrasi", "payroll", "hm", "kalkulasiPayroll", "produksi"];
 
     const { rows } = await pool.query(
       `INSERT INTO users (nama, email, password_hash, role, is_super_admin, permissions, is_active)
@@ -878,7 +1056,8 @@ async function updateSubAdmin(req, res, next) {
 
     const newNama = nama && nama.trim() ? nama.trim() : target.nama;
     const newEmail = email && email.trim() ? email.trim() : target.email;
-    const perms = Array.isArray(permissions) ? JSON.stringify(permissions) : JSON.stringify(target.permissions || []);
+    // Kolom permissions bertipe text[] (ARRAY), jadi kirim array JS langsung (pg meng-serialize otomatis)
+    const perms = Array.isArray(permissions) ? permissions : (target.permissions || []);
     const activeState = typeof is_active === 'boolean' ? is_active : target.is_active;
 
     const { rows: updated } = await pool.query(
@@ -946,14 +1125,6 @@ async function updateTunnelUrl(req, res, next) {
     }
 
     const cleanUrl = url.trim().replace(/\/$/, '');
-    await pool.query(
-      `CREATE TABLE IF NOT EXISTS system_settings (
-         key VARCHAR(100) PRIMARY KEY,
-         value TEXT NOT NULL,
-         updated_at TIMESTAMP DEFAULT now()
-       )`
-    );
-
     await pool.query(
       `INSERT INTO system_settings (key, value, updated_at)
        VALUES ('compreface_url', $1, now())

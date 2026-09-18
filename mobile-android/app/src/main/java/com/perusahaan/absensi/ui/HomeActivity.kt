@@ -22,12 +22,16 @@ import com.perusahaan.absensi.network.RetrofitClient
 import com.perusahaan.absensi.ui.widget.MinimapView
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.*
 
 class HomeActivity : AppCompatActivity() {
 
     private lateinit var textSelamatDatang: TextView
     private lateinit var textJamSekarang: TextView
+    private lateinit var textAbsensiTercatat: TextView
     private lateinit var btnAbsenDatang: Button
     private lateinit var btnAbsenPulang: Button
     private lateinit var btnLogout: Button
@@ -52,6 +56,7 @@ class HomeActivity : AppCompatActivity() {
 
         textSelamatDatang     = findViewById(R.id.textSelamatDatang)
         textJamSekarang       = findViewById(R.id.textJamSekarang)
+        textAbsensiTercatat   = findViewById(R.id.textAbsensiTercatat)
         btnAbsenDatang        = findViewById(R.id.btnAbsenDatang)
         btnAbsenPulang        = findViewById(R.id.btnAbsenPulang)
         btnLogout             = findViewById(R.id.btnLogout)
@@ -107,14 +112,26 @@ class HomeActivity : AppCompatActivity() {
     // JAM BERJALAN
     // ──────────────────────────────────────────────────────────────────────────
     private fun mulaiJamBerjalan() {
-        val fmt = SimpleDateFormat("HH:mm:ss", Locale("id", "ID"))
+        val fmt = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Jakarta")
+        }
         val r = object : Runnable {
             override fun run() {
-                textJamSekarang.text = fmt.format(Date())
+                textJamSekarang.text = "${fmt.format(Date())} WIB"
                 handler.postDelayed(this, 1000)
             }
         }
         handler.post(r)
+    }
+
+    private fun formatWaktuTercatat(value: String?): String {
+        if (value.isNullOrBlank()) return "—"
+        return try {
+            val formatter = DateTimeFormatter.ofPattern("dd MMM HH:mm", Locale("id", "ID"))
+            "${Instant.parse(value).atZone(ZoneId.of("Asia/Jakarta")).format(formatter)} WIB"
+        } catch (_: Exception) {
+            "—"
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -126,12 +143,36 @@ class HomeActivity : AppCompatActivity() {
                 val response = RetrofitClient.api.riwayat()
                 if (response.isSuccessful) {
                     val daftar = response.body().orEmpty()
-                    adaSesiPending = daftar.any { it.waktu_pulang == null }
+                    val terbaru = daftar.firstOrNull { it.waktu_datang != null }
+                    textAbsensiTercatat.text = if (terbaru == null) {
+                        "Belum ada absensi tercatat di server."
+                    } else {
+                        "Tercatat di server · Datang: ${formatWaktuTercatat(terbaru.waktu_datang)} · Pulang: ${formatWaktuTercatat(terbaru.waktu_pulang)}"
+                    }
+                    // Baris izin/cuti/sakit dari riwayat tidak memiliki clock-in dan
+                    // bukan sesi aktif yang boleh mengunci tombol Absen Datang.
+                    adaSesiPending = daftar.any {
+                        it.is_pending_session ?: (it.waktu_datang != null && it.waktu_pulang == null)
+                    }
                     textSesiPendingWarning.visibility = if (adaSesiPending) View.VISIBLE else View.GONE
+                    textSesiPendingWarning.text = "Ada sesi absensi yang belum checkout. Selesaikan Absen Pulang terlebih dahulu."
                     btnAbsenDatang.isEnabled = !adaSesiPending
+                    btnAbsenPulang.isEnabled = adaSesiPending
+                } else if (response.code() != 401) {
+                    tampilkanStatusTidakTersedia()
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                tampilkanStatusTidakTersedia()
+            }
         }
+    }
+
+    private fun tampilkanStatusTidakTersedia() {
+        textAbsensiTercatat.text = "Waktu absensi tercatat belum dapat dimuat dari server."
+        textSesiPendingWarning.text = "Status absensi belum dapat dipastikan karena koneksi bermasalah. Periksa jaringan lalu coba lagi."
+        textSesiPendingWarning.visibility = View.VISIBLE
+        btnAbsenDatang.isEnabled = false
+        btnAbsenPulang.isEnabled = false
     }
 
     // ──────────────────────────────────────────────────────────────────────────

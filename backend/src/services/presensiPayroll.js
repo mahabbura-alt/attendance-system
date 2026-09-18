@@ -82,10 +82,10 @@ async function hitungKehadiranPayroll({
   // Kumpulkan seluruh tanggal yang tercatat hadir (kamera/absen) di periode.
   const [cameraRes, manualRes] = await Promise.all([
     pool.query(
-      `SELECT DISTINCT (COALESCE(waktu_datang, tanggal_kerja) AT TIME ZONE 'Asia/Jakarta')::date::text AS tgl
+      `SELECT DISTINCT tanggal_kerja::text AS tgl
          FROM absensi
         WHERE user_id = $1
-          AND (COALESCE(waktu_datang, tanggal_kerja) AT TIME ZONE 'Asia/Jakarta')::date BETWEEN $2::date AND $3::date
+          AND tanggal_kerja BETWEEN $2::date AND $3::date
           AND waktu_datang IS NOT NULL`,
       [userId, mulai, akhir]
     ),

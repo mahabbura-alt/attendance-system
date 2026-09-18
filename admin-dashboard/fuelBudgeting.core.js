@@ -124,14 +124,20 @@
     const documentCopy = parser.parseFromString(`<div>${payload?.contentHtml || ''}</div>`, 'text/html');
     const planningTables = payload?.planningData?.tables || {};
     spoTablesByJob = {};
+    const canonicalJobs = [];
     [...documentCopy.querySelectorAll('.spo-table')]
       .filter(table => /^\s*deployed\s*$/i.test(table.querySelector('[data-spo-status]')?.textContent || ''))
       .forEach(table => {
-        const job = table.querySelector('[data-spo-job]')?.getAttribute('value')?.trim();
+        const stored = planningTables[table.dataset.spoTableId] || {};
+        const job = (stored.jobCode || table.querySelector('[data-spo-job]')?.value || table.querySelector('[data-spo-job]')?.getAttribute('value'))?.trim();
         const id = table.dataset.spoTableId;
-        if (job && id && !spoTablesByJob[job]) spoTablesByJob[job] = planningTables[id] || {};
+        if (job && id && !spoTablesByJob[job]) {
+          spoTablesByJob[job] = stored;
+          canonicalJobs.push(job);
+          [stored.jobDescription, ...(stored.jobLegacyValues || [])].filter(Boolean).forEach(alias => { spoTablesByJob[String(alias).trim()] = stored; });
+        }
       });
-    jobs = Object.keys(spoTablesByJob).sort((first, second) => first.localeCompare(second));
+    jobs = [...new Set(canonicalJobs)].sort((first, second) => first.localeCompare(second));
     const tables = Object.values(planningTables);
     if (!tables.length) return;
     context.startYear = Math.min(...tables.map(table => Number(table.startYear) || new Date().getFullYear()));

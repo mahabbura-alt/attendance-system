@@ -49,6 +49,7 @@ interface ApiService {
     suspend fun absenDatang(
         @Part("latitude") latitude: RequestBody,
         @Part("longitude") longitude: RequestBody,
+        @Part("accuracy") accuracy: RequestBody?,
         @Part foto: MultipartBody.Part
     ): Response<AbsensiResponse>
 
@@ -57,6 +58,7 @@ interface ApiService {
     suspend fun absenPulang(
         @Part("latitude") latitude: RequestBody,
         @Part("longitude") longitude: RequestBody,
+        @Part("accuracy") accuracy: RequestBody?,
         @Part foto: MultipartBody.Part
     ): Response<AbsensiResponse>
 

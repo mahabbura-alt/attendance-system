@@ -1,18 +1,43 @@
 const xlsx = require('xlsx');
 const { pool } = require('../config/db');
-const { PAYROLL_HEADERS } = require('../services/payrollExcel');
+const { PAYROLL_HEADERS, parsePayrollImportMatrix } = require('../services/payrollExcel');
 
 /** GET /api/admin/payroll — Daftar seluruh database payroll karyawan */
 async function daftarPayroll(req, res, next) {
   try {
     const { rows } = await pool.query(
-      `SELECT p.*,
-              u.id AS user_id,
-              u.nama AS nama_user_linked,
-              u.is_active AS is_user_active
-       FROM payroll p
-       LEFT JOIN users u ON u.employee_id = p.employee_id
-       ORDER BY p.nama_karyawan ASC`
+      `SELECT
+         p.id,
+         u.id AS user_id,
+         u.employee_id,
+         u.nama AS nama_karyawan,
+         u.nama AS nama_user_linked,
+         u.jabatan,
+         u.is_active AS is_user_active,
+         p.date_in,
+         p.site,
+         p.kota,
+         COALESCE(p.gaji_pokok, 0) AS gaji_pokok,
+         COALESCE(p.tunjangan_kehadiran_per_hari, 0) AS tunjangan_kehadiran_per_hari,
+         COALESCE(p.tunjangan_jabatan, 0) AS tunjangan_jabatan,
+         COALESCE(p.insentif_hm_per_jam, 0) AS insentif_hm_per_jam
+       FROM users u
+       LEFT JOIN LATERAL (
+         SELECT payroll_row.*
+         FROM payroll payroll_row
+         WHERE (
+           u.employee_id IS NOT NULL
+           AND LOWER(TRIM(payroll_row.employee_id)) = LOWER(TRIM(u.employee_id))
+         ) OR LOWER(TRIM(payroll_row.nama_karyawan)) = LOWER(TRIM(u.nama))
+         ORDER BY
+           CASE WHEN u.employee_id IS NOT NULL
+             AND LOWER(TRIM(payroll_row.employee_id)) = LOWER(TRIM(u.employee_id))
+             THEN 0 ELSE 1 END,
+           payroll_row.updated_at DESC NULLS LAST
+         LIMIT 1
+       ) p ON TRUE
+       WHERE u.role = 'karyawan' AND u.is_active = TRUE
+       ORDER BY u.nama ASC`
     );
     res.json(rows);
   } catch (err) {
@@ -470,13 +495,99 @@ async function exportPayrollExcel(req, res, next) {
   }
 }
 
+/** POST /api/admin/payroll/import — Import payroll dari template Excel standar (header baris pertama) */
+async function importPayrollTemplateExcel(req, res, next) {
+  let client;
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Berkas Excel (.xlsx / .xls) wajib diunggah' });
+    let workbook;
+    try {
+      workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    } catch (_) {
+      return res.status(400).json({ error: 'Berkas Excel rusak atau tidak dapat dibaca' });
+    }
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (!worksheet) return res.status(400).json({ error: 'Berkas Excel tidak memiliki lembar data' });
+    const matrix = xlsx.utils.sheet_to_json(worksheet, { header: 1, raw: true, defval: '' });
+    const { rows: employees } = await pool.query(
+      `SELECT id, employee_id, nama, jabatan FROM users
+       WHERE role = 'karyawan' AND is_active = TRUE`
+    );
+    let parsed;
+    try {
+      parsed = parsePayrollImportMatrix(matrix, employees);
+    } catch (error) {
+      error.statusCode = 400;
+      throw error;
+    }
+    client = await pool.connect();
+    await client.query('BEGIN');
+    for (const row of parsed) {
+      if (row.employee_id) {
+        await client.query(
+          `INSERT INTO payroll (
+             employee_id, nama_karyawan, date_in, site, kota, jabatan,
+             gaji_pokok, tunjangan_kehadiran_per_hari, tunjangan_jabatan, insentif_hm_per_jam
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           ON CONFLICT (employee_id) DO UPDATE SET
+             nama_karyawan=EXCLUDED.nama_karyawan, date_in=EXCLUDED.date_in,
+             site=EXCLUDED.site, kota=EXCLUDED.kota, jabatan=EXCLUDED.jabatan,
+             gaji_pokok=EXCLUDED.gaji_pokok,
+             tunjangan_kehadiran_per_hari=EXCLUDED.tunjangan_kehadiran_per_hari,
+             tunjangan_jabatan=EXCLUDED.tunjangan_jabatan,
+             insentif_hm_per_jam=EXCLUDED.insentif_hm_per_jam, updated_at=NOW()`,
+          [row.employee_id, row.nama_karyawan, row.date_in, row.site, row.kota, row.jabatan,
+            row.gaji_pokok, row.tunjangan_kehadiran_per_hari, row.tunjangan_jabatan,
+            row.insentif_hm_per_jam]
+        );
+      } else {
+        const updated = await client.query(
+          `UPDATE payroll SET date_in=$1, site=$2, kota=$3, jabatan=$4, gaji_pokok=$5,
+             tunjangan_kehadiran_per_hari=$6, tunjangan_jabatan=$7,
+             insentif_hm_per_jam=$8, updated_at=NOW()
+           WHERE LOWER(TRIM(nama_karyawan))=LOWER(TRIM($9))`,
+          [row.date_in, row.site, row.kota, row.jabatan, row.gaji_pokok,
+            row.tunjangan_kehadiran_per_hari, row.tunjangan_jabatan,
+            row.insentif_hm_per_jam, row.nama_karyawan]
+        );
+        if (!updated.rowCount) {
+          await client.query(
+            `INSERT INTO payroll (nama_karyawan,date_in,site,kota,jabatan,gaji_pokok,
+               tunjangan_kehadiran_per_hari,tunjangan_jabatan,insentif_hm_per_jam)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [row.nama_karyawan, row.date_in, row.site, row.kota, row.jabatan,
+              row.gaji_pokok, row.tunjangan_kehadiran_per_hari,
+              row.tunjangan_jabatan, row.insentif_hm_per_jam]
+          );
+        }
+      }
+    }
+    await client.query(
+      `INSERT INTO audit_log (admin_id, absensi_id, alasan, data_sesudah)
+       VALUES ($1, NULL, $2, $3)`,
+      [req.user.id, `${req.user.nama || 'Admin'} - Import Excel Payroll (${parsed.length} karyawan)`,
+        JSON.stringify({ total_imported: parsed.length, nama_file: req.file.originalname })]
+    );
+    await client.query('COMMIT');
+    res.json({
+      message: `Import Excel Payroll berhasil: ${parsed.length} karyawan diproses.`,
+      total_imported: parsed.length,
+    });
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client?.release();
+  }
+}
+
 module.exports = {
   daftarPayroll,
   buatPayroll,
   updatePayroll,
   hapusPayroll,
   exportPayrollExcel,
-  importPayrollExcel,
+  importPayrollExcel: importPayrollTemplateExcel,
   daftarAuditLogPayroll,
   sinkronKaryawanPayroll,
 };

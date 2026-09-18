@@ -9,7 +9,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.perusahaan.absensi.R
 import com.perusahaan.absensi.data.SessionManager
 import com.perusahaan.absensi.network.RetrofitClient
@@ -26,7 +25,6 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var textLupaPassword: TextView
     private lateinit var textError: TextView
     private lateinit var progressLogin: ProgressBar
-    private lateinit var btnSetIp: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,7 +44,11 @@ class LoginActivity : AppCompatActivity() {
         textLupaPassword = findViewById(R.id.textLupaPassword)
         textError        = findViewById(R.id.textError)
         progressLogin    = findViewById(R.id.progressLogin)
-        btnSetIp         = findViewById(R.id.btnSetIp)
+
+        if (intent.getBooleanExtra("session_expired", false)) {
+            textError.text = "Sesi login berakhir. Silakan masuk kembali untuk melanjutkan absensi."
+            textError.visibility = android.view.View.VISIBLE
+        }
 
         btnLogin.setOnClickListener { prosesLogin() }
 
@@ -58,37 +60,6 @@ class LoginActivity : AppCompatActivity() {
             startActivity(Intent(this, LupaPasswordActivity::class.java))
         }
 
-        btnSetIp.setOnClickListener {
-            bukaDialogSetIp()
-        }
-    }
-
-    private fun bukaDialogSetIp() {
-        val input = EditText(this).apply {
-            setText(SessionManager.getServerUrl())
-            hint = "https://attendance-system-eta-opal.vercel.app/"
-            setPadding(40, 30, 40, 30)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("⚙️ Konfigurasi IP Server Absensi")
-            .setMessage("Masukkan Alamat IP Server PC tempat backend berjalan:")
-            .setView(input)
-            .setPositiveButton("Simpan") { _, _ ->
-                val newUrl = input.text.toString().trim()
-                if (newUrl.isNotEmpty()) {
-                    val formatted = if (newUrl.startsWith("http://") || newUrl.startsWith("https://")) {
-                        newUrl
-                    } else {
-                        "http://$newUrl"
-                    }
-                    val finalUrl = if (formatted.endsWith("/")) formatted else "$formatted/"
-                    SessionManager.simpanServerUrl(finalUrl)
-                    Toast.makeText(this, "Alamat Server Diperbarui:\n$finalUrl", Toast.LENGTH_LONG).show()
-                }
-            }
-            .setNegativeButton("Batal", null)
-            .show()
     }
 
     private fun prosesLogin() {

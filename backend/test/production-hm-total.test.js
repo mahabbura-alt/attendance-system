@@ -14,3 +14,11 @@ test('HM range rejects negative values and meter rollback', () => {
   assert.throws(() => ProductionController.calculateHmTotal(-1, 10), /angka positif/i);
   assert.throws(() => ProductionController.calculateHmTotal('abc', 10), /angka positif/i);
 });
+
+test('Production log query limit keeps the default bounded and permits a monthly Input Data request', () => {
+  assert.equal(ProductionController.resolveProductionLogLimit(), 200);
+  assert.equal(ProductionController.resolveProductionLogLimit('2000'), 2000);
+  assert.equal(ProductionController.resolveProductionLogLimit('0'), 1);
+  assert.equal(ProductionController.resolveProductionLogLimit('9000'), 2000);
+  assert.equal(ProductionController.resolveProductionLogLimit('bukan-angka'), 200);
+});

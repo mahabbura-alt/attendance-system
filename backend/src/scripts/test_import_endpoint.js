@@ -5,14 +5,19 @@ const axios = require('axios');
 const FormData = require('form-data');
 const xlsx = require('xlsx');
 
-const BASE_URL = 'https://attendance-system-eta-opal.vercel.app';
+const BASE_URL = process.env.OMOS_AUDIT_BASE_URL || 'https://attendance-system-eta-opal.vercel.app';
+const ADMIN_EMAIL = process.env.OMOS_AUDIT_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.OMOS_AUDIT_ADMIN_PASSWORD;
 
 async function testRealImport() {
   try {
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+      throw new Error('OMOS_AUDIT_ADMIN_EMAIL dan OMOS_AUDIT_ADMIN_PASSWORD wajib tersedia.');
+    }
     console.log('1️⃣ Logging in as admin...');
     const loginRes = await axios.post(`${BASE_URL}/api/auth/login`, {
-      email: 'admin@perusahaan.com',
-      password: 'admin123',
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
     });
     const token = loginRes.data.token;
     console.log('   ✅ Logged in successfully.');

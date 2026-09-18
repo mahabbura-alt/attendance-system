@@ -36,7 +36,7 @@ async function login(req, res) {
 
   const token = jwt.sign(
     { id: user.id, role: user.role, lokasi_kantor_id: user.lokasi_kantor_id },
-    process.env.JWT_SECRET || 'super_secret_attendance_jwt_key_2026_antigravity_ganti_ini',
+    process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
   );
 
@@ -48,7 +48,7 @@ async function login(req, res) {
       email: user.email,
       role: user.role,
       is_super_admin: Boolean(user.is_super_admin),
-      permissions: user.permissions || ["absensi", "karyawan", "performa", "registrasi", "payroll", "hm", "kalkulasiPayroll"],
+      permissions: user.permissions || ["absensi", "karyawan", "performa", "roster", "registrasi", "payroll", "hm", "kalkulasiPayroll", "produksi"],
     },
   });
 }

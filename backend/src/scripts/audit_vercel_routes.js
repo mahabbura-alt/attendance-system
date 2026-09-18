@@ -3,9 +3,14 @@
  */
 const axios = require('axios');
 
-const BASE_URL = 'https://attendance-system-eta-opal.vercel.app';
+const BASE_URL = process.env.OMOS_AUDIT_BASE_URL || 'https://attendance-system-eta-opal.vercel.app';
+const ADMIN_EMAIL = process.env.OMOS_AUDIT_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.OMOS_AUDIT_ADMIN_PASSWORD;
 
 async function audit() {
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+    throw new Error('OMOS_AUDIT_ADMIN_EMAIL dan OMOS_AUDIT_ADMIN_PASSWORD wajib tersedia.');
+  }
   console.log(`🌐 [VERCEL AUDIT] Testing live endpoints at ${BASE_URL}...\n`);
 
   let token = null;
@@ -28,9 +33,9 @@ async function audit() {
 
   // 3. Login Admin
   try {
-    const res = await axios.post(`${BASE_URL}/api/auth/login`, { email: 'admin@perusahaan.com', password: 'admin123' });
+    const res = await axios.post(`${BASE_URL}/api/auth/login`, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
     token = res.data.token;
-    console.log(`✅ [POST /api/auth/login] Status: ${res.status} -> Token: ${token.substring(0, 20)}...`);
+    console.log(`✅ [POST /api/auth/login] Status: ${res.status}`);
   } catch (e) {
     console.error(`❌ [POST /api/auth/login] Failed: ${e.response?.status || e.message}`, e.response?.data || '');
   }

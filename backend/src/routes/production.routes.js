@@ -1,24 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const ProductionController = require('../controllers/production.controller');
-const { requireAuth } = require('../middleware/auth');
+const ProductionDataController = require('../controllers/productionDataController');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 
-// Middleware otentikasi JWT (Opsional fallback jika dev mode)
-const authenticate = (req, res, next) => {
-  const authHeader = req.headers.authorization || '';
-  if (authHeader && authHeader.startsWith('Bearer ') && !authHeader.includes('null') && !authHeader.includes('undefined')) {
-    return requireAuth(req, res, next);
-  }
-  req.user = { id: '00000000-0000-0000-0000-000000000001', role: 'admin' };
-  next();
-};
-
-router.use(authenticate);
+// Production endpoints are administrative and must never fall back to an
+// artificial identity when the Authorization header is absent or invalid.
+router.use(requireAuth, requireAdmin);
 
 // Master Data Lookup & Parameter Management
 router.get('/master', ProductionController.getMasterData);
+router.get('/productivity-plans/:planningType/history', ProductionController.getProductivityPlanHistory);
 router.get('/productivity-plans/:planningType', ProductionController.getProductivityPlan);
 router.put('/productivity-plans/:planningType', ProductionController.saveProductivityPlan);
+router.get('/fleet-plans/catalog', ProductionController.getFleetPlanCatalog);
+router.get('/spo-jobs/deployed', ProductionController.getDeployedSpoJobs);
 router.post('/equipment', ProductionController.createEquipment);
 router.post('/equipment/import', ProductionController.importEquipment);
 router.put('/equipment/:id', ProductionController.updateEquipment);
@@ -78,9 +74,12 @@ router.get('/breakdown', ProductionController.getBreakdownLogs);
 router.get('/breakdown-history', ProductionController.getBreakdownHistory);
 router.post('/breakdown', ProductionController.createBreakdownLog);
 router.patch('/breakdown/:id/status', ProductionController.updateBreakdownStatus);
+router.patch('/breakdown/:id/pic', ProductionController.updateBreakdownPic);
+router.patch('/breakdown/:id/status-history/:segmentId', ProductionController.editBreakdownStatusSegment);
 router.post('/breakdown/:id/ready-verification', ProductionController.verifyBreakdownReady);
 router.post('/breakdown/:id/ready-reconciliation', ProductionController.reconcileBreakdownReady);
 router.post('/breakdown/:id/parts', ProductionController.addBreakdownPart);
+router.delete('/breakdown/:id', ProductionController.deleteBreakdownLog);
 router.get('/unit-performance', ProductionController.getUnitPerformance);
 router.post('/maintenance-events', ProductionController.createMaintenanceEvent);
 router.patch('/maintenance-events/:id', ProductionController.updateMaintenanceEvent);
@@ -88,19 +87,30 @@ router.patch('/maintenance-events/:id', ProductionController.updateMaintenanceEv
 // 5. Input Ritase & Fleet Auto Mapping
 router.get('/fleet-mappings', ProductionController.getFleetMappings);
 router.post('/fleet-mappings', ProductionController.createFleetMapping);
+router.delete('/fleet-mappings/:id', ProductionController.deleteFleetMapping);
 router.get('/ritase/fleet', ProductionController.getRitaseFleetGrid);
 router.post('/ritase/hours', ProductionController.saveRitaseHours);
+router.get('/ritase/distance-summary', ProductionController.getRitaseDistanceSummary);
+router.post('/ritase/distance-allocations', ProductionController.saveRitaseDistanceAllocations);
+router.get('/ritase/productivity-exceptions', ProductionController.getRitaseProductivityExceptions);
+router.post('/ritase/productivity-exceptions', ProductionController.saveRitaseProductivityException);
 router.get('/ritase', ProductionController.getRitaseLogs);
 router.post('/ritase', ProductionController.createRitaseLog);
 router.get('/truck-factors/previous', ProductionController.getPreviousTruckFactors);
 router.get('/truck-factors', ProductionController.getTruckFactors);
 router.post('/truck-factors', ProductionController.saveTruckFactors);
 
-// 6. Daily Dashboard
+// 6. Data Curah Hujan
+router.get('/rainfall', ProductionController.getRainfallLogs);
+router.post('/rainfall/batch', ProductionController.saveRainfallLogs);
 router.get('/daily-dashboard', ProductionController.getDailyDashboard);
 
-// 7. Shift Report
-router.get('/shift-report', ProductionController.getShiftReport);
+// 7. Data Produksi (same authenticated client database boundary as source logs).
+router.get('/production-data', ProductionDataController.getReport);
+router.post('/production-data/fuel/batch', ProductionDataController.saveAllocationBatch);
+router.put('/production-data/fuel/:id', ProductionDataController.saveAllocation);
+router.post('/production-data/fuel-allocation-rules', ProductionDataController.createAllocationRule);
+router.post('/production-data/density-snapshots', ProductionDataController.captureDensity);
 
 // 8. Productivity Report
 router.get('/productivity-report', ProductionController.getProductivityReport);

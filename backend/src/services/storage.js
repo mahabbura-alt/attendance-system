@@ -1,131 +1,124 @@
 const { createClient } = require('@supabase/supabase-js');
-const { minioClient, BUCKET } = require('../config/minio');
+const crypto = require('crypto');
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://lpezydpyzvfydbhwimqq.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-// Inisialisasi klien Supabase secara lazy agar server tidak crash di module-load
-// ketika SUPABASE_SERVICE_ROLE_KEY belum tersedia (mis. dev lokal / env belum di-set).
-// Endpoint lain (lokasi-kantor, riwayat, dll.) tetap berfungsi; hanya fitur yang
-// benar-benar butuh Supabase Storage yang akan melewati fallback MinIO/Base64.
+const BUCKET = 'absensi-foto';
 let supabase = null;
+const DEFAULT_UPLOAD_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAY_MS = 250;
+
 function getSupabase() {
   if (supabase) return supabase;
-  if (!SUPABASE_KEY) {
-    console.warn('[Storage] SUPABASE_SERVICE_ROLE_KEY belum di-set. Supabase Storage dinonaktifkan, fallback ke MinIO/Base64.');
-    return null;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error('SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY wajib dikonfigurasi');
   }
-  supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  supabase = createClient(url, key);
   return supabase;
 }
 
-/**
- * Upload buffer foto ke Supabase Storage Bucket "absensi-foto".
- * @returns {string} Direct Public Image URL (Bisa langsung diklik dan dilihat gambarnya di Supabase / Browser / App)
- */
+function extractObjectKey(value) {
+  const raw = String(value || '');
+  const marker = `/storage/v1/object/public/${BUCKET}/`;
+  if (raw.includes(marker)) return decodeURIComponent(raw.split(marker)[1]);
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:image/')) return null;
+  return raw.replace(/^\/+/, '');
+}
+
+function isRetryableStorageError(error) {
+  const status = Number(error?.statusCode || error?.status || 0);
+  if (status === 408 || status === 409 || status === 425 || status === 429 || status >= 500) return true;
+  return /timeout|timed out|network|fetch|socket|connection|econnreset|temporar/i.test(String(error?.message || error || ''));
+}
+
+async function uploadWithRetry(operation, {
+  attempts = DEFAULT_UPLOAD_ATTEMPTS,
+  retryDelayMs = DEFAULT_RETRY_DELAY_MS,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const result = await operation();
+      if (result?.error || !result?.data) {
+        throw result?.error || new Error('Respons penyimpanan kosong');
+      }
+      return result.data;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isRetryableStorageError(error)) break;
+      await sleep(retryDelayMs * (2 ** (attempt - 1)));
+    }
+  }
+  throw lastError || new Error('Upload penyimpanan gagal');
+}
+
 async function uploadFoto(buffer, { userId, jenis }) {
   if (!buffer || buffer.length === 0) return null;
 
-  const objectKey = `absensi/${userId}/${Date.now()}-${jenis}.jpg`;
-  const SUPABASE_URL_CHECK = process.env.SUPABASE_URL;
-  const SUPABASE_KEY_CHECK = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  console.log(`[Storage] uploadFoto called: userId=${userId}, jenis=${jenis}, bufferLen=${buffer.length}`);
-  console.log(`[Storage] SUPABASE_URL set: ${!!SUPABASE_URL_CHECK}, KEY set: ${!!SUPABASE_KEY_CHECK}`);
-
-  // 1. Primary: Upload ke Supabase Storage (Visual Cloud Bucket)
-  const supabaseClient = getSupabase();
-  if (supabaseClient) {
-    try {
-      const { data, error } = await supabaseClient.storage
-        .from('absensi-foto')
-        .upload(objectKey, buffer, {
-          contentType: 'image/jpeg',
-          upsert: true,
-        });
-
-      if (!error && data) {
-        const { data: publicUrlData } = supabaseClient.storage
-          .from('absensi-foto')
-          .getPublicUrl(objectKey);
-
-        console.log(`[Storage] ✅ Supabase upload SUCCESS: ${publicUrlData.publicUrl}`);
-        return publicUrlData.publicUrl;
-      }
-
-      if (error) {
-        console.error(`[Storage] ❌ Supabase upload FAILED: ${error.message} | status: ${error.statusCode} | name: ${error.name}`);
-      }
-    } catch (supaErr) {
-      console.error(`[Storage] ❌ Supabase upload EXCEPTION: ${supaErr.message}`);
-    }
-  }
-
-  // 2. Secondary: Fallback ke MinIO (Local Container)
+  // Key dibuat sekali dan digunakan ulang pada setiap retry. Upsert membuat
+  // respons yang hilang setelah upload tidak menghasilkan objek duplikat.
+  const objectKey = `absensi/${userId}/${Date.now()}-${crypto.randomUUID()}-${jenis}.jpg`;
+  const client = getSupabase();
   try {
-    if (minioClient && typeof minioClient.putObject === 'function') {
-      await minioClient.putObject(BUCKET, objectKey, buffer, buffer.length, {
-        'Content-Type': 'image/jpeg',
-      });
-      return objectKey;
-    }
-  } catch (minioErr) {
-    console.warn(`[MinIO Storage Fallback] ${minioErr.message}`);
+    await uploadWithRetry(() => client.storage.from(BUCKET).upload(objectKey, buffer, {
+      contentType: 'image/jpeg',
+      upsert: true,
+    }));
+  } catch (cause) {
+    // Best effort: bila server storage sebenarnya menerima upload tetapi
+    // responsnya terputus, jangan biarkan objek tanpa record absensi.
+    try {
+      await client.storage.from(BUCKET).remove([objectKey]);
+    } catch (_) {}
+    const error = new Error('Penyimpanan foto sedang tidak tersedia. Periksa koneksi lalu coba kembali.');
+    error.code = 'PHOTO_STORAGE_UPLOAD_FAILED';
+    error.statusCode = 503;
+    error.cause = cause;
+    throw error;
   }
 
-  // 3. Tertiary: Fallback ke Data URI Base64
-  return `data:image/jpeg;base64,${buffer.toString('base64')}`;
+  return client.storage.from(BUCKET).getPublicUrl(objectKey).data.publicUrl;
 }
 
-/**
- * Mengembalikan Public Image URL atau Proxy URL
- */
-async function getUrlFoto(objectKey) {
-  if (!objectKey) return null;
-  if (objectKey.startsWith('http://') || objectKey.startsWith('https://') || objectKey.startsWith('data:image/')) {
-    return objectKey;
-  }
-  return `/api/storage/view?key=${encodeURIComponent(objectKey)}`;
+async function getUrlFoto(value) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value) || value.startsWith('data:image/')) return value;
+  return getSupabase().storage.from(BUCKET).getPublicUrl(extractObjectKey(value)).data.publicUrl;
 }
 
-/**
- * Membaca stream / redirect foto
- */
-async function streamFoto(objectKey, res) {
-  if (!objectKey) return res.status(404).send('Foto tidak ditemukan');
+async function streamFoto(value, res) {
+  if (!value) return res.status(404).send('Foto tidak ditemukan');
+  if (/^https?:\/\//i.test(value)) return res.redirect(value);
 
-  if (objectKey.startsWith('http://') || objectKey.startsWith('https://')) {
-    return res.redirect(objectKey);
-  }
-
-  if (objectKey.startsWith('data:image/')) {
-    const base64Data = objectKey.split(',')[1];
-    const imgBuffer = Buffer.from(base64Data, 'base64');
+  // Kompatibilitas baca untuk record lama; upload baru selalu ke Supabase.
+  if (value.startsWith('data:image/')) {
+    const imgBuffer = Buffer.from(value.split(',')[1], 'base64');
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.send(imgBuffer);
   }
 
-  try {
-    const stream = await minioClient.getObject(BUCKET, objectKey);
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    stream.pipe(res);
-  } catch (err) {
-    console.error(`[MinIO] Gagal stream foto ${objectKey}:`, err.message);
-    res.status(404).send('Foto tidak ditemukan');
-  }
+  const { data, error } = await getSupabase().storage.from(BUCKET).download(extractObjectKey(value));
+  if (error || !data) return res.status(404).send('Foto tidak ditemukan');
+  const imgBuffer = Buffer.from(await data.arrayBuffer());
+  res.setHeader('Content-Type', data.type || 'image/jpeg');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  return res.send(imgBuffer);
 }
 
-async function hapusFoto(objectKey) {
+async function hapusFoto(value) {
+  const objectKey = extractObjectKey(value);
   if (!objectKey) return;
-  if (objectKey.includes('/storage/v1/object/public/absensi-foto/')) {
-    const relativeKey = objectKey.split('/storage/v1/object/public/absensi-foto/')[1];
-    const supabaseClient = getSupabase();
-    if (relativeKey && supabaseClient) {
-      await supabaseClient.storage.from('absensi-foto').remove([relativeKey]).catch(() => {});
-    }
-  }
+  const { error } = await getSupabase().storage.from(BUCKET).remove([objectKey]);
+  if (error) throw new Error(`Hapus foto Supabase gagal: ${error.message}`);
 }
 
-module.exports = { uploadFoto, getUrlFoto, hapusFoto, streamFoto };
+module.exports = {
+  uploadFoto,
+  getUrlFoto,
+  hapusFoto,
+  streamFoto,
+  uploadWithRetry,
+  isRetryableStorageError,
+};

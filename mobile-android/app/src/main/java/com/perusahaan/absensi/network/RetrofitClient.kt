@@ -1,6 +1,5 @@
 package com.perusahaan.absensi.network
 
-import android.net.Uri
 import com.perusahaan.absensi.BuildConfig
 import com.perusahaan.absensi.data.SessionManager
 import okhttp3.Interceptor
@@ -8,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
 
@@ -16,39 +16,11 @@ object RetrofitClient {
         val request = chain.request().newBuilder().apply {
             if (token != null) addHeader("Authorization", "Bearer $token")
         }.build()
-        chain.proceed(request)
-    }
-
-    private val dynamicUrlInterceptor = Interceptor { chain ->
-        var request = chain.request()
-        try {
-            val rawServerUrl = SessionManager.getServerUrl()
-            val cleanUrl = if (rawServerUrl.startsWith("http://") || rawServerUrl.startsWith("https://")) {
-                rawServerUrl
-            } else {
-                "http://$rawServerUrl"
-            }
-            val formattedUrl = if (cleanUrl.endsWith("/")) cleanUrl else "$cleanUrl/"
-            val uri = Uri.parse(formattedUrl)
-
-            val targetHost = uri.host
-            if (targetHost != null && targetHost.isNotEmpty()) {
-                val scheme = uri.scheme ?: "https"
-                val defaultPort = if (scheme == "https") 443 else 3000
-                val targetPort = if (uri.port != -1) uri.port else defaultPort
-
-                val newHttpUrl = request.url.newBuilder()
-                    .scheme(scheme)
-                    .host(targetHost)
-                    .port(targetPort)
-                    .build()
-
-                request = request.newBuilder().url(newHttpUrl).build()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        val response = chain.proceed(request)
+        if (response.code == 401 && token != null && !request.url.encodedPath.startsWith("/api/auth/")) {
+            SessionManager.expireSessionIfCurrent(token)
         }
-        chain.proceed(request)
+        response
     }
 
     private fun String?.isNull_or_empty(): Boolean {
@@ -64,9 +36,12 @@ object RetrofitClient {
     }
 
     private val okHttpClient = OkHttpClient.Builder()
-        .addInterceptor(dynamicUrlInterceptor)
         .addInterceptor(authInterceptor)
         .addInterceptor(loggingInterceptor)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .writeTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS)
         .build()
 
     val api: ApiService by lazy {

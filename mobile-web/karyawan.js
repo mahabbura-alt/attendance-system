@@ -3,6 +3,22 @@
 // ============================================================
 
 const API_BASE = window.location.origin;
+const ATTENDANCE_TIME_ZONE = 'Asia/Jakarta';
+
+function formatAttendanceTime(value) {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return '—';
+  return `${instant.toLocaleTimeString('id-ID', {
+    hour: '2-digit', minute: '2-digit', timeZone: ATTENDANCE_TIME_ZONE
+  })} WIB`;
+}
+
+function formatAttendanceWorkDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+  if (!match) return '—';
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', timeZone: 'UTC' });
+}
 
 let userToken = localStorage.getItem('token_karyawan');
 let currentUser = null;
@@ -13,6 +29,15 @@ let currentAbsenType = 'datang'; // 'datang' | 'pulang'
 let videoStream = null;
 let capturedBlob = null;
 let attendanceSubmitInProgress = false;
+
+function isPendingAttendanceSession(row) {
+  if (typeof row?.is_pending_session === 'boolean') return row.is_pending_session;
+  return Boolean(row?.waktu_datang && !row?.waktu_pulang);
+}
+
+function isCompletedAttendanceSession(row) {
+  return Boolean(row?.waktu_datang && row?.waktu_pulang);
+}
 
 // Handle expiry on every authenticated request, including after a long shift.
 async function portalFetch(url, options = {}) {
@@ -72,10 +97,10 @@ function startClock() {
     const clockEl = document.getElementById('digitalClock');
     const dateEl = document.getElementById('digitalDate');
     if (clockEl) {
-      clockEl.textContent = now.toLocaleTimeString('id-ID', { hour12: false });
+      clockEl.textContent = `${now.toLocaleTimeString('id-ID', { hour12: false, timeZone: ATTENDANCE_TIME_ZONE })} WIB`;
     }
     if (dateEl) {
-      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: ATTENDANCE_TIME_ZONE };
       dateEl.textContent = now.toLocaleDateString('id-ID', options);
     }
   }
@@ -258,7 +283,7 @@ function refreshLocation() {
 
       if (isLocationValid) {
         badge.className = 'geofence-badge valid';
-        text.textContent = '🟢 Radius Kantor';
+        text.textContent = `🟢 Lokasi sah: ${data.namaLokasi || 'Area resmi'}`;
       } else {
         // Lokasi di luar radius: tampilkan pesan jelas, jangan diam-diam ganti koordinat.
         const jarak = data.jarakMeter || data.jarak_meter || 0;
@@ -318,12 +343,13 @@ async function cekStatusToday() {
     const subPulang = document.getElementById('subPulang');
 
     // 1. Cari jika ada sesi absen yang belum checkout (waktu_pulang IS NULL)
-    const pendingRec = rows.find(r => !r.waktu_pulang);
+    // Baris keterangan_presensi (cuti/izin/sakit/alpa) juga muncul di endpoint
+    // riwayat, tetapi bukan sesi kamera. Sesi pending wajib memiliki clock-in.
+    const pendingRec = rows.find(isPendingAttendanceSession);
 
     if (pendingRec) {
       // Ada sesi aktif yang belum checkout -> Karyawan harus Absen Pulang
-      const wDatang = new Date(pendingRec.waktu_datang);
-      if (valDatang) valDatang.textContent = wDatang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      if (valDatang) valDatang.textContent = formatAttendanceTime(pendingRec.waktu_datang);
       if (subDatang) {
         subDatang.textContent = pendingRec.status_datang || 'Hadir';
         subDatang.style.color = 'var(--emerald-dark)';
@@ -344,20 +370,17 @@ async function cekStatusToday() {
     }
 
     // 2. Jika tidak ada sesi pending, cek apakah ada sesi hari ini yang sudah checkout
-    const todayCompleted = rows.find(r => r.tanggal_kerja?.substring(0, 10) === todayStr && r.waktu_pulang);
+    const todayCompleted = rows.find(r => r.tanggal_kerja?.substring(0, 10) === todayStr && isCompletedAttendanceSession(r));
 
     if (todayCompleted) {
       // Sesi hari ini sudah selesai checkout
-      const wDatang = new Date(todayCompleted.waktu_datang);
-      const wPulang = new Date(todayCompleted.waktu_pulang);
-
-      if (valDatang) valDatang.textContent = wDatang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      if (valDatang) valDatang.textContent = formatAttendanceTime(todayCompleted.waktu_datang);
       if (subDatang) {
         subDatang.textContent = todayCompleted.status_datang || 'Hadir';
         subDatang.style.color = 'var(--emerald-dark)';
       }
 
-      if (valPulang) valPulang.textContent = wPulang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      if (valPulang) valPulang.textContent = formatAttendanceTime(todayCompleted.waktu_pulang);
       if (subPulang) {
         subPulang.textContent = todayCompleted.status_pulang || 'Checkout';
         subPulang.style.color = 'var(--emerald-dark)';
@@ -397,6 +420,61 @@ async function cekStatusToday() {
 // -------------------------------------------------------------
 // KAMERA & PRESENSI SUBMIT
 // -------------------------------------------------------------
+function fitImageDimensions(width, height, maxDimension = 960) {
+  const safeWidth = Number(width) || 1;
+  const safeHeight = Number(height) || 1;
+  const scale = Math.min(1, maxDimension / Math.max(safeWidth, safeHeight));
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale)),
+  };
+}
+
+async function compressImageBlob(blob, { maxDimension = 960, quality = 0.75 } = {}) {
+  if (!blob || blob.size <= 600 * 1024) return blob;
+
+  let source;
+  let releaseSource = () => {};
+  if (typeof createImageBitmap === 'function') {
+    source = await createImageBitmap(blob);
+    releaseSource = () => source.close?.();
+  } else {
+    source = await new Promise((resolve, reject) => {
+      const image = new Image();
+      const url = URL.createObjectURL(blob);
+      image.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(image);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Foto tidak dapat diproses. Ambil foto ulang.'));
+      };
+      image.src = url;
+    });
+  }
+
+  try {
+    const originalWidth = source.width || source.naturalWidth;
+    const originalHeight = source.height || source.naturalHeight;
+    const dimensions = fitImageDimensions(originalWidth, originalHeight, maxDimension);
+    const canvas = document.createElement('canvas');
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
+    canvas.getContext('2d').drawImage(source, 0, 0, dimensions.width, dimensions.height);
+    const compressed = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (result) => result ? resolve(result) : reject(new Error('Kompresi foto gagal. Ambil foto ulang.')),
+        'image/jpeg',
+        quality,
+      );
+    });
+    return compressed.size < blob.size ? compressed : blob;
+  } finally {
+    releaseSource();
+  }
+}
+
 async function openCameraModal(type) {
   // Validasi lokasi dilakukan saat submit dengan fix GPS segar (getFreshLocation),
   // bukan dengan koordinat kantor pengganti. Buka kamera langsung.
@@ -428,11 +506,15 @@ function closeCameraModal() {
   document.getElementById('modalCamera').style.display = 'none';
 }
 
-function onFileFallbackSelected(e) {
+async function onFileFallbackSelected(e) {
   const file = e.target.files[0];
   if (file) {
-    capturedBlob = file;
-    submitAbsenForm();
+    try {
+      capturedBlob = await compressImageBlob(file);
+      await submitAbsenForm();
+    } catch (error) {
+      alert('❌ ' + error.message);
+    }
   }
 }
 
@@ -448,7 +530,7 @@ function takeSnapshotAndSubmit() {
   canvas.toBlob((blob) => {
     capturedBlob = blob;
     submitAbsenForm();
-  }, 'image/jpeg', 0.85);
+  }, 'image/jpeg', 0.75);
 }
 
 // Ambil fix GPS segar (presisi tinggi, tanpa cache) untuk dipakai saat submit.
@@ -492,6 +574,8 @@ async function submitAbsenForm() {
 
     attendanceSubmitInProgress = true;
     btnSnap.disabled = true;
+    btnSnap.textContent = 'MENYIAPKAN FOTO...';
+    capturedBlob = await compressImageBlob(capturedBlob);
     btnSnap.textContent = 'MEMERIKSA GPS...';
 
     // Selalu ambil fix GPS segar saat submit agar tidak memakai koordinat basi
@@ -500,12 +584,6 @@ async function submitAbsenForm() {
     currentCoords.lat = fix.lat;
     currentCoords.lng = fix.lng;
     currentAccuracy = fix.accuracy;
-
-    // Ambang akurasi: tolak bila radius ketidakpastian > 100 m (sinyal lemah).
-    if (currentAccuracy !== null && currentAccuracy > 100) {
-      alert(`❌ Sinyal GPS lemah (akurasi ±${Math.round(currentAccuracy)}m).\n\nMendekatlah ke area terbuka & tunggu sinyal stabil, lalu coba lagi.`);
-      return;
-    }
 
     btnSnap.textContent = 'MENGIRIM...';
 
@@ -567,7 +645,7 @@ async function reconcileAttendanceAfterConnectionLoss(type) {
     const rows = await response.json();
     const recentThreshold = Date.now() - (5 * 60 * 1000);
     const attendanceRows = Array.isArray(rows) ? rows : [];
-    const hasPendingSession = attendanceRows.some((row) => !row.waktu_pulang);
+    const hasPendingSession = attendanceRows.some(isPendingAttendanceSession);
     const hasRecentEvent = attendanceRows.some((row) => {
       const value = type === 'datang' ? row.waktu_datang : row.waktu_pulang;
       const timestamp = value ? new Date(value).getTime() : 0;
@@ -575,7 +653,7 @@ async function reconcileAttendanceAfterConnectionLoss(type) {
     });
     const confirmed = type === 'datang'
       ? hasPendingSession && hasRecentEvent
-      : !hasPendingSession && hasRecentEvent;
+      : !hasPendingSession && attendanceRows.some(isCompletedAttendanceSession) && hasRecentEvent;
     if (!confirmed) return false;
     alert('✅ Absensi sudah tercatat di server. Konfirmasi awal terputus, tetapi data berhasil ditemukan kembali.');
     closeCameraModal();
@@ -605,9 +683,9 @@ async function muatRiwayat() {
     }
 
     tbody.innerHTML = rows.map(r => {
-      const tgl = new Date(r.tanggal_kerja).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
-      const jamD = r.waktu_datang ? new Date(r.waktu_datang).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
-      const jamP = r.waktu_pulang ? new Date(r.waktu_pulang).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
+      const tgl = formatAttendanceWorkDate(r.tanggal_kerja);
+      const jamD = r.waktu_datang ? formatAttendanceTime(r.waktu_datang) : '-';
+      const jamP = r.waktu_pulang ? formatAttendanceTime(r.waktu_pulang) : '-';
 
       return `
         <tr>
@@ -717,6 +795,18 @@ async function handleDaftar(e) {
   }
 
   btn.disabled = true;
+  btn.textContent = 'MENYIAPKAN FOTO...';
+
+  let compressedPhotos;
+  try {
+    compressedPhotos = await Promise.all([f1, f2, f3].map((file) => compressImageBlob(file)));
+  } catch (error) {
+    alertEl.textContent = error.message;
+    alertEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'KIRIM PENDAFTARAN';
+    return;
+  }
   btn.textContent = 'MENGIRIM PENDAFTARAN...';
 
   const formData = new FormData();
@@ -727,14 +817,15 @@ async function handleDaftar(e) {
   formData.append('jabatan', jabatan);
   formData.append('lokasi_kantor_id', lokasi_kantor_id);
 
-  formData.append('foto1', f1);
-  formData.append('foto2', f2);
-  formData.append('foto3', f3);
+  formData.append('foto1', compressedPhotos[0], 'sample1.jpg');
+  formData.append('foto2', compressedPhotos[1], 'sample2.jpg');
+  formData.append('foto3', compressedPhotos[2], 'sample3.jpg');
 
   try {
     const res = await portalFetch(`${API_BASE}/api/auth/daftar`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      timeoutMs: 60000,
     });
 
     const data = await res.json();

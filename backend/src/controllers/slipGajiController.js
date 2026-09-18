@@ -1,6 +1,8 @@
 const path = require('path');
 const fs = require('fs');
 const { pool } = require('../config/db');
+const { hitungKehadiranPayroll } = require('../services/presensiPayroll');
+const { getHmPayableSum } = require('../services/hmWorklog');
 const PDFDocument = require('pdfkit');
 const { PDFDocument: LibPDFDoc } = require('pdf-lib');
 
@@ -28,111 +30,93 @@ function parseDateIn(dateStr) {
 }
 
 async function hitungSlip(userId, bulan, tahun) {
-  const periodKey = `${tahun}-${String(bulan).padStart(2, '0')}`;
+  const periodKey = `${tahun}-${String(bulan).padStart(2, "0")}`;
   const tglMulai = fmtD(new Date(tahun, bulan-2, 26));
   const tglAkhir = fmtD(new Date(tahun, bulan-1, 25));
   const totalHariBulan = getDaysInMonth(tahun, bulan-1);
 
-  // Ambil config periode untuk libur reguler & nasional
+  // Ambil config periode utk hari libur reguler & nasional
   const { rows: cfgRows } = await pool.query(
     'SELECT * FROM payroll_config WHERE periode_key = $1', [periodKey]
   );
   const config = cfgRows[0] || { hari_libur_reguler: 'minggu', hari_libur_nasional: '' };
-  const liburNasionalArray = (config.hari_libur_nasional || '').split(',').map(s=>s.trim()).filter(Boolean);
+  const liburNasionalArray = (config.hari_libur_nasional || '').split(',').map(s=>String(s).trim()).filter(Boolean);
 
   const { rows: kRows } = await pool.query(
-    'SELECT u.id user_id, u.employee_id, u.nama nama_karyawan, u.jabatan, u.created_at,' +
-    ' p.date_in, p.site, p.kota,' +
-    ' COALESCE(p.gaji_pokok,0) gp_master,' +
-    ' COALESCE(p.tunjangan_kehadiran_per_hari,0) tk_harian,' +
-    ' COALESCE(p.tunjangan_jabatan,0) tj,' +
-    ' COALESCE(p.insentif_hm_per_jam,0) ins_hm_pj' +
-    ' FROM users u LEFT JOIN payroll p ON (p.employee_id=u.employee_id OR LOWER(p.nama_karyawan)=LOWER(u.nama))' +
-    ' WHERE u.id=$1', [userId]);
+    "SELECT u.id user_id, u.employee_id, u.nama nama_karyawan, u.jabatan, u.created_at," +
+    " p.date_in, p.site, p.kota," +
+    " COALESCE(p.gaji_pokok,0) gp_master," +
+    " COALESCE(p.tunjangan_kehadiran_per_hari,0) tk_harian," +
+    " COALESCE(p.tunjangan_jabatan,0) tj," +
+    " COALESCE(p.insentif_hm_per_jam,0) ins_hm_pj" +
+    " FROM users u LEFT JOIN LATERAL (" +
+    "   SELECT r.* FROM payroll r WHERE (u.employee_id IS NOT NULL AND LOWER(TRIM(r.employee_id))=LOWER(TRIM(u.employee_id))) OR LOWER(TRIM(r.nama_karyawan))=LOWER(TRIM(u.nama))" +
+    "   ORDER BY CASE WHEN u.employee_id IS NOT NULL AND LOWER(TRIM(r.employee_id))=LOWER(TRIM(u.employee_id)) THEN 0 ELSE 1 END, r.updated_at DESC NULLS LAST" +
+    "   LIMIT 1) p ON TRUE" +
+    " WHERE u.id=$1", [userId]
+  );
   if (!kRows.length) { const e=new Error('Data karyawan tidak ditemukan'); e.statusCode=404; throw e; }
   const k = kRows[0];
 
-  // 1. Kehadiran
-  const { rows: ar } = await pool.query(
-    'SELECT DISTINCT tanggal_kerja::text AS tgl_str FROM absensi WHERE user_id=$1 AND tanggal_kerja BETWEEN $2 AND $3 AND waktu_datang IS NOT NULL',
-    [userId, tglMulai, tglAkhir]);
-  const { rows: mr } = await pool.query(
-    "SELECT DISTINCT tanggal::text AS tgl_str FROM keterangan_presensi WHERE user_id=$1 AND tanggal BETWEEN $2 AND $3 AND kategori='hadir_manual'",
-    [userId, tglMulai, tglAkhir]);
+  // ------------------------------------------------------------------
+  // Data kehadiran (hadir/alpa/izin/sakit) dihitung SAMA persis dgn tab
+  // "Rekap Performa" (roster S/M + kamera + status manual + tanggal akun),
+  // dipakai bersama Kalkulasi Payroll agar angka konsisten.
+  // ------------------------------------------------------------------
+  const kehadiran = await hitungKehadiranPayroll({
+    userId,
+    mulai: tglMulai,
+    akhir: tglAkhir,
+    accountCreated: k.created_at,
+    hariLiburReguler: config.hari_libur_reguler,
+    hariLiburNasional: liburNasionalArray,
+    tunjKehadiranPerHari: Number(k.tk_harian || 0),
+  });
 
-  const setH = new Set([
-    ...ar.map(r => r.tgl_str ? r.tgl_str.split('T')[0] : ''),
-    ...mr.map(r => r.tgl_str ? r.tgl_str.split('T')[0] : ''),
-  ]);
-  setH.delete('');
-  const hkActual = setH.size;
+  const hkActual = kehadiran.hari_kerja_actual;
+  const hkBiasa  = kehadiran.hari_kerja_biasa;
+  const hkLibur  = kehadiran.hari_kerja_libur;
+  const tkTotal  = kehadiran.tunj_kehadiran_total;
+  const hIzin    = kehadiran.hari_izin;
+  const hSakit   = kehadiran.hari_sakit;
+  const hAlpa    = kehadiran.hari_alpa;
+  const tkHarian = Number(k.tk_harian || 0);
 
-  const tkHarian = Number(k.tk_harian||0);
-  let hkBiasa = 0, hkLibur = 0, tkTotal = 0;
-
-  for (const tglStr of setH) {
-    const d = new Date(`${tglStr}T00:00:00`);
-    const dayOfWeek = d.getDay(); // 0 = Minggu
-    const isRegulerLibur = (config.hari_libur_reguler === 'sabtu-minggu')
-      ? (dayOfWeek === 0 || dayOfWeek === 6)
-      : (dayOfWeek === 0);
-    const isNasionalLibur = liburNasionalArray.includes(tglStr);
-
-    if (isRegulerLibur || isNasionalLibur) {
-      hkLibur += 1;
-      tkTotal += (tkHarian * 2);
-    } else {
-      hkBiasa += 1;
-      tkTotal += (tkHarian * 1);
-    }
-  }
-
-  // 2. Deduksi (ALPA, IZIN) — SAKIT tidak memotong gaji
-  const { rows: deduksiRows } = await pool.query(
-    "SELECT kategori, COUNT(*) as cnt FROM keterangan_presensi WHERE user_id=$1 AND tanggal BETWEEN $2 AND $3 AND kategori IN ('alpa','izin','sakit') GROUP BY kategori",
-    [userId, tglMulai, tglAkhir]
-  );
-  let hIzin = 0, hSakit = 0, hAlpa = 0;
-  for (const dr of deduksiRows) {
-    if (dr.kategori === 'izin') hIzin = Number(dr.cnt);
-    if (dr.kategori === 'sakit') hSakit = Number(dr.cnt);
-    if (dr.kategori === 'alpa') hAlpa = Number(dr.cnt);
-  }
   // Sakit TIDAK memotong gaji (hanya Alpa + Izin)
   const totalDeduksi = hIzin + hAlpa;
 
-  // 3. Gaji Pokok (Prorate masa kerja baru ATAU Deduksi Izin/Alpa dengan pembagi baku 26 hari)
   const dateInParsed = parseDateIn(k.date_in || k.created_at);
   const tglMulaiDate = parseDateIn(tglMulai);
   const isMasaKerjaBaru = dateInParsed ? (dateInParsed > tglMulaiDate) : false;
-  const dateInStr = k.date_in || new Date(k.created_at).toISOString().split('T')[0];
+  const dateInStr = k.date_in || (k.created_at ? new Date(k.created_at).toISOString().split('T')[0] : tglMulai);
 
-  const gpMaster = Number(k.gp_master||0);
+  const gpMaster = Number(k.gp_master || 0);
   const pembagiBaku = 26;
-  let potonganDeduksi = 0;
-  let gpFinal = gpMaster;
 
+  let potonganDeduksi = 0;
   if (totalDeduksi > 0) {
     potonganDeduksi = Math.round((gpMaster / pembagiBaku) * totalDeduksi);
   }
 
+  let gpSebelumPotonganAbsen = gpMaster;
   if (isMasaKerjaBaru && dateInParsed) {
     const dEnd = parseDateIn(tglAkhir);
     const diffTime = dEnd.getTime() - dateInParsed.getTime();
     const totalHariMasaKerja = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1);
-    gpFinal = Math.round((gpMaster / pembagiBaku) * totalHariMasaKerja);
+    gpSebelumPotonganAbsen = Math.round((gpMaster / pembagiBaku) * totalHariMasaKerja);
   }
 
-  const tj = Number(k.tj||0);
-  const jabLow = (k.jabatan||'').toLowerCase();
+  // Gaji pokok yang dipakai sbg baris pendapatan (semua potongan ALPA/IZIN
+  // ditampilkan terpisah di bagian 'Mangkir / Potongan Absen').
+  const gpFinal = gpSebelumPotonganAbsen;
+
+  const tj = Number(k.tj || 0);
+  const jabLow = String(k.jabatan || '').toLowerCase();
   const isOpDrv = jabLow.includes('operator') || jabLow.includes('driver');
-  let totalHm=0, insHmTotal=0, insHmPj=0;
+  let totalHm = 0, insHmTotal = 0, insHmPj = 0;
   if (isOpDrv) {
-    const { rows: hr } = await pool.query(
-      'SELECT COALESCE(SUM(total_hm),0) sh FROM database_hm WHERE user_id=$1 AND tanggal BETWEEN $2 AND $3',
-      [userId, tglMulai, tglAkhir]);
-    totalHm    = Number(hr[0]?.sh||0);
-    insHmPj    = Number(k.ins_hm_pj||0);
+    totalHm = await getHmPayableSum(pool, userId, tglMulai, tglAkhir);
+    insHmPj    = Number(k.ins_hm_pj || 0);
     insHmTotal = Math.round(totalHm * insHmPj);
   }
 
@@ -142,6 +126,8 @@ async function hitungSlip(userId, bulan, tahun) {
     cutoff_mulai:tglMulai, cutoff_akhir:tglAkhir, total_hari_bulan:totalHariBulan,
     is_prorate: isMasaKerjaBaru || totalDeduksi > 0,
     is_prorate_masa_kerja: isMasaKerjaBaru,
+    tanggal_buat_akun: kehadiran.tanggal_buat_akun || null,
+    total_hari_kerja_eff_rekap: kehadiran.total_hari_kerja_eff,
     hari_kerja_actual:hkActual, hari_kerja_biasa:hkBiasa, hari_kerja_libur:hkLibur,
     hari_izin:hIzin, hari_sakit:hSakit, hari_alpa:hAlpa, total_hari_deduksi:totalDeduksi, potongan_deduksi:potonganDeduksi,
     gp_master:gpMaster, gp_final:gpFinal,
@@ -150,10 +136,9 @@ async function hitungSlip(userId, bulan, tahun) {
     total_hm:isOpDrv?Number(totalHm.toFixed(2)):null,
     ins_hm_pj:isOpDrv?insHmPj:null,
     ins_hm_total:isOpDrv?insHmTotal:null,
-    thp:gpFinal+tkTotal+tj+insHmTotal,
+    thp:Math.max(0, gpFinal - potonganDeduksi) + tkTotal + tj + insHmTotal,
   };
 }
-
 function generatePdfBuffer(data) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({

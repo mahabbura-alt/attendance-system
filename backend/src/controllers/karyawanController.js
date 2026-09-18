@@ -2,6 +2,10 @@ const bcrypt = require('bcrypt');
 const { pool } = require('../config/db');
 const { uploadFoto, getUrlFoto, hapusFoto } = require('../services/storage');
 const { daftarkanWajahReferensi, hapusSubjectWajah } = require('../services/compreface');
+const {
+  ensureEmployeeIdAvailable,
+  isEmployeeIdUniqueViolation,
+} = require('../services/employeeIdentity');
 
 /** GET /api/admin/karyawan — daftar semua karyawan (tanpa password) */
 async function daftarKaryawan(req, res, next) {
@@ -40,19 +44,24 @@ async function buatKaryawan(req, res, next) {
   try {
     const { employee_id, nama, email, password, jabatan, departemen, shift_id, lokasi_kantor_id } = req.body;
 
-    if (!nama || !email || !password || !lokasi_kantor_id) {
+    if (!nama || !email || !password) {
       return res.status(400).json({
-        error: 'nama, email, password, dan lokasi_kantor_id wajib diisi',
+        error: 'nama, email, dan password wajib diisi',
       });
     }
 
+    const isUuid = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    // Lokasi kantor bersifat opsional saat pembuatan akun; dapat ditetapkan kemudian.
+    const cleanLokasiId = isUuid(lokasi_kantor_id) ? lokasi_kantor_id : null;
+
+    const normalizedEmployeeId = await ensureEmployeeIdAvailable(pool, employee_id);
     const passwordHash = await bcrypt.hash(password, 12);
 
     const { rows } = await pool.query(
       `INSERT INTO users (employee_id, nama, email, password_hash, role, jabatan, departemen, shift_id, lokasi_kantor_id)
        VALUES ($1, $2, $3, $4, 'karyawan', $5, $6, $7, $8)
        RETURNING id, employee_id, nama, email, role, jabatan, departemen, shift_id, lokasi_kantor_id, created_at`,
-      [employee_id || null, nama, email, passwordHash, jabatan || null, departemen || null, shift_id || null, lokasi_kantor_id]
+      [normalizedEmployeeId, nama, email, passwordHash, jabatan || null, departemen || null, shift_id || null, cleanLokasiId]
     );
 
     // Audit Log
@@ -67,6 +76,9 @@ async function buatKaryawan(req, res, next) {
       karyawan: rows[0],
     });
   } catch (err) {
+    if (isEmployeeIdUniqueViolation(err)) {
+      return res.status(409).json({ error: 'Employee ID sudah digunakan oleh karyawan lain' });
+    }
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Email sudah terdaftar' });
     }
@@ -79,7 +91,7 @@ async function buatKaryawan(req, res, next) {
  * multipart file field: 'foto'
  *
  * Mendaftarkan foto wajah karyawan sebagai subject baru di CompreFace,
- * sekaligus menyimpan foto ke MinIO untuk arsip/audit.
+ * sekaligus menyimpan foto ke Supabase Storage untuk arsip/audit.
  *
  * Boleh dipanggil berkali-kali untuk menambah sampel wajah yang sama
  * (CompreFace mendukung beberapa foto per subject untuk akurasi lebih baik) —
@@ -106,7 +118,7 @@ async function uploadFotoReferensi(req, res, next) {
     // 1. Daftarkan wajah ke CompreFace
     await daftarkanWajahReferensi(req.file.buffer, subject);
 
-    // 2. Simpan juga foto ke MinIO untuk arsip (bukan sumber verifikasi, hanya dokumentasi)
+    // 2. Simpan juga foto ke Supabase Storage untuk arsip (bukan sumber verifikasi, hanya dokumentasi)
     const fotoKey = await uploadFoto(req.file.buffer, { userId: id, jenis: 'referensi' });
 
     // 3. Update data karyawan
@@ -133,7 +145,9 @@ async function updateKaryawan(req, res, next) {
       updates.push(`${column} = $${values.length}`);
     };
 
-    if (employee_id !== undefined) add('employee_id', employee_id ? employee_id.trim() : null);
+    if (employee_id !== undefined) {
+      add('employee_id', await ensureEmployeeIdAvailable(pool, employee_id, id));
+    }
     if (nama !== undefined) {
       if (typeof nama !== 'string' || !nama.trim()) return res.status(400).json({ error: 'Nama tidak valid' });
       add('nama', nama.trim());
@@ -174,6 +188,9 @@ async function updateKaryawan(req, res, next) {
 
     res.json({ message: rows[0].is_active ? 'Data karyawan diperbarui' : 'Karyawan dinonaktifkan', karyawan: rows[0] });
   } catch (err) {
+    if (isEmployeeIdUniqueViolation(err)) {
+      return res.status(409).json({ error: 'Employee ID sudah digunakan oleh karyawan lain' });
+    }
     if (err.code === '23505') return res.status(409).json({ error: 'Email sudah terdaftar' });
     if (err.code === '23503') return res.status(400).json({ error: 'Shift atau lokasi kantor tidak ditemukan' });
     next(err);
@@ -203,7 +220,7 @@ async function hapusKaryawan(req, res, next) {
       await hapusSubjectWajah(user.compreface_subject).catch(e => console.warn('[CompreFace Delete Warning]:', e.message));
     }
 
-    // 3. Cari & hapus file foto dari MinIO Storage (foto_referensi, foto absensi, foto registrasi_pending)
+    // 3. Cari & hapus file foto dari Supabase Storage (foto_referensi, foto absensi, foto registrasi_pending)
     const photosToDelete = [];
     if (user.foto_referensi_url) {
       photosToDelete.push(user.foto_referensi_url);
@@ -230,7 +247,7 @@ async function hapusKaryawan(req, res, next) {
       if (r.foto_referensi_3_url) photosToDelete.push(r.foto_referensi_3_url);
     });
 
-    // Hapus file foto dari storage MinIO
+    // Hapus file foto dari Supabase Storage
     for (const photoKey of photosToDelete) {
       try {
         await hapusFoto(photoKey);

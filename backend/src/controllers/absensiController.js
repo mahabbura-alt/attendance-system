@@ -1,14 +1,32 @@
 const { pool } = require('../config/db');
-const { dalamRadius, dalamRadiusMultiPoint } = require('../utils/geofence');
+const { dalamRadius, dalamRadiusMultiPoint, validasiAkurasi, MAX_ACCURACY_METER } = require('../utils/geofence');
+const { autoCloseExpiredSessions } = require('../services/attendanceSession');
+const { getRosterForUserDate } = require('../services/roster');
+const {
+  getWibClock,
+  selectShiftByClock,
+  rosterStatusForShift,
+} = require('../services/attendancePolicy');
 const { statusAbsenDatang, statusAbsenPulang } = require('../utils/shiftValidator');
 const { verifikasiWajah } = require('../services/compreface');
-const { uploadFoto, getUrlFoto } = require('../services/storage');
+const { uploadFoto, getUrlFoto, hapusFoto } = require('../services/storage');
+const { ensureHmDailySchema } = require('../services/hmDaily');
+const { getHmPayableDailyRows } = require('../services/hmWorklog');
+const { cacheGet, cacheSet, cacheDel, LOCATIONS_KEY } = require('../utils/cache');
+
+// ── Cache helper ──────────────────────────────────────────────────────────
+// Data lokasi kantor & shift jarang berubah. Cache di memori (TTL) untuk
+// menghindari query DB berulang yang menjadi bottleneck latency absensi.
+
+const LOCATIONS_TTL_MS = 60 * 1000; // 60 detik
+const SHIFT_ID_CACHE_KEY_PREFIX = 'shift:id:';
+const SHIFT_TTL_MS = 10 * 60 * 1000; // 10 menit
 
 async function getUserLengkap(userId) {
   const { rows } = await pool.query(
-    `SELECT u.*, l.latitude, l.longitude, l.radius_meter
+    `SELECT u.*, l.nama_lokasi, l.latitude, l.longitude, l.radius_meter
      FROM users u
-     JOIN lokasi_kantor l ON l.id = u.lokasi_kantor_id
+     LEFT JOIN lokasi_kantor l ON l.id = u.lokasi_kantor_id
      WHERE u.id = $1`,
     [userId]
   );
@@ -16,16 +34,28 @@ async function getUserLengkap(userId) {
 }
 
 async function getSemuaLokasiKantor() {
+  // Cache daftar lokasi kantor → hilangkan query berulang di tiap request.
+  const cached = cacheGet(LOCATIONS_KEY);
+  if (cached) return cached;
+
   const { rows } = await pool.query(`SELECT id, nama_lokasi, latitude, longitude, radius_meter FROM lokasi_kantor`);
-  return rows || [];
+  const hasil = rows || [];
+  cacheSet(LOCATIONS_KEY, hasil, LOCATIONS_TTL_MS);
+  return hasil;
 }
 
 async function getShift(shiftId) {
+  const cacheKey = SHIFT_ID_CACHE_KEY_PREFIX + shiftId;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const { rows } = await pool.query(
     `SELECT * FROM shifts WHERE id = $1`,
     [shiftId]
   );
-  return rows[0];
+  const shift = rows[0];
+  if (shift) cacheSet(cacheKey, shift, SHIFT_TTL_MS);
+  return shift;
 }
 
 async function getSesiPending(userId) {
@@ -35,6 +65,19 @@ async function getSesiPending(userId) {
     [userId]
   );
   return rows[0];
+}
+
+async function cleanupFailedAttendancePhoto(value) {
+  if (!value) return;
+  try {
+    await hapusFoto(value);
+  } catch (error) {
+    console.warn(JSON.stringify({
+      level: 'warn',
+      message: 'attendance_orphan_photo_cleanup_failed',
+      error: error.message,
+    }));
+  }
 }
 
 function parseCoordinates(latitude, longitude) {
@@ -48,72 +91,180 @@ function parseCoordinates(latitude, longitude) {
   return { lat, lng };
 }
 
+function logAttendanceDecision(req, {
+  action,
+  outcome,
+  reasonCode,
+  userId,
+  accuracy = null,
+  distanceMeter = null,
+  locationId = null,
+}) {
+  const payload = {
+    level: outcome === 'rejected' ? 'warn' : 'info',
+    event: 'attendance_decision',
+    request_id: req.id,
+    action,
+    outcome,
+    reason_code: reasonCode,
+    user_id: userId || req.user?.id || null,
+  };
+  if (accuracy !== null && accuracy !== '' && Number.isFinite(Number(accuracy))) payload.accuracy_meter = Math.round(Number(accuracy));
+  if (distanceMeter !== null && distanceMeter !== '' && Number.isFinite(Number(distanceMeter))) payload.distance_meter = Math.round(Number(distanceMeter));
+  if (locationId) payload.location_id = locationId;
+  const output = JSON.stringify(payload);
+  if (outcome === 'rejected') console.warn(output);
+  else console.log(output);
+}
+
+/**
+ * Sinkronkan roster harian agar sesuai dengan shift aktual hasil absen kamera.
+ * Hanya beraksi bila terjadi konflik (roster terencana ≠ shift aktual kamera).
+ * Seluruh perubahan dicatat ke roster_audit_log untuk traceability.
+ */
+async function syncRosterFromCamera({ userId, tanggal, shift, rosterPlan, attendanceId }) {
+  const actualStatus = rosterStatusForShift(shift);
+  const conflict = Boolean(actualStatus && rosterPlan && rosterPlan.status !== actualStatus);
+  if (!conflict) return { conflict: false, synced: false, actualStatus };
+
+  const catatan = `Sinkron otomatis hadir kamera: ${rosterPlan.status} -> ${actualStatus}`;
+  try {
+    await pool.query(
+      `INSERT INTO employee_roster_daily
+         (user_id,tanggal,status,shift_id,assignment_id,source,catatan,updated_by)
+       VALUES ($1,$2::date,$3::varchar,$4,$5,'manual_override',$6,NULL)
+       ON CONFLICT (user_id,tanggal) DO UPDATE SET
+         status=EXCLUDED.status,
+         shift_id=EXCLUDED.shift_id,
+         assignment_id=COALESCE(employee_roster_daily.assignment_id,EXCLUDED.assignment_id),
+         source='manual_override',
+         catatan=EXCLUDED.catatan,
+         updated_by=NULL,
+         updated_at=now()
+       RETURNING status,source`,
+      [userId, tanggal, actualStatus, shift.id, rosterPlan.assignment_id || null, catatan],
+    );
+    await pool.query(
+      `INSERT INTO roster_audit_log (admin_id,user_id,aksi,detail)
+       VALUES (NULL,$1,'sync_camera_shift',$2::jsonb)`,
+      [userId, JSON.stringify({
+        tanggal,
+        attendance_id: attendanceId,
+        roster_before: rosterPlan.status,
+        roster_after: actualStatus,
+        shift_id: shift.id,
+        shift_name: shift.nama_shift,
+      })],
+    );
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'attendance_roster_synced',
+      userId,
+      tanggal,
+      rosterBefore: rosterPlan.status,
+      rosterAfter: actualStatus,
+      attendanceId,
+    }));
+    return { conflict: true, synced: true, actualStatus };
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'attendance_roster_sync_failed',
+      userId,
+      tanggal,
+      rosterBefore: rosterPlan.status,
+      rosterAfter: actualStatus,
+      error: error.message,
+    }));
+    return { conflict: true, synced: false, actualStatus };
+  }
+}
+
 /**
  * POST /api/absensi/datang
  * body: { latitude, longitude }
  * file: foto (multipart, field name 'foto')
  */
 async function absenDatang(req, res, next) {
+  let fotoKey = null;
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, accuracy } = req.body;
     if (latitude === undefined || longitude === undefined || !req.file) {
       return res.status(400).json({ error: 'latitude, longitude, dan foto wajib dikirim' });
     }
 
     const sekarang = new Date();
 
-    // Server Vercel berjalan di UTC. Konversi ke WIB (UTC+7) agar pengecekan
-    // jam masuk/pulang sesuai waktu Indonesia Barat.
-    const sekarangWIB = new Date(sekarang.getTime() + 7 * 60 * 60 * 1000);
-    const jamWIB = sekarangWIB.getUTCHours() + (sekarangWIB.getUTCMinutes() / 60);
-
-    let targetShiftName = null;
-    // Siang: 04:00 s/d 09:00 WIB
-    if (jamWIB >= 4 && jamWIB <= 9) {
-      targetShiftName = 'Siang';
-    }
-    // Malam: 16:00 s/d 21:00 WIB
-    else if (jamWIB >= 16 && jamWIB <= 21) {
-      targetShiftName = 'Malam';
-    } else {
-      return res.status(403).json({ error: `Anda tidak bisa absen. Di luar rentang waktu absen datang (04:00-09:00 untuk Siang, 16:00-21:00 untuk Malam). Jam server WIB: ${String(sekarangWIB.getUTCHours()).padStart(2,'0')}:${String(sekarangWIB.getUTCMinutes()).padStart(2,'0')}` });
-    }
-
-    // Ambil shift dari database
-    const { rows: shiftRows } = await pool.query("SELECT * FROM shifts WHERE nama_shift ILIKE $1 LIMIT 1", [`%${targetShiftName}%`]);
-    if (shiftRows.length === 0) {
-      return res.status(500).json({ error: `Shift ${targetShiftName} tidak ditemukan di database` });
-    }
-    const shift = shiftRows[0];
-    const shift_id = shift.id;
+    const clockWib = getWibClock(sekarang);
 
     const { lat, lng } = parseCoordinates(latitude, longitude);
+
+    // Validasi akurasi GPS (bila klien mengirimnya). Tolak bila terlalu kasar.
+    const cekAkurasi = validasiAkurasi(accuracy);
+    if (!cekAkurasi.valid) {
+      logAttendanceDecision(req, { action: 'datang', outcome: 'rejected', reasonCode: 'GPS_ACCURACY_REJECTED', accuracy });
+      return res.status(403).json({ code: 'ATTENDANCE_GPS_ACCURACY_REJECTED', error: cekAkurasi.reason });
+    }
+
     const user = await getUserLengkap(req.user.id);
     if (!user) return res.status(404).json({ error: 'Data karyawan tidak ditemukan' });
-    if (!user.lokasi_kantor_id) return res.status(400).json({ error: 'Lokasi kantor belum ditetapkan untuk akun ini' });
+
+    const { rows: shifts } = await pool.query('SELECT * FROM shifts ORDER BY operational_start ASC');
+    // Shift absen DITENTUKAN dari jam server (anchor 16:00 & 03:00) mengikuti
+    // pola PROJECT. Roster hanya dipakai untuk sinkronisasi SETELAH absen
+    // tersimpan, bukan sebagai penentu shift. Ini memperbaiki kasus karyawan
+    // yang absen 16:00–18:00 seharusnya masuk shift Malam namun sebelumnya
+    // ditempatkan ke shift Siang karena shift akun/roster default Siang.
+    const { shift, tanggalOperasional } = selectShiftByClock(shifts, clockWib);
+    if (!shift) {
+      return res.status(503).json({
+        code: 'ATTENDANCE_SHIFT_UNCONFIGURED',
+        error: 'Master shift absensi belum dikonfigurasi dengan benar oleh admin.',
+      });
+    }
+    const roster = await getRosterForUserDate(user.id, tanggalOperasional);
+    const shift_id = shift.id;
 
     // Gabungkan data user dan shift untuk validator
     const userDenganShift = { ...user, ...shift };
 
-    // 1. Cek sesi kemarin yang belum checkout — wajib diselesaikan dulu
+    // 1. Tutup otomatis sesi yang sudah kedaluwarsa (> 13 jam) milik karyawan ini.
+    //    Mencegah "sesi menggantung" (mis. absen datang berhasil tapi absen pulang
+    //    gagal karena di luar radius) yang memblokir absen datang berikutnya.
+    await autoCloseExpiredSessions(user.id);
+
+    // 2. Cek sesi yang masih aktif (belum checkout & belum kedaluwarsa) — wajib diselesaikan dulu
     const sesiPending = await getSesiPending(user.id);
     if (sesiPending) {
+      logAttendanceDecision(req, { action: 'datang', outcome: 'rejected', reasonCode: 'ACTIVE_SESSION_EXISTS', userId: user.id });
       return res.status(409).json({
+        code: 'ATTENDANCE_ACTIVE_SESSION_EXISTS',
         error: 'Ada sesi absen sebelumnya yang belum checkout. Selesaikan absen pulang dulu.',
         absensi_id_pending: sesiPending.id,
       });
     }
 
-    // 2. Validasi lokasi Multi-Point (Kantor, Parkiran Tambang, dll)
+    // 3. Validasi lokasi Multi-Point (Kantor, Parkiran Tambang, dll)
     const semuaLokasi = await getSemuaLokasiKantor();
     const cekLokasi = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
+    if (cekLokasi.configuration_error) {
+      return res.status(503).json({
+        code: 'ATTENDANCE_LOCATION_UNCONFIGURED',
+        error: 'Lokasi absensi belum dikonfigurasi oleh admin.',
+      });
+    }
     if (!cekLokasi.valid) {
+      logAttendanceDecision(req, {
+        action: 'datang', outcome: 'rejected', reasonCode: 'OUTSIDE_ALL_GEOFENCES', userId: user.id,
+        accuracy, distanceMeter: cekLokasi.jarak_meter, locationId: cekLokasi.lokasi_terdekat?.id,
+      });
       return res.status(403).json({
+        code: 'ATTENDANCE_OUTSIDE_APPROVED_GEOFENCES',
         error: `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${cekLokasi.jarak_meter}m)`,
       });
     }
 
-    // 3. Validasi wajah via CompreFace
+    // 4. Validasi wajah via CompreFace
     const hasilWajah = await verifikasiWajah(req.file.buffer, user.compreface_subject);
     if (!hasilWajah.valid) {
       return res.status(403).json({
@@ -122,14 +273,11 @@ async function absenDatang(req, res, next) {
       });
     }
 
-    // 4. Tentukan status & simpan — tanggal kerja menggunakan tanggal WIB
-    const yyyy = sekarangWIB.getUTCFullYear();
-    const mm = String(sekarangWIB.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(sekarangWIB.getUTCDate()).padStart(2, '0');
-    const tanggalKerja = new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
+    // 5. Tentukan status & simpan — tanggal kerja menggunakan tanggal WIB
+    const tanggalKerja = new Date(`${tanggalOperasional}T00:00:00+07:00`);
     const status = statusAbsenDatang(userDenganShift, tanggalKerja, sekarang);
 
-    const fotoKey = await uploadFoto(req.file.buffer, { userId: user.id, jenis: 'datang' });
+    fotoKey = await uploadFoto(req.file.buffer, { userId: user.id, jenis: 'datang' });
 
     const { rows } = await pool.query(
       `INSERT INTO absensi
@@ -140,7 +288,10 @@ async function absenDatang(req, res, next) {
       [
         user.id,
         shift_id,
-        tanggalKerja,
+        // tanggal_kerja kolom DATE: kirim string 'YYYY-MM-DD' (tanggal operasional
+        // WIB) apa adanya. Jangan kirim Date ber-suffix +07:00 — di sesi Postgres
+        // (UTC) itu bergeser mundur satu hari saat di-cast ke DATE.
+        tanggalOperasional,
         sekarang,
         lat,
         lng,
@@ -150,10 +301,39 @@ async function absenDatang(req, res, next) {
       ]
     );
 
-    res.status(201).json({ message: 'Absen datang berhasil', status, nama_shift: shift.nama_shift, absensi: rows[0] });
+    // Sinkronkan roster otomatis dari hasil absen kamera: bila shift kamera
+    // (Siang/Malam) berbeda dari status roster terencana, catat override harian
+    // + jejak audit agar data roster & kehadiran tetap konsisten.
+    const rosterSync = await syncRosterFromCamera({
+      userId: user.id,
+      tanggal: tanggalOperasional,
+      shift,
+      rosterPlan: roster,
+      attendanceId: rows[0]?.id,
+    });
+
+    logAttendanceDecision(req, {
+      action: 'datang', outcome: 'accepted', reasonCode: 'ATTENDANCE_RECORDED', userId: user.id,
+      accuracy, distanceMeter: cekLokasi.jarak_meter, locationId: cekLokasi.lokasi_terdekat?.id,
+    });
+
+    res.status(201).json({
+      message: 'Absen datang berhasil',
+      status,
+      nama_shift: shift.nama_shift,
+      roster_status: roster?.status || null,
+      roster_actual_status: rosterSync.actualStatus,
+      roster_conflict: rosterSync.conflict,
+      roster_synced: rosterSync.synced,
+      absensi: rows[0],
+    });
   } catch (err) {
+    await cleanupFailedAttendancePhoto(fotoKey);
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Sesi absen aktif sudah ada. Silakan muat ulang riwayat absensi.' });
+    }
+    if (err.code === 'PHOTO_STORAGE_UPLOAD_FAILED') {
+      return res.status(503).json({ code: err.code, error: err.message });
     }
     next(err);
   }
@@ -165,13 +345,21 @@ async function absenDatang(req, res, next) {
  * file: foto (multipart, field name 'foto')
  */
 async function absenPulang(req, res, next) {
+  let fotoKey = null;
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, accuracy } = req.body;
     if (latitude === undefined || longitude === undefined || !req.file) {
       return res.status(400).json({ error: 'latitude, longitude, dan foto wajib dikirim' });
     }
 
     const { lat, lng } = parseCoordinates(latitude, longitude);
+
+    const cekAkurasi = validasiAkurasi(accuracy);
+    if (!cekAkurasi.valid) {
+      logAttendanceDecision(req, { action: 'pulang', outcome: 'rejected', reasonCode: 'GPS_ACCURACY_REJECTED', accuracy });
+      return res.status(403).json({ code: 'ATTENDANCE_GPS_ACCURACY_REJECTED', error: cekAkurasi.reason });
+    }
+
     const user = await getUserLengkap(req.user.id);
     if (!user) return res.status(404).json({ error: 'Data karyawan tidak ditemukan' });
 
@@ -182,8 +370,19 @@ async function absenPulang(req, res, next) {
 
     const semuaLokasi = await getSemuaLokasiKantor();
     const cekLokasi = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
+    if (cekLokasi.configuration_error) {
+      return res.status(503).json({
+        code: 'ATTENDANCE_LOCATION_UNCONFIGURED',
+        error: 'Lokasi absensi belum dikonfigurasi oleh admin.',
+      });
+    }
     if (!cekLokasi.valid) {
+      logAttendanceDecision(req, {
+        action: 'pulang', outcome: 'rejected', reasonCode: 'OUTSIDE_ALL_GEOFENCES', userId: user.id,
+        accuracy, distanceMeter: cekLokasi.jarak_meter, locationId: cekLokasi.lokasi_terdekat?.id,
+      });
       return res.status(403).json({
+        code: 'ATTENDANCE_OUTSIDE_APPROVED_GEOFENCES',
         error: `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${cekLokasi.jarak_meter}m)`,
       });
     }
@@ -200,27 +399,58 @@ async function absenPulang(req, res, next) {
     if (!shift) return res.status(400).json({ error: 'Data shift untuk sesi ini tidak ditemukan' });
 
     const sekarang = new Date();
-    
+
+    // Proteksi minimal durasi 15 menit: cegah checkout tak sengaja jika baru
+    // absen datang < 15 menit. Bisa dilewati hanya lewat konfigurasi
+    // pengujian/operasional (ABSENSI_ALLOW_ANYTIME=1).
+    const allowAnyTimePulang = process.env.ABSENSI_ALLOW_ANYTIME === '1';
+    const selisihMenit = sesiPending.waktu_datang
+      ? (sekarang.getTime() - new Date(sesiPending.waktu_datang).getTime()) / (1000 * 60)
+      : 999;
+    if (!allowAnyTimePulang && selisihMenit < 15) {
+      return res.status(400).json({
+        error: `Absen pulang belum dapat dilakukan. Anda baru saja absen datang ${Math.round(selisihMenit)} menit lalu. Minimal durasi kerja adalah 15 menit.`,
+      });
+    }
+
     const status = statusAbsenPulang(shift, sesiPending.tanggal_kerja, sekarang);
 
     if (status === 'pulang awal') {
       await pool.query(`UPDATE absensi SET percobaan_pulang_awal = COALESCE(percobaan_pulang_awal, 0) + 1 WHERE id = $1`, [sesiPending.id]);
     }
 
-    const fotoKey = await uploadFoto(req.file.buffer, { userId: user.id, jenis: 'pulang' });
+    fotoKey = await uploadFoto(req.file.buffer, { userId: user.id, jenis: 'pulang' });
 
     const { rows } = await pool.query(
       `UPDATE absensi SET
         waktu_pulang = $1, lokasi_pulang_lat = $2, lokasi_pulang_lng = $3,
         foto_pulang_url = $4, face_match_score_pulang = $5, status_pulang = $6,
         updated_at = now()
-       WHERE id = $7
+       WHERE id = $7 AND waktu_pulang IS NULL
        RETURNING *`,
       [sekarang, lat, lng, fotoKey, hasilWajah.similarity, status, sesiPending.id]
     );
 
+    if (!rows[0]) {
+      await cleanupFailedAttendancePhoto(fotoKey);
+      fotoKey = null;
+      return res.status(409).json({
+        code: 'ATTENDANCE_ALREADY_CHECKED_OUT',
+        error: 'Sesi ini sudah di-checkout dari permintaan lain. Muat ulang riwayat absensi.',
+      });
+    }
+
+    logAttendanceDecision(req, {
+      action: 'pulang', outcome: 'accepted', reasonCode: 'ATTENDANCE_RECORDED', userId: user.id,
+      accuracy, distanceMeter: cekLokasi.jarak_meter, locationId: cekLokasi.lokasi_terdekat?.id,
+    });
+
     res.json({ message: 'Absen pulang berhasil', status, absensi: rows[0] });
   } catch (err) {
+    await cleanupFailedAttendancePhoto(fotoKey);
+    if (err.code === 'PHOTO_STORAGE_UPLOAD_FAILED') {
+      return res.status(503).json({ code: err.code, error: err.message });
+    }
     if (err.statusCode) {
       return res.status(err.statusCode).json({ error: err.message });
     }
@@ -231,8 +461,28 @@ async function absenPulang(req, res, next) {
 /** GET /api/absensi/riwayat — riwayat absensi milik karyawan yang login */
 async function riwayat(req, res, next) {
   try {
+    await autoCloseExpiredSessions(req.user.id);
+    res.setHeader('Cache-Control', 'no-store');
     const { rows } = await pool.query(
-      `SELECT * FROM absensi WHERE user_id = $1 ORDER BY tanggal_kerja DESC LIMIT 100`,
+      `SELECT COALESCE(a.id::text, kp.id::text) AS id,
+              COALESCE(a.user_id, kp.user_id) AS user_id,
+              (a.id IS NOT NULL) AS is_attendance_record,
+              (a.waktu_datang IS NOT NULL AND a.waktu_pulang IS NULL) AS is_pending_session,
+              a.shift_id,
+              COALESCE(a.tanggal_kerja, kp.tanggal)::text AS tanggal,
+              COALESCE(a.tanggal_kerja, kp.tanggal)::text AS tanggal_kerja,
+              a.waktu_datang,
+              a.waktu_pulang,
+              COALESCE(kp.kategori, a.status_datang) AS status_datang,
+              a.status_pulang,
+              a.foto_datang_url,
+              a.foto_pulang_url,
+              kp.kategori AS kategori_manual
+       FROM absensi a
+       FULL OUTER JOIN keterangan_presensi kp ON kp.user_id = a.user_id AND kp.tanggal = a.tanggal_kerja
+       WHERE COALESCE(a.user_id, kp.user_id) = $1
+       ORDER BY COALESCE(a.tanggal_kerja, kp.tanggal) DESC, a.waktu_datang DESC NULLS LAST
+       LIMIT 100`,
       [req.user.id]
     );
 
@@ -253,20 +503,26 @@ async function riwayat(req, res, next) {
 /** GET /api/absensi/rekap — rekap kehadiran 30 hari terakhir untuk kalender karyawan */
 async function rekapKehadiran(req, res, next) {
   try {
-    const today = new Date();
-    const start = new Date(today);
-    start.setDate(today.getDate() - 29); // 30 hari termasuk hari ini
+    const sekarangWIB = new Date(Date.now() + 7 * 60 * 60 * 1000);
+    const yyyy = sekarangWIB.getUTCFullYear();
+    const mm = String(sekarangWIB.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(sekarangWIB.getUTCDate()).padStart(2, '0');
+    const todayWIB = new Date(`${yyyy}-${mm}-${dd}T00:00:00.000Z`);
+
+    const start = new Date(todayWIB);
+    start.setUTCDate(todayWIB.getUTCDate() - 29);
 
     const pad = (n) => String(n).padStart(2, '0');
-    const startStr = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
-    const endStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    const startStr = `${start.getUTCFullYear()}-${pad(start.getUTCMonth() + 1)}-${pad(start.getUTCDate())}`;
+    const endStr = `${yyyy}-${mm}-${dd}`;
 
     const { rows: absensiRows } = await pool.query(
-      `SELECT tanggal_kerja::text AS tanggal_kerja, status_datang, status_pulang, waktu_datang, waktu_pulang
+      `SELECT tanggal_kerja::text AS tanggal_kerja,
+              status_datang, status_pulang, waktu_datang, waktu_pulang
        FROM absensi
        WHERE user_id = $1
-         AND tanggal_kerja >= $2
-         AND tanggal_kerja <= $3
+         AND tanggal_kerja >= $2::date
+         AND tanggal_kerja <= $3::date
        ORDER BY tanggal_kerja ASC`,
       [req.user.id, startStr, endStr]
     );
@@ -275,15 +531,15 @@ async function rekapKehadiran(req, res, next) {
       `SELECT tanggal::text AS tanggal, kategori, catatan
        FROM keterangan_presensi
        WHERE user_id = $1
-         AND tanggal >= $2
-         AND tanggal <= $3`,
+         AND tanggal >= $2::date
+         AND tanggal <= $3::date`,
       [req.user.id, startStr, endStr]
     );
 
     // Buat map tanggal -> status untuk 30 hari
     const mapAbsensi = {};
     absensiRows.forEach((r) => {
-      const tgl = String(r.tanggal_kerja).split('T')[0];
+      const tgl = String(r.tanggal_kerja).split('T')[0].split(' ')[0];
       mapAbsensi[tgl] = {
         status_datang: r.status_datang,
         status_pulang: r.status_pulang,
@@ -302,8 +558,8 @@ async function rekapKehadiran(req, res, next) {
     const hasil = [];
     for (let i = 0; i < 30; i++) {
       const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      const tgl = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      d.setUTCDate(start.getUTCDate() + i);
+      const tgl = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
       const data = mapAbsensi[tgl] || null;
       const manualCat = mapKeterangan[tgl] || null;
 
@@ -365,6 +621,7 @@ async function lokasiKantorSaya(req, res, next) {
 /** GET /api/absensi/rekap-hm — rekapitulasi HM bulan berjalan khusus milik karyawan bersangkutan */
 async function rekapHmKaryawan(req, res, next) {
   try {
+    await ensureHmDailySchema(pool);
     const userId = req.user.id;
     const now = new Date();
     const y = now.getFullYear();
@@ -374,15 +631,9 @@ async function rekapHmKaryawan(req, res, next) {
     const tglAkhirDate = new Date(y, m + 1, 0);
     const tglAkhir = `${y}-${String(m + 1).padStart(2, '0')}-${String(tglAkhirDate.getDate()).padStart(2, '0')}`;
 
-    const { rows } = await pool.query(
-      `SELECT h.id, h.tanggal, h.kode_unit, h.hm_awal, h.hm_akhir, h.total_hm, h.keterangan
-       FROM database_hm h
-       WHERE h.user_id = $1 AND h.tanggal BETWEEN $2 AND $3
-       ORDER BY h.tanggal ASC, h.created_at ASC`,
-      [userId, tglMulai, tglAkhir]
-    );
+    const rows = await getHmPayableDailyRows(pool, userId, tglMulai, tglAkhir);
 
-    const totalHmBulanIni = rows.reduce((acc, r) => acc + Number(r.total_hm || 0), 0);
+    const totalHmBulanIni = rows.reduce((acc, r) => acc + Number(r.jam_operasi || 0), 0);
     const uniqueDays = new Set(rows.map((r) => (r.tanggal ? new Date(r.tanggal).toISOString().split('T')[0] : ''))).size;
 
     res.json({
@@ -393,12 +644,14 @@ async function rekapHmKaryawan(req, res, next) {
       total_hm_bulan_ini: Number(totalHmBulanIni.toFixed(2)),
       total_hari_operasi: uniqueDays,
       list_harian: rows.map((r) => ({
-        id: r.id,
-        tanggal: r.tanggal ? new Date(r.tanggal).toISOString().split('T')[0] : '',
-        kode_unit: r.kode_unit,
-        hm_awal: Number(r.hm_awal),
-        hm_akhir: Number(r.hm_akhir),
-        total_hm: Number(r.total_hm),
+        id: r.id || null,
+        tanggal: r.tanggal,
+        // Field legacy dipertahankan untuk APK lama sampai seluruh perangkat diperbarui.
+        kode_unit: null,
+        hm_awal: 0,
+        hm_akhir: Number(r.jam_operasi),
+        total_hm: Number(r.jam_operasi),
+        jam_operasi: Number(r.jam_operasi),
         keterangan: r.keterangan || '',
       })),
     });
@@ -413,34 +666,56 @@ async function rekapHmKaryawan(req, res, next) {
  */
 async function checkLokasi(req, res, next) {
   try {
-    const { latitude, longitude } = req.body;
-    let lat = Number(latitude);
-    let lng = Number(longitude);
+    const { latitude, longitude, accuracy } = req.body;
+    const { lat, lng } = parseCoordinates(latitude, longitude);
+
+    const cekAkurasi = validasiAkurasi(accuracy);
+    if (!cekAkurasi.valid) {
+      logAttendanceDecision(req, { action: 'check-lokasi', outcome: 'rejected', reasonCode: 'GPS_ACCURACY_REJECTED', accuracy });
+      return res.status(403).json({ valid: false, code: 'ATTENDANCE_GPS_ACCURACY_REJECTED', error: cekAkurasi.reason, message: cekAkurasi.reason });
+    }
 
     const user = await getUserLengkap(req.user.id);
     if (!user) return res.status(404).json({ valid: false, message: 'Data karyawan tidak ditemukan' });
-
     const semuaLokasi = await getSemuaLokasiKantor();
 
-    // Jika lat/lng 0 atau tidak terdeteksi, gunakan koordinat lokasi kantor user sebagai fallback
-    if (!lat || !lng || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-      lat = Number(user.latitude || (semuaLokasi[0] ? semuaLokasi[0].latitude : 0));
-      lng = Number(user.longitude || (semuaLokasi[0] ? semuaLokasi[0].longitude : 0));
-    }
-
     const cekLokasiObj = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
+    if (cekLokasiObj.configuration_error) {
+      return res.status(503).json({
+        valid: false,
+        code: 'ATTENDANCE_LOCATION_UNCONFIGURED',
+        error: 'Lokasi absensi belum dikonfigurasi oleh admin.',
+        message: 'Lokasi absensi belum dikonfigurasi oleh admin.',
+      });
+    }
     const namaLok = cekLokasiObj.lokasi_terdekat ? cekLokasiObj.lokasi_terdekat.nama_lokasi : 'Area Kerja';
 
+    logAttendanceDecision(req, {
+      action: 'check-lokasi',
+      outcome: cekLokasiObj.valid ? 'accepted' : 'rejected',
+      reasonCode: cekLokasiObj.valid ? 'INSIDE_APPROVED_GEOFENCE' : 'OUTSIDE_ALL_GEOFENCES',
+      userId: user.id,
+      accuracy,
+      distanceMeter: cekLokasiObj.jarak_meter,
+      locationId: cekLokasiObj.lokasi_terdekat?.id,
+    });
+
+    // Jujur: valid mencerminkan hasil radius nyata (konsisten dengan absenDatang/absenPulang).
+    // Sebelumnya valid di-hardcode true sehingga badge selalu hijau padahal absen ditolak.
     return res.json({
-      valid: true,
+      valid: cekLokasiObj.valid,
+      code: cekLokasiObj.valid ? 'ATTENDANCE_LOCATION_ACCEPTED' : 'ATTENDANCE_OUTSIDE_APPROVED_GEOFENCES',
       jarakMeter: cekLokasiObj.jarak_meter,
       namaLokasi: namaLok,
+      lokasiId: cekLokasiObj.lokasi_terdekat?.id || null,
+      radiusMeter: cekLokasiObj.lokasi_terdekat?.radius_meter || null,
+      maxAccuracyMeter: MAX_ACCURACY_METER,
       message: cekLokasiObj.valid
         ? `Lokasi sah (${namaLok})`
-        : `Terverifikasi lokasi kantor (${Math.round(cekLokasiObj.jarak_meter)}m)`
+        : `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${Math.round(cekLokasiObj.jarak_meter)}m)`
     });
   } catch (err) {
-    return res.json({ valid: true, jarakMeter: 0, message: 'Lokasi kantor terverifikasi' });
+    next(err);
   }
 }
 

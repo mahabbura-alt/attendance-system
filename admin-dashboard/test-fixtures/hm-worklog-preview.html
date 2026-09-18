@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Preview Database HM</title><link rel="stylesheet" href="../style.css"><link rel="stylesheet" href="../hm-worklog.css?v=3">
+<style>body{margin:0;background:#f8fafc}.preview-shell{padding:28px;max-width:1500px;margin:auto}.modal-overlay:not([hidden]){display:flex}</style>
+</head><body><main class="preview-shell" id="preview"></main><div id="modalOverlay" class="modal-overlay" hidden><div id="modalKonten" class="modal"></div></div>
+<script>
+const sampleRows = [
+  {id:'11111111-1111-4111-8111-111111111111',tanggal:'2026-09-17',nama_shift:'Shift Siang',operator_id:'operator-a',employee_id:'EMP-001',nama_operator:'Operator A',kode_unit:'EX30 350-15',hm_start:1020,hm_finish:1029.5,total_hm:9.5,payroll_effective:true,payable_hm:9.5,hm_note:'',hm_adjusted:false},
+  {id:'22222222-2222-4222-8222-222222222222',tanggal:'2026-09-17',nama_shift:'Shift Siang',operator_id:'operator-b',employee_id:'EMP-002',nama_operator:'Operator B',kode_unit:'DT30 126',hm_start:870,hm_finish:882.2,total_hm:12.2,payroll_effective:true,payable_hm:12.2,hm_note:'HM Over, perlu verifikasi',hm_adjusted:false},
+  {id:'33333333-3333-4333-8333-333333333333',tanggal:'2026-09-17',nama_shift:'Shift Malam',operator_id:'operator-c',employee_id:'EMP-003',nama_operator:'Operator C',kode_unit:'DT30 128',hm_start:300,hm_finish:306,total_hm:6,payroll_effective:true,payable_hm:6,hm_note:'',hm_adjusted:false},
+  {id:'44444444-4444-4444-8444-444444444444',tanggal:'2026-09-17',nama_shift:'Shift Siang',operator_id:'operator-d',employee_id:'EMP-004',nama_operator:'Operator D',kode_unit:'DT30 130',hm_start:210,hm_finish:221,total_hm:11,payroll_effective:true,payable_hm:7.5,hm_note:'',hm_adjusted:true,review_paid_hm:7.5,review_reason:'Koreksi waktu operator berganti',work_log_id:'44444444-4444-4444-8444-444444444444'},
+];
+window.api = async () => ({rows:sampleRows,effective_date:'2026-09-17'});
+window.apiJson = async () => ({message:'Tersimpan'});
+window.OMOSActionFeedback = {run:async(_button,task)=>task()};
+window.bukaModal = (html) => { document.getElementById('modalKonten').innerHTML=html; document.getElementById('modalOverlay').hidden=false; };
+window.tutupModal = () => { document.getElementById('modalOverlay').hidden=true; };
+(async()=>{const html=await (await fetch('../index.html')).text();const doc=new DOMParser().parseFromString(html,'text/html');const section=doc.getElementById('tabHm');section.classList.add('is-aktif');document.getElementById('preview').appendChild(section);const script=document.createElement('script');script.src='../hm-worklog.js?v=4';script.onload=()=>window.OMOSHM.load();document.body.appendChild(script);})();
+</script></body></html>

@@ -29,6 +29,7 @@
   let paAssignments = {};
   let loadingPromise = null;
   let saveTimer = null;
+  let saveQueue = Promise.resolve();
 
   const api = path => typeof global.getProdApiUrl === 'function' ? global.getProdApiUrl(path) : path;
   const auth = () => typeof global.getProdAuthHeaders === 'function' ? global.getProdAuthHeaders() : {};
@@ -50,6 +51,27 @@
   const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
   const dateAt = (year, month, day) => new Date(year, month - 1, day);
   const toDatePart = date => ({ year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() });
+  function planningReferenceDate() {
+    let day = state.activeDay;
+    if (state.scope === 'week') day = weekGroups(state.activeYear, state.activeMonth)[state.activeWeek - 1]?.days?.[0] || 1;
+    else if (state.scope === 'month') day = 1;
+    return `${state.activeYear}-${String(state.activeMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  async function reloadProductivityPlans() {
+    const effectiveFrom = encodeURIComponent(planningReferenceDate());
+    const [obResponse, coalResponse] = await Promise.all([
+      fetch(api(`/api/admin/production/productivity-plans/ob?effectiveFrom=${effectiveFrom}`), { headers: auth() }),
+      fetch(api(`/api/admin/production/productivity-plans/coal?effectiveFrom=${effectiveFrom}`), { headers: auth() }),
+    ]);
+    if (!obResponse.ok || !coalResponse.ok) throw new Error(`Productivity Planning HTTP ${!obResponse.ok ? obResponse.status : coalResponse.status}`);
+    const [ob, coal] = await Promise.all([
+      obResponse.ok ? obResponse.json() : {},
+      coalResponse.ok ? coalResponse.json() : {},
+    ]);
+    plans = [...parsePlans(ob, 'ob'), ...parsePlans(coal, 'coal')];
+    enrichPlans();
+  }
 
   function fieldValue(table, name) {
     const field = table.querySelector(`[data-plan-productivity-field="${name}"]`);
@@ -59,6 +81,19 @@
   }
 
   function parsePlans(payload, type) {
+    const structured = Array.isArray(payload?.planningData?.fleetCatalog) ? payload.planningData.fleetCatalog : [];
+    if (structured.length) return structured.map((entry, index) => ({
+      id: entry.tableId || `${type}-${index}-${entry.loaderCode}`,
+      type,
+      values: entry,
+      loaderCode: entry.loaderCode,
+      dumpTruckCode: entry.dumpTruckCode || entry.dumpTruckCodes?.[0] || '',
+      dumpTruckIds: Array.isArray(entry.dumpTruckIds) ? entry.dumpTruckIds.map(String) : [],
+      dumpTruckClasses: Array.isArray(entry.dumpTruckClasses) ? entry.dumpTruckClasses.map(normalize) : [],
+      requiredTrucks: Array.isArray(entry.dumpTruckIds) ? entry.dumpTruckIds.length : Math.max(0, Math.round(Number(entry.numberOfTruck) || 0)),
+      jobCode: entry.jobCode || '',
+      computed: { loaderProductivity: Number(entry.loaderProductivity), truckProductivity: Number(entry.truckProductivity), fleetProductivity: Number(entry.fleetProductivity) },
+    })).filter(plan => plan.loaderCode);
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<div>${payload?.contentHtml || ''}</div>`, 'text/html');
     return [...doc.querySelectorAll('.plan-productivity-table')].map((table, index) => {
@@ -86,9 +121,10 @@
     plans.forEach(plan => {
       plan.loaderUnit = byCode(plan.loaderCode);
       plan.dumpTruckUnit = byCode(plan.dumpTruckCode);
+      plan.dumpTruckUnits = (plan.dumpTruckIds || []).map(id => equipment.find(unit => unitId(unit) === String(id))).filter(Boolean);
       plan.dumpTruckModel = normalize(plan.dumpTruckUnit?.tipe_alat);
       plan.dumpTruckClass = normalize(plan.dumpTruckUnit?.class_unit);
-      plan.job = jobOfUnit(plan.loaderUnit);
+      plan.job = plan.jobCode || jobOfUnit(plan.loaderUnit);
     });
   }
 
@@ -178,9 +214,13 @@
 
   function strictDumpTruckCompatibility(unit, plan, assignedJob = jobOfUnit(unit)) {
     if (!isDumpTruck(unit)) return { ok: false, reason: 'Hanya Dump Truck yang dapat ditempatkan ke fleet.' };
-    if (!plan?.dumpTruckClass) return { ok: false, reason: 'Class Dump Truck pada Fleet Planning belum tersedia.' };
-    if (normalize(unit.class_unit) !== plan.dumpTruckClass) {
-      return { ok: false, reason: `Class ${unit.class_unit || '—'} tidak sesuai rencana ${plan.dumpTruckUnit?.class_unit || '—'}.` };
+    if (plan?.dumpTruckIds?.length && !plan.dumpTruckIds.includes(unitId(unit))) {
+      return { ok: false, reason: `Unit ${unit.kode_alat || '—'} tidak termasuk checklist Dump Truck scenario ini.` };
+    }
+    const allowedClasses = plan?.dumpTruckClasses?.length ? plan.dumpTruckClasses : (plan?.dumpTruckClass ? [plan.dumpTruckClass] : []);
+    if (!plan?.dumpTruckIds?.length && !allowedClasses.length) return { ok: false, reason: 'Class Dump Truck pada Fleet Planning belum tersedia.' };
+    if (!plan?.dumpTruckIds?.length && !allowedClasses.includes(normalize(unit.class_unit))) {
+      return { ok: false, reason: `Class ${unit.class_unit || '—'} tidak sesuai class scenario.` };
     }
     if (!plan.job || normalize(assignedJob) !== normalize(plan.job)) {
       return { ok: false, reason: `JOB unit ${assignedJob || 'belum diisi'} tidak sesuai ${plan.job || 'JOB fleet belum tersedia'}.` };
@@ -195,6 +235,7 @@
   }
 
   function dumpTruckGuidance(plan) {
+    if (plan?.dumpTruckUnits?.length) return `Unit terpilih: ${plan.dumpTruckUnits.map(unit => unit.kode_alat).join(', ')}`;
     const model = String(plan?.dumpTruckUnit?.tipe_alat || '').trim();
     const unitClass = String(plan?.dumpTruckUnit?.class_unit || '').trim();
     if (!model && !unitClass) return 'Class Dump Truck belum diatur di Fleet Planning';
@@ -387,7 +428,9 @@
   function setStatus(message, tone = 'ok') {
     const host = document.getElementById('unitMappingStatus');
     if (!host) return;
-    host.textContent = message;
+    const stateName = tone === 'pending' ? 'loading' : tone === 'ok' ? 'success' : tone;
+    global.OMOSActionFeedback?.status(host, stateName, message);
+    if (!global.OMOSActionFeedback) host.textContent = message;
     host.dataset.tone = tone;
   }
 
@@ -817,7 +860,7 @@
     clearTimeout(saveTimer);
     const draft = { savedAt: new Date().toISOString(), assignments: state.assignments, dozerFleetAssignments: state.dozerFleetAssignments };
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (error) { console.warn('Draft Unit Mapping tidak dapat disimpan:', error); }
-    const persist = async () => {
+    const run = async () => {
       setStatus('Menyimpan…', 'pending');
       try {
         const response = await fetch(api('/api/admin/production/productivity-plans/unit-mapping'), {
@@ -833,8 +876,12 @@
         setStatus('Gagal menyimpan — draft lokal aman', 'error');
       }
     };
-    if (immediate) return persist();
-    saveTimer = setTimeout(persist, 350);
+    const enqueue = () => {
+      saveQueue = saveQueue.catch(() => {}).then(run);
+      return saveQueue;
+    };
+    if (immediate) return enqueue();
+    saveTimer = setTimeout(enqueue, 350);
     return null;
   }
 
@@ -962,14 +1009,23 @@
     const panel = document.getElementById('tab-prodUnitMapping');
     if (!panel || panel.dataset.unitMappingBound) return;
     panel.dataset.unitMappingBound = 'true';
-    panel.addEventListener('change', event => {
-      if (event.target.matches('#unitMappingYear')) state.activeYear = Number(event.target.value);
-      else if (event.target.matches('#unitMappingMonth')) { state.activeMonth = Number(event.target.value); state.activeWeek = 1; state.activeDay = 1; }
-      else if (event.target.matches('#unitMappingScope')) state.scope = event.target.value;
-      else if (event.target.matches('#unitMappingWeek')) state.activeWeek = Number(event.target.value);
-      else if (event.target.matches('#unitMappingDay')) state.activeDay = Number(event.target.value);
+    panel.addEventListener('change', async event => {
+      let periodChanged = false;
+      if (event.target.matches('#unitMappingYear')) { state.activeYear = Number(event.target.value); periodChanged = true; }
+      else if (event.target.matches('#unitMappingMonth')) { state.activeMonth = Number(event.target.value); state.activeWeek = 1; state.activeDay = 1; periodChanged = true; }
+      else if (event.target.matches('#unitMappingScope')) { state.scope = event.target.value; periodChanged = true; }
+      else if (event.target.matches('#unitMappingWeek')) { state.activeWeek = Number(event.target.value); periodChanged = true; }
+      else if (event.target.matches('#unitMappingDay')) { state.activeDay = Number(event.target.value); periodChanged = true; }
       else if (event.target.matches('#unitMappingQueueFilter')) state.queueFilter = event.target.value;
       else return;
+      if (periodChanged) {
+        try { await reloadProductivityPlans(); }
+        catch (error) {
+          console.warn('Versi Productivity Planning gagal dimuat:', error);
+          setStatus('Gagal memuat versi planning', 'error');
+          return;
+        }
+      }
       render();
     });
     panel.addEventListener('input', event => {
@@ -1051,13 +1107,14 @@
       '/api/admin/production/master',
       '/api/admin/production/productivity-plans/spo',
       '/api/admin/production/productivity-plans/pa-ua-ewh',
-      '/api/admin/production/productivity-plans/ob',
-      '/api/admin/production/productivity-plans/coal',
+      `/api/admin/production/productivity-plans/ob?effectiveFrom=${encodeURIComponent(planningReferenceDate())}`,
+      `/api/admin/production/productivity-plans/coal?effectiveFrom=${encodeURIComponent(planningReferenceDate())}`,
       '/api/admin/production/productivity-plans/fleet-capacity',
       '/api/admin/production/productivity-plans/unit-mapping',
     ];
     const responses = await Promise.all(paths.map(path => fetch(api(path), { headers: auth() })));
     if (!responses[0].ok) throw new Error(`Master HTTP ${responses[0].status}`);
+    if (!responses[3].ok || !responses[4].ok) throw new Error(`Productivity Planning HTTP ${!responses[3].ok ? responses[3].status : responses[4].status}`);
     const [master, spo, pae, ob, coal, fleet, saved] = await Promise.all(responses.map(async response => response.ok ? response.json() : {}));
     equipment = master.equipment || [];
     paAssignments = pae.planningData?.assignments?.PA || {};

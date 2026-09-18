@@ -1,4 +1,6 @@
 const { pool } = require('../config/db');
+const { hitungKehadiranPayroll } = require('../services/presensiPayroll');
+const { getHmPayrollSummary } = require('../services/hmWorklog');
 
 /**
  * Helper menghitung jumlah hari dalam suatu bulan
@@ -76,7 +78,7 @@ async function hitungKalkulasiPayroll(req, res, next) {
 
     // Query data karyawan & payroll master
     const { rows: karyawanList } = await pool.query(
-      `SELECT 
+      `SELECT
          u.id AS user_id,
          COALESCE(u.employee_id, p.employee_id) AS employee_id,
          u.nama AS nama_karyawan,
@@ -91,7 +93,20 @@ async function hitungKalkulasiPayroll(req, res, next) {
          COALESCE(p.tunjangan_jabatan, 0) AS tunj_jabatan_master,
          COALESCE(p.insentif_hm_per_jam, 0) AS insentif_hm_per_jam
        FROM users u
-       LEFT JOIN payroll p ON (p.employee_id = u.employee_id OR LOWER(p.nama_karyawan) = LOWER(u.nama))
+       LEFT JOIN LATERAL (
+         SELECT payroll_row.*
+         FROM payroll payroll_row
+         WHERE (
+           u.employee_id IS NOT NULL
+           AND LOWER(TRIM(payroll_row.employee_id)) = LOWER(TRIM(u.employee_id))
+         ) OR LOWER(TRIM(payroll_row.nama_karyawan)) = LOWER(TRIM(u.nama))
+         ORDER BY
+           CASE WHEN u.employee_id IS NOT NULL
+             AND LOWER(TRIM(payroll_row.employee_id)) = LOWER(TRIM(u.employee_id))
+             THEN 0 ELSE 1 END,
+           payroll_row.updated_at DESC NULLS LAST
+         LIMIT 1
+       ) p ON TRUE
        WHERE u.role = 'karyawan' AND u.is_active = TRUE
        ORDER BY u.nama ASC`
     );
@@ -99,69 +114,34 @@ async function hitungKalkulasiPayroll(req, res, next) {
     // Iterasi perhitungan per karyawan
     const hasilKalkulasi = await Promise.all(
       karyawanList.map(async (k) => {
-        // 1. Hitung Hari Kerja Actual & rincian kehadiran (hari biasa vs hari libur)
-        const { rows: absensiRows } = await pool.query(
-          `SELECT DISTINCT tanggal_kerja::text AS tgl_str
-           FROM absensi
-           WHERE user_id = $1 AND tanggal_kerja BETWEEN $2 AND $3 AND waktu_datang IS NOT NULL`,
-          [k.user_id, tglMulai, tglAkhir]
-        );
+        // ------------------------------------------------------------------
+        // DATA KEHADIRAN (alpa/izin/sakit/hadir) kini diambil dari komputasi yang
+        // IDENTIK dengan tab "Rekap Performa" — berbasis roster S/M + kehadiran
+        // kamera + status manual + tanggal pendaftaran akun.
+        //
+        // SEBELUMNYA payroll hanya membaca baris MANUAL keterangan_presensi yang
+        // berkategori alpa/izin sehingga hampir selalu 0 dan karyawan yang tidak
+        // masuk beberapa hari tidak pernah kena potongan gaji.
+        // ------------------------------------------------------------------
+        const kehadiran = await hitungKehadiranPayroll({
+          userId: k.user_id,
+          mulai: tglMulai,
+          akhir: tglAkhir,
+          accountCreated: k.user_created_at,
+          hariLiburReguler: config.hari_libur_reguler,
+          hariLiburNasional: liburNasionalArray,
+          tunjKehadiranPerHari: Number(k.tunj_kehadiran_per_hari || 0),
+        });
 
-        const { rows: manualHadirRows } = await pool.query(
-          `SELECT DISTINCT tanggal::text AS tgl_str
-           FROM keterangan_presensi
-           WHERE user_id = $1 AND tanggal BETWEEN $2 AND $3 AND kategori = 'hadir_manual'`,
-          [k.user_id, tglMulai, tglAkhir]
-        );
-
-        const setHariHadir = new Set([
-          ...absensiRows.map((r) => r.tgl_str ? r.tgl_str.split('T')[0] : ''),
-          ...manualHadirRows.map((r) => r.tgl_str ? r.tgl_str.split('T')[0] : ''),
-        ]);
-        setHariHadir.delete('');
-
-        const hariKerjaActual = setHariHadir.size;
-
-        // Hitung Tunjangan Kehadiran: Hari Biasa (1x) vs Hari Libur (Reguler/Nasional) (2x)
+        const hariIzin = kehadiran.hari_izin;
+        const hariSakit = kehadiran.hari_sakit;
+        const hariAlpa = kehadiran.hari_alpa;
+        const hariKerjaActual = kehadiran.hari_kerja_actual;
+        const hariKerjaBiasa = kehadiran.hari_kerja_biasa;
+        const hariKerjaLibur = kehadiran.hari_kerja_libur;
+        const tunjKehadiranTotal = kehadiran.tunj_kehadiran_total;
         const tunjKehadiranPerHari = Number(k.tunj_kehadiran_per_hari || 0);
-        let hariKerjaBiasa = 0;
-        let hariKerjaLibur = 0;
-        let tunjKehadiranTotal = 0;
 
-        for (const tglStr of setHariHadir) {
-          const d = new Date(`${tglStr}T00:00:00`);
-          const dayOfWeek = d.getDay(); // 0 = Minggu, 6 = Sabtu
-          const isRegulerLibur = (config.hari_libur_reguler === 'sabtu-minggu')
-            ? (dayOfWeek === 0 || dayOfWeek === 6)
-            : (dayOfWeek === 0);
-          const isNasionalLibur = liburNasionalArray.includes(tglStr);
-
-          if (isRegulerLibur || isNasionalLibur) {
-            hariKerjaLibur += 1;
-            tunjKehadiranTotal += (tunjKehadiranPerHari * 2);
-          } else {
-            hariKerjaBiasa += 1;
-            tunjKehadiranTotal += (tunjKehadiranPerHari * 1);
-          }
-        }
-
-        // 2. Hitung Deduksi / Pengurangan (Hanya ALPA & IZIN. Sakit tidak memotong gaji)
-        const { rows: deduksiRows } = await pool.query(
-          `SELECT kategori, COUNT(*) as cnt
-           FROM keterangan_presensi
-           WHERE user_id = $1 AND tanggal BETWEEN $2 AND $3 AND kategori IN ('alpa', 'izin', 'sakit')
-           GROUP BY kategori`,
-          [k.user_id, tglMulai, tglAkhir]
-        );
-
-        let hariIzin = 0;
-        let hariSakit = 0;
-        let hariAlpa = 0;
-        for (const dr of deduksiRows) {
-          if (dr.kategori === 'izin') hariIzin = Number(dr.cnt);
-          if (dr.kategori === 'sakit') hariSakit = Number(dr.cnt);
-          if (dr.kategori === 'alpa') hariAlpa = Number(dr.cnt);
-        }
         // Sakit TIDAK memotong gaji (hanya Alpa + Izin)
         const totalHariDeduksi = hariIzin + hariAlpa;
 
@@ -169,24 +149,28 @@ async function hitungKalkulasiPayroll(req, res, next) {
         const dateInParsed = parseDateIn(k.date_in || k.user_created_at);
         const tglMulaiDate = parseDateIn(tglMulai);
         const isMasaKerjaBaru = dateInParsed ? (dateInParsed > tglMulaiDate) : false;
-        const dateInStr = k.date_in || (k.user_created_at ? new Date(k.user_created_at).toISOString().split('T')[0] : tglMulai);
+        const dateInStr = k.date_in
+          || (k.user_created_at ? new Date(k.user_created_at).toISOString().split('T')[0] : tglMulai);
 
         const gajiPokokMaster = Number(k.gaji_pokok_master || 0);
         const pembagiBaku = 26;
 
+        // Potongan gaji pokok akibat ALPA & IZIN (masing-masing 1/26 gaji pokok)
         let potonganDeduksi = 0;
-        let gajiPokokFinal = gajiPokokMaster;
-
         if (totalHariDeduksi > 0) {
           potonganDeduksi = Math.round((gajiPokokMaster / pembagiBaku) * totalHariDeduksi);
         }
 
+        let gajiPokokSebelumPotonganAbsen = gajiPokokMaster;
         if (isMasaKerjaBaru && dateInParsed) {
           const dEnd = parseDateIn(tglAkhir);
           const diffTime = dEnd.getTime() - dateInParsed.getTime();
           const totalHariMasaKerja = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1);
-          gajiPokokFinal = Math.round((gajiPokokMaster / pembagiBaku) * totalHariMasaKerja);
+          gajiPokokSebelumPotonganAbsen = Math.round((gajiPokokMaster / pembagiBaku) * totalHariMasaKerja);
         }
+
+        // Gaji pokok yang BENAR-BENAR diberikan = sudah dipotong ALPA/IZIN (tidak < 0)
+        const gajiPokokFinal = Math.max(0, gajiPokokSebelumPotonganAbsen - potonganDeduksi);
 
         // 4. Tunjangan Jabatan
         const tunjJabatan = Number(k.tunj_jabatan_master || 0);
@@ -198,21 +182,18 @@ async function hitungKalkulasiPayroll(req, res, next) {
           jabatanLower.includes('driver');
 
         let totalHm = 0;
+        let totalHmSumber = 0;
         let insentifHmTotal = 0;
 
         if (isOperatorDriver) {
-          const { rows: hmRows } = await pool.query(
-            `SELECT COALESCE(SUM(total_hm), 0) AS sum_hm
-             FROM database_hm
-             WHERE user_id = $1 AND tanggal BETWEEN $2 AND $3`,
-            [k.user_id, tglMulai, tglAkhir]
-          );
-          totalHm = Number(hmRows[0]?.sum_hm || 0);
+          const hm = await getHmPayrollSummary(pool, k.user_id, tglMulai, tglAkhir);
+          totalHm = hm.payable_hm;
+          totalHmSumber = hm.source_hm;
           const tarifHm = Number(k.insentif_hm_per_jam || 0);
           insentifHmTotal = Math.round(totalHm * tarifHm);
         }
 
-        // 6. Total Take Home Pay
+        // 6. Total Take Home Pay — potongan absen sudah tercermin di gajiPokokFinal
         const takeHomePay = gajiPokokFinal + tunjKehadiranTotal + tunjJabatan + insentifHmTotal;
 
         return {
@@ -223,6 +204,8 @@ async function hitungKalkulasiPayroll(req, res, next) {
           date_in: dateInStr,
           is_prorate: isMasaKerjaBaru || totalHariDeduksi > 0,
           is_prorate_masa_kerja: isMasaKerjaBaru,
+          tanggal_buat_akun: kehadiran.tanggal_buat_akun,
+          total_hari_kerja_eff_rekap: kehadiran.total_hari_kerja_eff,
           hari_kerja_actual: hariKerjaActual,
           hari_kerja_biasa: hariKerjaBiasa,
           hari_kerja_libur: hariKerjaLibur,
@@ -237,6 +220,7 @@ async function hitungKalkulasiPayroll(req, res, next) {
           tunj_kehadiran_total: tunjKehadiranTotal,
           tunj_jabatan: tunjJabatan,
           is_operator_driver: isOperatorDriver,
+          total_hm_sumber: isOperatorDriver ? Number(totalHmSumber.toFixed(2)) : null,
           total_hm: isOperatorDriver ? Number(totalHm.toFixed(2)) : null,
           insentif_hm_per_jam: isOperatorDriver ? Number(k.insentif_hm_per_jam || 0) : null,
           insentif_hm_total: isOperatorDriver ? insentifHmTotal : null,

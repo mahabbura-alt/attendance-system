@@ -8,6 +8,13 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 
 async function verify() {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET wajib tersedia untuk menjalankan verifikasi Supabase.');
+  }
+  if (!process.env.OMOS_VERIFY_PASSWORD) {
+    throw new Error('OMOS_VERIFY_PASSWORD wajib tersedia untuk simulasi login verifikasi.');
+  }
+
   console.log('🔍 [VERIFICATION] Mulai pengujian koneksi dan integritas database Supabase...\n');
 
   // 1. Connection Test
@@ -44,11 +51,14 @@ async function verify() {
   if (!authRes.rows[0]) {
     throw new Error(`User ${testUser.email} tidak ditemukan.`);
   }
-  const isMatch = await bcrypt.compare('admin123', authRes.rows[0].password_hash) || await bcrypt.compare('sorreh123', authRes.rows[0].password_hash);
-  console.log(`   ✅ Query user '${testUser.email}' berhasil. Hash valid: ${Boolean(authRes.rows[0].password_hash)}`);
+  const isMatch = await bcrypt.compare(process.env.OMOS_VERIFY_PASSWORD, authRes.rows[0].password_hash);
+  if (!isMatch) {
+    throw new Error(`Kredensial verifikasi untuk '${testUser.email}' tidak cocok.`);
+  }
+  console.log(`   ✅ Query dan validasi kredensial user '${testUser.email}' berhasil.`);
 
   // 5. Test JWT Token Generation
-  const token = jwt.sign({ id: authRes.rows[0].id, role: authRes.rows[0].role }, process.env.JWT_SECRET || 'secret', { expiresIn: '1h' });
+  const token = jwt.sign({ id: authRes.rows[0].id, role: authRes.rows[0].role }, process.env.JWT_SECRET, { expiresIn: '1h' });
   console.log(`   ✅ Generasi JWT Token berhasil (${token.substring(0, 25)}...)\n`);
 
   console.log('🎉 [SUCCESS] Seluruh verifikasi Supabase PostgreSQL 100% SUKSES!');

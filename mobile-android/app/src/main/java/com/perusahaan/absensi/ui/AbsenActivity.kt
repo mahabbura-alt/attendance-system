@@ -3,6 +3,7 @@ package com.perusahaan.absensi.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Size
 import android.widget.TextView
 import android.widget.ProgressBar
 import android.view.View
@@ -44,6 +45,7 @@ class AbsenActivity : AppCompatActivity() {
     private lateinit var layoutCamera: FrameLayout
     private var validLat: Double = 0.0
     private var validLng: Double = 0.0
+    private var validAccuracy: Float = 0f
 
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var mode: ModeAbsen
@@ -129,6 +131,10 @@ class AbsenActivity : AppCompatActivity() {
 
             imageCapture = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                // Batasi payload untuk perangkat dan jaringan lapangan yang lemah.
+                // CameraX tetap mempertahankan metadata orientasi JPEG.
+                .setTargetResolution(Size(720, 960))
+                .setJpegQuality(75)
                 .build()
 
             // Coba kamera depan dulu, fallback ke kamera belakang jika tidak ada
@@ -171,12 +177,17 @@ class AbsenActivity : AppCompatActivity() {
 
                 validLat = location.latitude
                 validLng = location.longitude
+                validAccuracy = if (location.hasAccuracy()) location.accuracy else 0f
 
                 runOnUiThread {
                     textStatus.text = "Memverifikasi area absensi..."
                 }
 
-                val response = RetrofitClient.api.checkLokasi(CheckLokasiRequest(validLat, validLng))
+                val response = RetrofitClient.api.checkLokasi(CheckLokasiRequest(
+                    validLat,
+                    validLng,
+                    validAccuracy.takeIf { it > 0f }
+                ))
                 if (response.isSuccessful && response.body() != null) {
                     val body = response.body()!!
                     if (body.valid) {
@@ -188,7 +199,7 @@ class AbsenActivity : AppCompatActivity() {
                     tampilkanGagalUtama("Gagal menghubungi server untuk cek lokasi.")
                 }
             } catch (e: Exception) {
-                tampilkanGagalUtama("Terjadi kesalahan: ")
+                tampilkanGagalUtama(pesanGangguanKoneksi(e))
             }
         }
     }
@@ -247,17 +258,39 @@ class AbsenActivity : AppCompatActivity() {
     private fun prosesAbsen(fotoBytes: ByteArray) {
         lifecycleScope.launch {
             try {
-                runOnUiThread { textStatus.text = "Mengirim biometrik wajah..." }
+                runOnUiThread { textStatus.text = "Memperbarui koordinat GPS..." }
+                when (val lokasi = ambilLokasiSaatIni(this@AbsenActivity)) {
+                    is LokasiResult.Sukses -> {
+                        validLat = lokasi.location.latitude
+                        validLng = lokasi.location.longitude
+                        validAccuracy = if (lokasi.location.hasAccuracy()) lokasi.location.accuracy else 0f
+                    }
+                    is LokasiResult.MockTerdeteksi -> {
+                        tampilkanGagal("Lokasi palsu terdeteksi. Harap matikan Fake GPS.")
+                        return@launch
+                    }
+                    is LokasiResult.Gagal -> {
+                        tampilkanGagal(lokasi.pesan)
+                        return@launch
+                    }
+                }
+
+                runOnUiThread { textStatus.text = "Mengirim data absensi..." }
 
                 val latBody   = validLat.toString().toRequestBody("text/plain".toMediaTypeOrNull())
                 val lngBody   = validLng.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+                val accBody   = if (validAccuracy > 0f) {
+                    validAccuracy.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+                } else {
+                    null
+                }
                 val fotoBody  = fotoBytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
                 val fotoPart  = MultipartBody.Part.createFormData("foto", "absen.jpg", fotoBody)
 
                 val response = if (mode == ModeAbsen.DATANG) {
-                    RetrofitClient.api.absenDatang(latBody, lngBody, fotoPart)
+                    RetrofitClient.api.absenDatang(latBody, lngBody, accBody, fotoPart)
                 } else {
-                    RetrofitClient.api.absenPulang(latBody, lngBody, fotoPart)
+                    RetrofitClient.api.absenPulang(latBody, lngBody, accBody, fotoPart)
                 }
 
                 if (response.isSuccessful && response.body() != null) {
@@ -274,8 +307,39 @@ class AbsenActivity : AppCompatActivity() {
                     tampilkanGagal(pesanError)
                 }
             } catch (e: Exception) {
-                tampilkanGagal("Terjadi kesalahan: ${e.message}")
+                val recovered = rekonsiliasiSetelahKoneksiTerputus()
+                if (!recovered) tampilkanGagal(pesanGangguanKoneksi(e))
             }
+        }
+    }
+
+    private suspend fun rekonsiliasiSetelahKoneksiTerputus(): Boolean {
+        return try {
+            val response = RetrofitClient.api.riwayat()
+            if (!response.isSuccessful) return false
+            val rows = response.body().orEmpty()
+            val hasPendingSession = rows.any {
+                it.is_pending_session ?: (it.waktu_datang != null && it.waktu_pulang == null)
+            }
+            val confirmed = if (mode == ModeAbsen.DATANG) {
+                hasPendingSession
+            } else {
+                !hasPendingSession && rows.any { it.waktu_datang != null && it.waktu_pulang != null }
+            }
+            if (confirmed) {
+                tampilkanSukses("✅ Absensi sudah tercatat di server. Konfirmasi awal terputus, tetapi data berhasil ditemukan kembali.")
+            }
+            confirmed
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun pesanGangguanKoneksi(error: Exception): String {
+        return if (error is java.net.SocketTimeoutException) {
+            "Koneksi ke server melewati batas waktu. Periksa jaringan lalu buka halaman utama untuk memastikan status absensi sebelum mencoba lagi."
+        } else {
+            "Koneksi ke server terputus. Periksa jaringan lalu buka halaman utama untuk memastikan status absensi sebelum mencoba lagi."
         }
     }
 

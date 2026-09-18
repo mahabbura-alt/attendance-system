@@ -3,7 +3,6 @@ process.env.TZ = process.env.TZ || 'Asia/Jakarta';
 const express = require('express');
 const cors = require('cors');
 
-const { pastikanBucketTersedia } = require('./config/minio');
 const { pool } = require('./config/db');
 const { assertEnvironment } = require('./config/env');
 const authRoutes = require('./routes/auth.routes');
@@ -15,20 +14,21 @@ const payrollRoutes = require('./routes/payroll.routes');
 const hmRoutes = require('./routes/hm.routes');
 const kalkulasiPayrollRoutes = require('./routes/kalkulasiPayroll.routes');
 const productionRoutes = require('./routes/production.routes');
-const { securityHeaders, requestId, createRateLimiter } = require('./middleware/security');
+const { securityHeaders, requestId, requestTiming, createRateLimiter } = require('./middleware/security');
 const { uploadErrorHandler } = require('./middleware/upload');
 
 const app = express();
 
 app.disable('x-powered-by');
 app.use(requestId);
+app.use(requestTiming);
 app.use(securityHeaders);
 app.use(cors({
   origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Authorization', 'Content-Type', 'X-Password'],
-  exposedHeaders: ['Content-Disposition'],
+  allowedHeaders: ['Authorization', 'Content-Type', 'X-Password', 'X-Request-Id'],
+  exposedHeaders: ['Content-Disposition', 'X-Request-Id', 'Server-Timing'],
 }));
 app.use(express.json({ limit: '10mb' }));
 
@@ -84,13 +84,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-
-try {
-  assertEnvironment();
-} catch (e) {
-  console.warn('[Env Warning]', e.message);
-}
+assertEnvironment();
 
 async function checkDependencies() {
   try {
@@ -116,19 +110,9 @@ async function checkDependencies() {
     console.warn(`[DB Warning] PostgreSQL query test: ${err.message}`);
   }
 
-  try {
-    await pastikanBucketTersedia();
-  } catch (err) {
-    console.warn(`[MinIO Warning] MinIO belum aktif: ${err.message}`);
-  }
 }
 
-checkDependencies().catch(err => console.warn('[CheckDep Error]', err.message));
-
-if (!process.env.VERCEL) {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server berjalan di http://0.0.0.0:${PORT}`);
-  });
-}
+// P1: jangan jalankan DDL, seed, atau pemeriksaan DB pada cold start.
+// Infrastruktur database kini disiapkan lewat migration 024 sebelum deployment.
 
 module.exports = app;

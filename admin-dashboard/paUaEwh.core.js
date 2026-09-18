@@ -6,8 +6,10 @@
   const COLS = [120, 60, 140, 75, 72];
   let initialized = false;
   let saveTimer = null;
+  let saveQueue = Promise.resolve();
   let units = [];
   let jobs = [];
+  let jobAliases = new Map();
   let spoTablesByJob = {};
   const spoLossCache = new Map();
   const calculationCache = new Map();
@@ -82,14 +84,17 @@
     const doc = parser.parseFromString(`<div>${payload?.contentHtml || ''}</div>`, 'text/html');
     const planningTables = payload?.planningData?.tables || {};
     spoTablesByJob = {};
+    jobAliases = new Map();
     spoLossCache.clear();
     calculationCache.clear();
     [...doc.querySelectorAll('.spo-table')]
       .filter(table => /^\s*deployed\s*$/i.test(table.querySelector('[data-spo-status]')?.textContent || ''))
       .forEach(table => {
-        const job = table.querySelector('[data-spo-job]')?.getAttribute('value')?.trim();
+        const stored = planningTables[table.dataset.spoTableId] || {};
+        const job = (stored.jobCode || table.querySelector('[data-spo-job]')?.value || table.querySelector('[data-spo-job]')?.getAttribute('value'))?.trim();
         const id = table.dataset.spoTableId;
-        if (job && id && !spoTablesByJob[job]) spoTablesByJob[job] = planningTables[id] || {};
+        if (job && id && !spoTablesByJob[job]) spoTablesByJob[job] = stored;
+        [job, stored.jobDescription, ...(stored.jobLegacyValues || [])].filter(Boolean).forEach(alias => jobAliases.set(String(alias).trim().toLocaleLowerCase('id-ID'), job));
       });
     jobs = Object.keys(spoTablesByJob).sort((a, b) => a.localeCompare(b));
     const tables = Object.values(planningTables);
@@ -106,6 +111,10 @@
     const saved = payload?.planningData;
     if (!saved || typeof saved !== 'object') return;
     state.assignments = saved.assignments || {};
+    Object.values(state.assignments).forEach(assignments => Object.keys(assignments || {}).forEach(unit => {
+      const current = String(assignments[unit] || '').trim();
+      assignments[unit] = jobAliases.get(current.toLocaleLowerCase('id-ID')) || current;
+    }));
     state.values = saved.values || {};
     calculationCache.clear();
   }
@@ -395,20 +404,26 @@
     clearTimeout(saveTimer);
     const run = async () => {
       const status = document.getElementById('paeSaveStatus');
-      if (status) status.textContent = 'Menyimpan…';
+      global.OMOSActionFeedback?.status(status, 'loading', 'Menyimpan perubahan…');
       try {
         const response = await fetch(api('/api/admin/production/productivity-plans/pa-ua-ewh'), {
           method: 'PUT', headers: { 'Content-Type': 'application/json', ...auth() },
           body: JSON.stringify({ contentHtml: '<div data-pae-storage="true"></div>', planningData: state })
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        if (status) status.textContent = 'Tersimpan';
+        global.OMOSActionFeedback?.status(status, 'success', 'Tersimpan');
       } catch (error) {
         console.error('Gagal menyimpan PA/UA/EWH:', error);
-        if (status) status.textContent = 'Gagal simpan';
+        global.OMOSActionFeedback?.status(status, 'error', 'Gagal menyimpan');
       }
     };
-    if (immediate) run(); else saveTimer = setTimeout(run, 350);
+    const enqueue = () => {
+      saveQueue = saveQueue.catch(() => {}).then(run);
+      return saveQueue;
+    };
+    if (immediate) return enqueue();
+    saveTimer = setTimeout(enqueue, 350);
+    return null;
   }
 
   function bindOnce() {

@@ -1,7 +1,6 @@
 const XLSX = require('xlsx');
 const { pool } = require('../config/db');
 const {
-  ensureRosterSchema,
   validatePatternDays,
   buildSimpleRosterCycle,
   calculateRosterResetRange,
@@ -25,9 +24,106 @@ function addDaysIso(iso, days) {
   return date.toISOString().slice(0, 10);
 }
 
+// Mencari day_index (1-based) dari awal blok (run) pertama berstatus `status`
+// pada larik template_days. Dipakai untuk re-anchor siklus saat admin menetapkan
+// satu hari menjadi S/M: hari tsb dianggap sebagai awal blok shift pada pola.
+function findRunStartDayIndex(templateDays, status) {
+  if (!Array.isArray(templateDays) || templateDays.length === 0) return null;
+  for (let index = 0; index < templateDays.length; index += 1) {
+    const isRunStart = templateDays[index] === status
+      && (index === 0 || templateDays[index - 1] !== status);
+    if (isRunStart) return index + 1;
+  }
+  return null;
+}
+
+async function findOrProvisionRosterAssignment({ client, userId, tanggal, adminId }) {
+  const userResult = await client.query(
+    `SELECT id, COALESCE(NULLIF(TRIM(jabatan), ''), 'Tanpa Jabatan') AS jabatan
+     FROM users
+     WHERE id=$1 AND role='karyawan' AND is_active=TRUE
+     FOR UPDATE`,
+    [userId],
+  );
+  const user = userResult.rows[0];
+  if (!user) throw httpError('Karyawan aktif tidak ditemukan.', 404);
+
+  const assignmentSql = `SELECT a.*,a.effective_from::text AS effective_from_iso,
+          a.effective_to::text AS effective_to_iso,
+          rt.roster_cuti_hari,rt.cycle_days,rt.nama AS template_nama
+     FROM employee_roster_assignments a
+     JOIN roster_templates rt ON rt.id=a.template_id AND rt.is_active=TRUE
+     WHERE a.user_id=$1 AND a.is_active=TRUE
+       AND a.effective_from <= $2::date
+       AND (a.effective_to IS NULL OR a.effective_to >= $2::date)
+     ORDER BY a.effective_from DESC
+     LIMIT 1 FOR UPDATE OF a`;
+  const existingResult = await client.query(assignmentSql, [userId, tanggal]);
+  if (existingResult.rows[0]) return existingResult.rows[0];
+
+  // Tanggal CP/OFF sengaja tidak memiliki assignment karena siklus berikutnya
+  // baru dimulai setelah periode cuti. Gunakan segmen assignment terdekat sebagai
+  // sumber template ketika admin melakukan re-anchor di dalam celah tersebut.
+  // Jangan membuat assignment policy baru karena dapat menduplikasi segmen lama.
+  const adjacentResult = await client.query(
+    `SELECT a.*,a.effective_from::text AS effective_from_iso,
+            a.effective_to::text AS effective_to_iso,
+            rt.roster_cuti_hari,rt.cycle_days,rt.nama AS template_nama
+     FROM employee_roster_assignments a
+     JOIN roster_templates rt ON rt.id=a.template_id AND rt.is_active=TRUE
+     WHERE a.user_id=$1 AND a.is_active=TRUE
+     ORDER BY
+       CASE WHEN a.effective_from <= $2::date THEN 0 ELSE 1 END,
+       CASE WHEN a.effective_from <= $2::date THEN a.effective_from END DESC,
+       CASE WHEN a.effective_from > $2::date THEN a.effective_from END ASC,
+       a.created_at DESC
+     LIMIT 1 FOR UPDATE OF a`,
+    [userId, tanggal],
+  );
+  if (adjacentResult.rows[0]) return adjacentResult.rows[0];
+
+  const policyResult = await client.query(
+    `SELECT p.*
+     FROM roster_jabatan_policies p
+     WHERE p.jabatan_key=LOWER(REGEXP_REPLACE(TRIM($1), '\\s+', ' ', 'g'))
+       AND p.is_active=TRUE
+       AND p.effective_from <= $2::date
+       AND (p.effective_to IS NULL OR p.effective_to >= $2::date)
+     ORDER BY p.effective_from DESC
+     LIMIT 1`,
+    [user.jabatan, tanggal],
+  );
+  const policy = policyResult.rows[0];
+  if (!policy) {
+    throw httpError(`Roster jabatan ${user.jabatan} belum memiliki kebijakan aktif untuk tanggal tersebut. Atur Roster Jabatan terlebih dahulu.`);
+  }
+
+  const createdResult = await client.query(
+    `INSERT INTO employee_roster_assignments
+       (user_id,template_id,effective_from,effective_to,anchor_day_index,created_by)
+     VALUES ($1,$2,$3::date,$4::date,$5,$6)
+     RETURNING id`,
+    [userId, policy.template_id, policy.effective_from, policy.effective_to, policy.anchor_day_index, adminId],
+  );
+  await client.query(
+    `INSERT INTO roster_audit_log (admin_id,user_id,aksi,detail)
+     VALUES ($1,$2,'auto_assign_from_jabatan_policy',$3::jsonb)`,
+    [adminId, userId, JSON.stringify({
+      jabatan: user.jabatan,
+      policy_id: policy.id,
+      assignment_id: createdResult.rows[0].id,
+      effective_from: policy.effective_from,
+      effective_to: policy.effective_to,
+      trigger_date: tanggal,
+    })],
+  );
+  const provisionedResult = await client.query(assignmentSql, [userId, tanggal]);
+  if (!provisionedResult.rows[0]) throw httpError('Sinkronisasi roster jabatan gagal.', 500);
+  return provisionedResult.rows[0];
+}
+
 async function daftarTemplate(req, res, next) {
   try {
-    await ensureRosterSchema();
     const { rows } = await pool.query(
       `SELECT rt.*,
               COALESCE(json_agg(rtd.status ORDER BY rtd.day_index)
@@ -46,7 +142,6 @@ async function daftarTemplate(req, res, next) {
 
 async function daftarJabatanRoster(req, res, next) {
   try {
-    await ensureRosterSchema();
     const { rows } = await pool.query(
       `SELECT COALESCE(NULLIF(trim(u.jabatan), ''), 'Tanpa Jabatan') AS jabatan,
               COUNT(*)::int AS jumlah_karyawan
@@ -64,7 +159,6 @@ async function daftarJabatanRoster(req, res, next) {
 async function buatTemplate(req, res, next) {
   const client = await pool.connect();
   try {
-    await ensureRosterSchema();
     const simpleRoster = buildSimpleRosterCycle(req.body.roster_cuti, req.body.hari_kerja);
     const days = validatePatternDays(simpleRoster.days);
     const rosterKerjaHari = simpleRoster.workDays;
@@ -127,7 +221,6 @@ async function buatTemplate(req, res, next) {
 
 async function daftarRoster(req, res, next) {
   try {
-    await ensureRosterSchema();
     const tanggalMulai = req.query.tanggal_mulai || isoTodayWib();
     const tanggalAkhir = req.query.tanggal_akhir || addDaysIso(tanggalMulai, 30);
     const jabatan = String(req.query.jabatan || '').trim();
@@ -203,7 +296,6 @@ async function daftarRoster(req, res, next) {
 async function assignRosterJabatan(req, res, next) {
   const client = await pool.connect();
   try {
-    await ensureRosterSchema();
     const jabatan = String(req.body.jabatan || '').trim();
     const templateId = req.body.template_id;
     const effectiveFrom = req.body.effective_from || isoTodayWib();
@@ -231,6 +323,21 @@ async function assignRosterJabatan(req, res, next) {
     );
     const userIds = usersResult.rows.map(row => row.id);
     if (!userIds.length) throw httpError('Tidak ada karyawan aktif pada jabatan tersebut', 404);
+
+    const jabatanKey = jabatan.replace(/\s+/g, ' ').trim().toLocaleLowerCase('id-ID');
+    await client.query(
+      `UPDATE roster_jabatan_policies
+       SET is_active=FALSE,updated_at=now()
+       WHERE jabatan_key=$1 AND is_active=TRUE`,
+      [jabatanKey],
+    );
+    const policyResult = await client.query(
+      `INSERT INTO roster_jabatan_policies
+         (jabatan,jabatan_key,template_id,effective_from,effective_to,anchor_day_index,created_by)
+       VALUES ($1,$2,$3,$4::date,$5::date,$6,$7)
+       RETURNING id`,
+      [jabatan, jabatanKey, templateId, effectiveFrom, effectiveTo, anchorDayIndex, req.user.id],
+    );
 
     await client.query(
       `UPDATE employee_roster_assignments
@@ -264,7 +371,7 @@ async function assignRosterJabatan(req, res, next) {
       [req.user.id, JSON.stringify({
         jabatan, template_id: templateId, effective_from: effectiveFrom,
         effective_to: effectiveTo, anchor_day_index: anchorDayIndex,
-        jumlah_karyawan: userIds.length,
+        jumlah_karyawan: userIds.length, policy_id: policyResult.rows[0].id,
       })],
     );
     await client.query('COMMIT');
@@ -291,7 +398,6 @@ async function assignRosterJabatan(req, res, next) {
 async function assignRoster(req, res, next) {
   const client = await pool.connect();
   try {
-    await ensureRosterSchema();
     const userId = req.body.user_id;
     const templateId = req.body.template_id;
     const effectiveFrom = req.body.effective_from || isoTodayWib();
@@ -360,23 +466,7 @@ async function applyRosterDailyOverride({ client, userId, tanggal, statusValue, 
   const status = validatePatternDays([statusValue])[0];
   validateDateRange(tanggal, tanggal, 1);
     if (status === 'CP' || status === 'OFF') {
-      const assignmentResult = await client.query(
-        `SELECT a.*,a.effective_from::text AS effective_from_iso,
-                a.effective_to::text AS effective_to_iso,
-                rt.roster_cuti_hari,rt.nama AS template_nama
-         FROM employee_roster_assignments a
-         JOIN roster_templates rt ON rt.id=a.template_id AND rt.is_active=TRUE
-         WHERE a.user_id=$1 AND a.is_active=TRUE
-           AND a.effective_from <= $2::date
-           AND (a.effective_to IS NULL OR a.effective_to >= $2::date)
-         ORDER BY a.effective_from DESC
-         LIMIT 1 FOR UPDATE OF a`,
-        [userId, tanggal],
-      );
-      const assignment = assignmentResult.rows[0];
-      if (!assignment) {
-        throw httpError('Roster karyawan belum diatur untuk tanggal tersebut. Atur roster jabatan terlebih dahulu.');
-      }
+      const assignment = await findOrProvisionRosterAssignment({ client, userId, tanggal, adminId });
       const leaveDays = status === 'CP' ? Number(assignment.roster_cuti_hari) : 1;
       const { startDate, endDate, resetDate } = calculateRosterResetRange(status, tanggal, leaveDays);
       if (assignment.effective_to_iso && assignment.effective_to_iso < resetDate) {
@@ -450,37 +540,134 @@ async function applyRosterDailyOverride({ client, userId, tanggal, statusValue, 
       };
     }
 
-    const { rows } = await client.query(
-      `INSERT INTO employee_roster_daily
-         (user_id,tanggal,status,shift_id,source,catatan,updated_by)
-       VALUES (
-         $1,$2::date,$3::varchar,
-         CASE
-           WHEN $3::varchar='S' THEN (SELECT id FROM shifts WHERE nama_shift ILIKE '%Siang%' LIMIT 1)
-           WHEN $3::varchar='M' THEN (SELECT id FROM shifts WHERE nama_shift ILIKE '%Malam%' LIMIT 1)
-           ELSE NULL
-         END,
-         'manual_override',$4,$5
-       )
-       ON CONFLICT (user_id,tanggal) DO UPDATE SET
-         status=EXCLUDED.status, shift_id=EXCLUDED.shift_id,
-         source='manual_override', catatan=EXCLUDED.catatan,
-         updated_by=EXCLUDED.updated_by, updated_at=now()
-       RETURNING *`,
-      [userId, tanggal, status, catatan || null, adminId],
+    // --- Re-anchor siklus untuk S/M ---
+    // Saat admin menetapkan satu hari menjadi S/M, hari tsb dianggap sebagai awal
+    // blok shift pada pola template. Assignment dibuat ulang mulai dari tanggal tsb
+    // dengan anchor_day_index = awal blok (run) berstatus tsb, sehingga hari-hari
+    // berikutnya otomatis mengikuti pola template (mis. set 6 Sep=M -> 6-11 Sep=M).
+    const assignment = await findOrProvisionRosterAssignment({ client, userId, tanggal, adminId });
+    const templateDaysResult = await client.query(
+      `SELECT status FROM roster_template_days
+       WHERE template_id=$1
+       ORDER BY day_index`,
+      [assignment.template_id],
+    );
+    const templateDays = templateDaysResult.rows.map((r) => r.status);
+    const anchorDayIndex = findRunStartDayIndex(templateDays, status);
+    if (!anchorDayIndex) {
+      // Template tidak memiliki blok berstatus tsb -> fallback override satu hari.
+      const { rows } = await client.query(
+        `INSERT INTO employee_roster_daily
+           (user_id,tanggal,status,shift_id,source,catatan,updated_by)
+         VALUES (
+           $1,$2::date,$3::varchar,
+           CASE
+             WHEN $3::varchar='S' THEN (SELECT id FROM shifts WHERE nama_shift ILIKE '%Siang%' LIMIT 1)
+             WHEN $3::varchar='M' THEN (SELECT id FROM shifts WHERE nama_shift ILIKE '%Malam%' LIMIT 1)
+             ELSE NULL
+           END,
+           'manual_override',$4,$5
+         )
+         ON CONFLICT (user_id,tanggal) DO UPDATE SET
+           status=EXCLUDED.status, shift_id=EXCLUDED.shift_id,
+           source='manual_override', catatan=EXCLUDED.catatan,
+           updated_by=EXCLUDED.updated_by, updated_at=now()
+         RETURNING *`,
+        [userId, tanggal, status, catatan || null, adminId],
+      );
+      await client.query(
+        `INSERT INTO roster_audit_log (admin_id,user_id,aksi,detail)
+         VALUES ($1,$2,'override_daily',$3::jsonb)`,
+        [adminId, userId, JSON.stringify(rows[0])],
+      );
+      return { message: 'Roster harian berhasil diperbarui', roster: rows[0] };
+    }
+
+    // Jika re-anchor dilakukan di dalam celah CP/OFF, assignment sumber sudah
+    // berakhir sebelum tanggal pilihan. Ambil horizon dari assignment reset
+    // berikutnya agar assignment pengganti tidak berakhir sebelum dimulai.
+    let replacementEffectiveTo = assignment.effective_to_iso || null;
+    if (replacementEffectiveTo && replacementEffectiveTo < tanggal) {
+      const continuationResult = await client.query(
+        `SELECT effective_to::text AS effective_to_iso
+         FROM employee_roster_assignments
+         WHERE user_id=$1 AND is_active=TRUE AND id<>$2
+           AND effective_from > $3::date
+         ORDER BY effective_from ASC,created_at DESC
+         LIMIT 1 FOR UPDATE`,
+        [userId, assignment.id, tanggal],
+      );
+      replacementEffectiveTo = continuationResult.rows[0]?.effective_to_iso || null;
+    }
+
+    // Tutup assignment aktif pada tanggal-1 (atau nonaktifkan bila mulai hari tsb).
+    await client.query(
+      `UPDATE employee_roster_assignments
+       SET effective_to=CASE WHEN effective_from<$2::date THEN $2::date-1 ELSE effective_to END,
+           is_active=CASE WHEN effective_from=$2::date THEN FALSE ELSE is_active END,
+           updated_at=now()
+       WHERE id=$1`,
+      [assignment.id, tanggal],
+    );
+    // Nonaktifkan assignment lain yang mulai dari tanggal tsb ke depan.
+    await client.query(
+      `UPDATE employee_roster_assignments
+       SET is_active=FALSE,updated_at=now()
+       WHERE user_id=$1 AND is_active=TRUE AND id<>$2
+         AND effective_from >= $3::date`,
+      [userId, assignment.id, tanggal],
+    );
+    // Re-anchor S/M mengganti seluruh proyeksi roster mulai tanggal yang dipilih.
+    // Simpan nilai manual lama ke audit sebelum dihapus agar preview dan hasil
+    // persistensi konsisten tanpa kehilangan jejak perubahan CP/OFF/C sebelumnya.
+    const supersededManualOverridesResult = await client.query(
+      `SELECT tanggal::text,status,catatan
+       FROM employee_roster_daily
+       WHERE user_id=$1 AND tanggal >= $2::date AND source='manual_override'
+       ORDER BY tanggal`,
+      [userId, tanggal],
     );
     await client.query(
-      `INSERT INTO roster_audit_log (admin_id,user_id,aksi,detail)
-       VALUES ($1,$2,'override_daily',$3::jsonb)`,
-      [adminId, userId, JSON.stringify(rows[0])],
+      `DELETE FROM employee_roster_daily
+       WHERE user_id=$1 AND tanggal >= $2::date`,
+      [userId, tanggal],
     );
-    return { message: 'Roster harian berhasil diperbarui', roster: rows[0] };
+    // Buat assignment baru: mulai tanggal tsb dengan anchor = awal blok shift tsb.
+    const newAssignmentResult = await client.query(
+      `INSERT INTO employee_roster_assignments
+         (user_id,template_id,effective_from,effective_to,anchor_day_index,created_by)
+       VALUES ($1,$2,$3::date,$4::date,$5,$6)
+       RETURNING *`,
+      [userId, assignment.template_id, tanggal, replacementEffectiveTo, anchorDayIndex, adminId],
+    );
+    const generateUntil = replacementEffectiveTo
+      ? replacementEffectiveTo
+      : addDaysIso(tanggal, 365);
+    await generateRosterRange(tanggal, generateUntil, userId, client);
+
+    const detail = {
+      status,
+      tanggal,
+      anchor_day_index: anchorDayIndex,
+      previous_assignment_id: assignment.id,
+      new_assignment_id: newAssignmentResult.rows[0].id,
+      effective_to: replacementEffectiveTo,
+      superseded_manual_overrides: supersededManualOverridesResult.rows,
+    };
+    await client.query(
+      `INSERT INTO roster_audit_log (admin_id,user_id,aksi,detail)
+       VALUES ($1,$2,'reanchor_shift',$3::jsonb)`,
+      [adminId, userId, JSON.stringify(detail)],
+    );
+    return {
+      message: `${status === 'S' ? 'Siang' : 'Malam'} diterapkan mulai ${tanggal}. Siklus shift disesuaikan mengikuti pola template.`,
+      ...detail,
+    };
 }
 
 async function overrideRosterDaily(req, res, next) {
   const client = await pool.connect();
   try {
-    await ensureRosterSchema();
     await client.query('BEGIN');
     const result = await applyRosterDailyOverride({
       client,
@@ -503,7 +690,6 @@ async function overrideRosterDaily(req, res, next) {
 async function overrideRosterDailyBatch(req, res, next) {
   const client = await pool.connect();
   try {
-    await ensureRosterSchema();
     const rawChanges = req.body.changes;
     if (!Array.isArray(rawChanges) || rawChanges.length < 1) {
       throw httpError('Tidak ada perubahan roster untuk disimpan');
@@ -555,7 +741,6 @@ async function overrideRosterDailyBatch(req, res, next) {
 
 async function exportRoster(req, res, next) {
   try {
-    await ensureRosterSchema();
     const tanggalMulai = req.query.tanggal_mulai || isoTodayWib();
     const tanggalAkhir = req.query.tanggal_akhir || addDaysIso(tanggalMulai, 30);
     const { days } = validateDateRange(tanggalMulai, tanggalAkhir, Number.MAX_SAFE_INTEGER);
@@ -597,7 +782,6 @@ async function exportRoster(req, res, next) {
 async function importRoster(req, res, next) {
   const client = await pool.connect();
   try {
-    await ensureRosterSchema();
     if (!req.file) throw httpError('Berkas Excel roster wajib diunggah');
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
@@ -664,4 +848,6 @@ module.exports = {
   overrideRosterDailyBatch,
   exportRoster,
   importRoster,
+  findOrProvisionRosterAssignment,
+  applyRosterDailyOverride,
 };

@@ -9,8 +9,45 @@ function securityHeaders(req, res, next) {
 }
 
 function requestId(req, res, next) {
-  req.id = crypto.randomUUID();
+  const incomingId = String(req.get('x-request-id') || '').trim();
+  // Header ini hanya dipakai sebagai correlation ID; tidak dipakai untuk
+  // otorisasi, ownership, atau keputusan bisnis apa pun.
+  req.id = /^[A-Za-z0-9._:-]{8,128}$/.test(incomingId) ? incomingId : crypto.randomUUID();
   res.setHeader('X-Request-Id', req.id);
+  next();
+}
+
+function requestTiming(req, res, next) {
+  const startedAt = process.hrtime.bigint();
+  const route = `${req.baseUrl || ''}${req.path || ''}`;
+  const originalEnd = res.end;
+  let finished = false;
+
+  res.end = function instrumentedEnd(...args) {
+    if (!finished) {
+      finished = true;
+      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      if (!res.headersSent) {
+        res.setHeader('Server-Timing', `app;dur=${durationMs.toFixed(1)}`);
+      }
+      res.locals.omosDurationMs = durationMs;
+    }
+    return originalEnd.apply(this, args);
+  };
+
+  res.on('finish', () => {
+    const durationMs = Number(res.locals.omosDurationMs || 0);
+    const level = durationMs >= 1000 || res.statusCode >= 500 ? 'warn' : 'info';
+    console.log(JSON.stringify({
+      level,
+      event: 'http_request',
+      request_id: req.id,
+      method: req.method,
+      route,
+      status_code: res.statusCode,
+      duration_ms: Number(durationMs.toFixed(1)),
+    }));
+  });
   next();
 }
 
@@ -38,4 +75,4 @@ function createRateLimiter({ windowMs, max, key = (req) => req.ip, message }) {
   };
 }
 
-module.exports = { securityHeaders, requestId, createRateLimiter };
+module.exports = { securityHeaders, requestId, requestTiming, createRateLimiter };

@@ -1,11 +1,10 @@
 const { Pool } = require('pg');
 
-const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5432/attendance_db';
-const isCloudDb = dbUrl.includes('supabase.com') || dbUrl.includes('render.com') || dbUrl.includes('aws.com') || process.env.DB_SSL === 'true';
+const dbUrl = process.env.DATABASE_URL;
 
 const pool = new Pool({
   connectionString: dbUrl,
-  ssl: isCloudDb ? { rejectUnauthorized: false } : false,
+  ssl: dbUrl ? { rejectUnauthorized: false } : false,
   max: Number(process.env.DB_POOL_MAX || 5),
   idleTimeoutMillis: 5_000,
   connectionTimeoutMillis: 15_000,

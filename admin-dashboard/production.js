@@ -3,24 +3,27 @@
 // ============================================================
 
 let masterProdData = {
-  pits: [], loadingPoints: [], disposals: [], equipment: [], standbyCodes: [], breakdownCodes: [], shifts: [], jobCodes: [], operators: [], personnel: []
+  pits: [], loadingPoints: [], disposals: [], equipment: [], standbyCodes: [], breakdownCodes: [], shifts: [], jobCodes: [], operators: [], personnel: [], productionSupervisors: []
 };
+// Satu fetch master dipakai bersama ketika beberapa tab dibuka berdekatan.
+let masterProdDataPromise = null;
 
 // Global chart instances
 let chartParetoObj = null;
 let chartPieStandbyObj = null;
-let chartHourlyProdObj = null;
 let chartMtdObj = null;
 let chartYtdObj = null;
 let filteredEquipmentUnits = null;
+const ritaseProductivityContexts = new Map();
+const ritaseDistanceContexts = new Map();
+const RITASE_PRODUCTIVITY_THRESHOLDS = Object.freeze({ achieved: 95, near: 85 });
 
 // Helper API URL & Headers
 function getProdApiUrl(path) {
   if (typeof getApiBaseUrl === 'function') {
     return `${getApiBaseUrl()}${path}`;
   }
-  const currentHost = window.location.hostname || 'localhost';
-  return `http://${currentHost}:3000${path}`;
+  return `${window.location.origin.replace(/\/$/, '')}${path}`;
 }
 
 function getProdAuthHeaders() {
@@ -55,8 +58,6 @@ function getLocalDateInputValue(date = new Date()) {
 
 // Inisialisasi Modul Produksi saat Halaman / Tab Dimuat
 document.addEventListener('DOMContentLoaded', () => {
-  muatMasterDataProduksi();
-  setupSidebarClickHandlers();
   setupInputDataUnsavedGuards();
   setupFuelUnsavedGuards();
   setupStandbyUnsavedGuards();
@@ -139,7 +140,10 @@ async function muatMinePlanningOverview() {
     const spoDoc = parseMinePlanningHtml(spo);
     const deployedSpo = [...spoDoc.querySelectorAll('.spo-table')]
       .filter(table => /^\s*deployed\s*$/i.test(table.querySelector('[data-spo-status]')?.textContent || ''));
-    const jobs = [...new Set(deployedSpo.map(table => table.querySelector('[data-spo-job]')?.getAttribute('value')?.trim()).filter(Boolean))];
+    const jobs = [...new Set(deployedSpo.map(table => {
+      const stored = spo.planningData?.tables?.[table.dataset.spoTableId];
+      return String(stored?.jobCode || table.querySelector('[data-spo-job]')?.value || table.querySelector('[data-spo-job]')?.getAttribute('value') || '').trim();
+    }).filter(Boolean))];
     const periods = Object.values(spo.planningData?.tables || {});
     const periodYears = periods.map(table => Number(table.startYear)).filter(Number.isFinite);
     const periodEndYears = periods.map(table => Number(table.endYear)).filter(Number.isFinite);
@@ -236,35 +240,68 @@ function bukaTabProduksi(tabName) {
     simpanSesiUserOMOS({ activeTab: tabName });
   }
 
-  // Trigger pemuatan data sesuai tab
-  switch (tabName) {
-    case 'prodMinePlanning': muatMinePlanningOverview(); break;
-    case 'prodListEquipment': muatProdListEquipment(); break;
-    case 'prodParamStandbyBd': muatProdParamStandbyBd(); break;
-    case 'prodSpo': window.SpoPlanning?.init(); break;
-    case 'prodDelayForecasting': window.PaUaEwhPlanning?.init(); break;
-    case 'prodPlanProductivity': muatMasterDataProduksi(); break;
-    case 'prodCoalProductivity': muatMasterDataProduksi(); break;
-    case 'prodBudgetingCosting': window.FuelBudgetingPlanning?.init(); break;
-    case 'prodFleetCapacity': window.FleetCapacityPlanning?.init(); break;
-    case 'prodUnitMapping': window.UnitMappingPlanning?.init(); break;
-    case 'prodInputData': muatProdInputData(); break;
-    case 'prodInputFuel': muatProdInputFuel(); break;
-    case 'prodStandby': muatProdStandby(); break;
-    case 'prodBreakdown': muatProdBreakdown(); break;
-    case 'prodInputRitase': muatProdRitase(); break;
-    case 'prodDailyDashboard': muatDailyDashboard(); break;
-    case 'prodShiftReport': muatShiftReport(); break;
-    case 'prodProductivityReport': muatProductivityReport(); break;
-    case 'prodMtdReport': muatMtdReport(); break;
-    case 'prodYtdReport': muatYtdReport(); break;
-    case 'prodProjectToDate': muatProjectToDate(); break;
-    case 'prodExecutiveDashboard': muatExecutiveDashboard(); break;
-  }
+  // P1: library berat hanya dimuat ketika dashboard yang benar-benar
+  // memerlukannya dibuka. Ini menjaga startup Absensi/HR tetap ringan.
+  const libraryByTab = {
+    prodListEquipment: ['xlsx'],
+    prodDelayForecasting: ['xlsx'],
+    prodInputData: ['xlsx'],
+    prodInputFuel: ['xlsx'],
+    prodStandby: ['xlsx', 'chart'],
+    prodBreakdown: ['xlsx'],
+    prodDataProduksi: [],
+    prodProductivityReport: ['xlsx'],
+    prodMtdReport: ['chart'],
+    prodYtdReport: ['chart'],
+  };
+  const loadTabContent = () => {
+    switch (tabName) {
+      case 'prodMinePlanning': return muatMinePlanningOverview();
+      case 'prodListEquipment': return muatProdListEquipment();
+      case 'prodParamStandbyBd': return muatProdParamStandbyBd();
+      case 'prodSpo': return window.SpoPlanning?.init();
+      case 'prodDelayForecasting': return window.PaUaEwhPlanning?.init();
+      case 'prodPlanProductivity':
+        return (async () => {
+          await muatMasterDataProduksi();
+          await window.PlanProductivity?.initPlanProductivityModule();
+        })();
+      case 'prodCoalProductivity':
+        return (async () => {
+          await muatMasterDataProduksi();
+          await window.PlanProductivity?.initPlanProductivityModule({
+            containerId: 'coalProductivityTables',
+            addButtonId: 'btnAddCoalProductivityTable',
+            idPrefix: 'coal-productivity',
+          });
+        })();
+      case 'prodBudgetingCosting': return window.FuelBudgetingPlanning?.init();
+      case 'prodFleetCapacity': return window.FleetCapacityPlanning?.init();
+      case 'prodUnitMapping': return window.UnitMappingPlanning?.init();
+      case 'prodInputData': return muatProdInputData();
+      case 'prodInputFuel': return muatProdInputFuel();
+      case 'prodStandby': return muatProdStandby();
+      case 'prodBreakdown': return muatProdBreakdown();
+      case 'prodInputRitase': return muatProdRitase();
+      case 'prodDailyDashboard': return window.RainfallData?.init();
+      case 'prodDataProduksi': return window.ProductionData.init();
+      case 'prodProductivityReport': return muatProductivityReport();
+      case 'prodMtdReport': return muatMtdReport();
+      case 'prodYtdReport': return muatYtdReport();
+      case 'prodProjectToDate': return muatProjectToDate();
+      case 'prodExecutiveDashboard': return muatExecutiveDashboard();
+      default: return undefined;
+    }
+  };
+  const requiredLibraries = libraryByTab[tabName] || [];
+  if (!requiredLibraries.length || typeof window.OMOSLoadLibrary !== 'function') return loadTabContent();
+  return Promise.all(requiredLibraries.map(window.OMOSLoadLibrary)).then(loadTabContent);
 }
 
 // Fetch Master Data Produksi dari API Backend
 async function muatMasterDataProduksi() {
+  if (masterProdDataPromise) return masterProdDataPromise;
+  masterProdDataPromise = (async () => {
   try {
     const res = await fetch(getProdApiUrl('/api/admin/production/master'), {
       headers: { ...getProdAuthHeaders() }
@@ -273,19 +310,32 @@ async function muatMasterDataProduksi() {
       masterProdData = await res.json();
       const excavatorCodes = (masterProdData.equipment || [])
         .filter((unit) => unit.kelas_alat === 'Excavator' && unit.kode_alat)
-        .map((unit) => ({ value: unit.kode_alat, capacity: unit.kapasitas_unit }));
+        .map((unit) => ({ id: unit.id, value: unit.kode_alat, code: unit.kode_alat,
+          capacity: unit.kapasitas_unit, capacityUom: unit.kapasitas_unit_uom,
+          classUnit: unit.class_unit, type: unit.tipe_alat,
+          active: unit.is_active !== false && String(unit.status_alat || '').toLowerCase() !== 'nonaktif' }));
       if (window.PlanProductivity?.setFleetOptions) {
         window.PlanProductivity.setFleetOptions(excavatorCodes);
       }
       const dumpTruckCodes = (masterProdData.equipment || [])
         .filter((unit) => unit.kelas_alat === 'Dump Truck' && unit.kode_alat)
-        .map((unit) => ({ value: unit.kode_alat, capacity: unit.kapasitas_unit }));
+        .map((unit) => ({ id: unit.id, value: unit.kode_alat, code: unit.kode_alat,
+          capacity: unit.kapasitas_unit, capacityUom: unit.kapasitas_unit_uom,
+          classUnit: unit.class_unit, type: unit.tipe_alat,
+          active: unit.is_active !== false && String(unit.status_alat || '').toLowerCase() !== 'nonaktif' }));
       if (window.PlanProductivity?.setDumpTruckOptions) {
         window.PlanProductivity.setDumpTruckOptions(dumpTruckCodes);
       }
     }
   } catch (err) {
     console.warn('[Prod Master Error]', err.message);
+  }
+  return masterProdData;
+  })();
+  try {
+    return await masterProdDataPromise;
+  } finally {
+    masterProdDataPromise = null;
   }
 }
 
@@ -362,7 +412,7 @@ function terapkanSlicerEquipment() {
   }
 
   if (units.length === 0) {
-    tbodyEquip.innerHTML = '<tr><td colspan="13" class="tabel__kosong">Tidak ada unit yang sesuai dengan filter slicer.</td></tr>';
+    tbodyEquip.innerHTML = '<tr><td colspan="14" class="tabel__kosong">Tidak ada unit yang sesuai dengan filter slicer.</td></tr>';
   } else {
     tbodyEquip.innerHTML = units.map(u => `
       <tr>
@@ -378,6 +428,7 @@ function terapkanSlicerEquipment() {
         <td><span style="background:#e2e8f0;color:#334155;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">${u.status_alat || '-'}</span></td>
         <td><span style="font-size:12px;color:#0f172a;">${u.lokasi || '-'}</span></td>
         <td><span style="font-size:12px;color:#64748b;">${u.keterangan || '-'}</span></td>
+        <td>${u.km_only ? '<span style="background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">Km-only</span>' : '<span style="font-size:12px;color:#94a3b8;">-</span>'}</td>
         <td>
           <button class="tombol-tautan" style="color:#0284c7;font-weight:bold;margin-right:8px;" onclick="bukaModalEditEquipment('${u.id}')">✏️ Edit</button>
           <button class="tombol-tautan" style="color:#ef4444;font-weight:bold;" onclick="hapusEquipmentParameter('${u.id}')">🗑️ Hapus</button>
@@ -526,15 +577,14 @@ async function muatProdParamStandbyBd() {
       const locked = s.is_locked || s.is_system;
       const readOnly = locked ? 'readonly aria-readonly="true"' : '';
       return `
-      <tr data-delay-master-row="standby:${escapeMinePlanning(s.id)}">
-        <td><input data-delay-master-field="kode" class="input-filter" maxlength="20" value="${escapeMinePlanning(s.kode)}" ${readOnly} style="width:100%;font-weight:800;text-transform:uppercase;${locked ? 'background:#eef2ff;color:#3730a3;' : ''}" /></td>
+      <tr data-delay-master-row="standby:${escapeMinePlanning(s.id)}" data-planning-type="${escapeMinePlanning(s.planning_type || 'unplanned')}" data-control-class="${escapeMinePlanning(s.control_class || 'controllable')}" data-owner-department="${escapeMinePlanning(s.owner_department || 'Production')}" data-requires-description="${s.requires_description ? 'true' : 'false'}">
+        <td class="parameter-code-column"><input data-delay-master-field="kode" class="input-filter parameter-code-input" maxlength="20" value="${escapeMinePlanning(s.kode)}" ${readOnly} style="font-weight:800;text-transform:uppercase;${locked ? 'background:#eef2ff;color:#3730a3;' : ''}" /></td>
         <td><input data-delay-master-field="kategori" class="input-filter" maxlength="100" value="${escapeMinePlanning(s.kategori)}" ${readOnly} style="width:100%;${locked ? 'background:#eef2ff;color:#3730a3;' : ''}" /></td>
         <td><input data-delay-master-field="deskripsi" class="input-filter" value="${escapeMinePlanning(s.deskripsi || '')}" ${readOnly} style="width:100%;${locked ? 'background:#eef2ff;color:#3730a3;' : ''}" /></td>
-        <td><div class="standby-code-governance"><select data-delay-master-field="planning_type" ${locked ? 'disabled' : ''}><option value="planned"${s.planning_type === 'planned' ? ' selected' : ''}>Planned</option><option value="unplanned"${s.planning_type !== 'planned' ? ' selected' : ''}>Unplanned</option></select><select data-delay-master-field="control_class" ${locked ? 'disabled' : ''}><option value="controllable"${s.control_class !== 'uncontrollable' ? ' selected' : ''}>Controllable</option><option value="uncontrollable"${s.control_class === 'uncontrollable' ? ' selected' : ''}>Uncontrollable</option></select><input data-delay-master-field="owner_department" value="${escapeMinePlanning(s.owner_department || 'Production')}" ${readOnly} placeholder="Owner department"/><label><input type="checkbox" data-delay-master-field="requires_description"${s.requires_description ? ' checked' : ''} ${locked ? 'disabled' : ''}/> Keterangan wajib</label></div></td>
-        <td>${locked ? '<span class="standby-system-lock">🔒 Sistem · Read Only</span>' : `<div style="display:flex;gap:6px;align-items:center;"><button class="tombol tombol--kecil" onclick="simpanDelayMaster('standby','${escapeMinePlanning(s.id)}')">Simpan</button><button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusDelayMaster('standby','${escapeMinePlanning(s.id)}')">Hapus</button></div>`}</td>
+<td>${locked ? '<span class="standby-system-lock">🔒 Sistem · Read Only</span>' : `<div style="display:flex;gap:6px;align-items:center;"><button class="tombol tombol--kecil" onclick="simpanDelayMaster('standby','${escapeMinePlanning(s.id)}',this)">Simpan</button><button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusDelayMaster('standby','${escapeMinePlanning(s.id)}')">Hapus</button></div>`}</td>
       </tr>
     `;
-    }).join('') : '<tr><td colspan="5" class="tabel__kosong">Belum ada kode standby.</td></tr>';
+    }).join('') : '<tr><td colspan="4" class="tabel__kosong">Belum ada kode standby.</td></tr>';
   }
 
   if (tbodyBd) {
@@ -544,7 +594,7 @@ async function muatProdParamStandbyBd() {
         <td><input data-delay-master-field="kode" class="input-filter" maxlength="20" value="${escapeMinePlanning(b.kode)}" style="width:100%;font-weight:800;text-transform:uppercase;" /></td>
         <td><input data-delay-master-field="kategori" class="input-filter" maxlength="100" value="${escapeMinePlanning(b.kategori)}" style="width:100%;" /></td>
         <td><input data-delay-master-field="deskripsi" class="input-filter" value="${escapeMinePlanning(b.deskripsi || '')}" style="width:100%;" /></td>
-        <td><div style="display:flex;gap:6px;align-items:center;"><button class="tombol tombol--kecil" onclick="simpanDelayMaster('breakdown','${escapeMinePlanning(b.id)}')">Simpan</button><button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusDelayMaster('breakdown','${escapeMinePlanning(b.id)}')">Hapus</button></div></td>
+<td><div style="display:flex;gap:6px;align-items:center;"><button class="tombol tombol--kecil" onclick="simpanDelayMaster('breakdown','${escapeMinePlanning(b.id)}',this)">Simpan</button><button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusDelayMaster('breakdown','${escapeMinePlanning(b.id)}')">Hapus</button></div></td>
       </tr>
     `).join('') : '<tr><td colspan="4" class="tabel__kosong">Belum ada kode breakdown.</td></tr>';
   }
@@ -557,7 +607,7 @@ async function muatProdParamStandbyBd() {
         <td><input data-job-code-field="job_desc" class="input-filter" maxlength="200" value="${escapeMinePlanning(job.job_desc)}" style="width:100%;" /></td>
         <td>
           <div style="display:flex;gap:6px;align-items:center;">
-            <button class="tombol tombol--kecil" onclick="simpanJobCode('${escapeMinePlanning(job.id)}')">Simpan</button>
+<button class="tombol tombol--kecil" onclick="simpanJobCode('${escapeMinePlanning(job.id)}',this)">Simpan</button>
             <button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusJobCode('${escapeMinePlanning(job.id)}')">Hapus</button>
           </div>
         </td>
@@ -587,7 +637,7 @@ async function muatProdParamStandbyBd() {
             ${katCell}
             <td><input data-problem-code-field="kode" class="input-filter" maxlength="20" value="${escapeMinePlanning(it.kode)}" style="width:100%;font-weight:800;text-transform:uppercase;" /></td>
             <td><input data-problem-code-field="problem" class="input-filter" maxlength="200" value="${escapeMinePlanning(it.problem)}" style="width:100%;" /></td>
-            <td><div style="display:flex;gap:6px;align-items:center;"><button class="tombol tombol--kecil" onclick="simpanProblemCode('${escapeMinePlanning(it.id)}')">Simpan</button><button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusProblemCode('${escapeMinePlanning(it.id)}')">Hapus</button></div></td>
+<td><div style="display:flex;gap:6px;align-items:center;"><button class="tombol tombol--kecil" onclick="simpanProblemCode('${escapeMinePlanning(it.id)}',this)">Simpan</button><button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusProblemCode('${escapeMinePlanning(it.id)}')">Hapus</button></div></td>
           </tr>`;
         });
       };
@@ -600,20 +650,74 @@ async function muatProdParamStandbyBd() {
       tbodyProblem.innerHTML = html;
     }
   }
+
+  setupParameterTableInteractions();
 }
 
-async function simpanDelayMaster(tipe, id) {
+function setupParameterTableInteractions() {
+  const wrappers = document.querySelectorAll('#tab-prodParamStandbyBd .parameter-table-scroll');
+  wrappers.forEach((wrapper, index) => {
+    wrapper.tabIndex = 0;
+    wrapper.setAttribute('role', 'region');
+    wrapper.setAttribute('aria-label', `Tabel Parameter ${index + 1}. Gunakan tombol panah atau Shift dan roda mouse untuk menggeser horizontal.`);
+
+    const updateScrollState = () => {
+      const maxScroll = Math.max(0, wrapper.scrollWidth - wrapper.clientWidth);
+      const current = Math.max(0, wrapper.scrollLeft);
+      wrapper.dataset.scrollable = maxScroll > 2 ? 'true' : 'false';
+      wrapper.dataset.scrollPosition = maxScroll <= 2
+        ? 'none'
+        : current <= 2
+          ? 'start'
+          : current >= maxScroll - 2
+            ? 'end'
+            : 'middle';
+    };
+
+    if (wrapper.dataset.parameterScrollBound !== 'true') {
+      wrapper.dataset.parameterScrollBound = 'true';
+      wrapper.addEventListener('scroll', updateScrollState, { passive: true });
+      wrapper.addEventListener('wheel', event => {
+        if (!event.shiftKey || wrapper.scrollWidth <= wrapper.clientWidth) return;
+        event.preventDefault();
+        wrapper.scrollLeft += event.deltaY || event.deltaX;
+      }, { passive: false });
+      wrapper.addEventListener('keydown', event => {
+        if (event.target !== wrapper || wrapper.scrollWidth <= wrapper.clientWidth) return;
+        const distance = Math.max(80, Math.round(wrapper.clientWidth * .7));
+        if (event.key === 'ArrowLeft') wrapper.scrollBy({ left: -80, behavior: 'smooth' });
+        else if (event.key === 'ArrowRight') wrapper.scrollBy({ left: 80, behavior: 'smooth' });
+        else if (event.key === 'PageUp') wrapper.scrollBy({ left: -distance, behavior: 'smooth' });
+        else if (event.key === 'PageDown') wrapper.scrollBy({ left: distance, behavior: 'smooth' });
+        else if (event.key === 'Home') wrapper.scrollTo({ left: 0, behavior: 'smooth' });
+        else if (event.key === 'End') wrapper.scrollTo({ left: wrapper.scrollWidth, behavior: 'smooth' });
+        else return;
+        event.preventDefault();
+      });
+      if ('ResizeObserver' in window) new ResizeObserver(updateScrollState).observe(wrapper);
+    }
+    requestAnimationFrame(updateScrollState);
+  });
+}
+
+async function simpanDelayMaster(tipe, id, saveButton) {
   const row = document.querySelector(`[data-delay-master-row="${CSS.escape(`${tipe}:${id}`)}"]`);
   if (!row) return;
   const kode = row.querySelector('[data-delay-master-field="kode"]')?.value.trim().toUpperCase();
   const kategori = row.querySelector('[data-delay-master-field="kategori"]')?.value.trim();
   const deskripsi = row.querySelector('[data-delay-master-field="deskripsi"]')?.value.trim() || '';
-  const planning_type = row.querySelector('[data-delay-master-field="planning_type"]')?.value || 'unplanned';
-  const control_class = row.querySelector('[data-delay-master-field="control_class"]')?.value || 'controllable';
-  const owner_department = row.querySelector('[data-delay-master-field="owner_department"]')?.value.trim() || 'Production';
-  const requires_description = Boolean(row.querySelector('[data-delay-master-field="requires_description"]')?.checked);
+  // Governance tidak lagi ditampilkan pada tabel Parameter Standby, tetapi
+  // nilai existing tetap diteruskan agar edit Kode/Kategori tidak mereset
+  // metadata operasional yang masih dipakai workflow Standby.
+  const planning_type = row.querySelector('[data-delay-master-field="planning_type"]')?.value || row.dataset.planningType || 'unplanned';
+  const control_class = row.querySelector('[data-delay-master-field="control_class"]')?.value || row.dataset.controlClass || 'controllable';
+  const owner_department = row.querySelector('[data-delay-master-field="owner_department"]')?.value.trim() || row.dataset.ownerDepartment || 'Production';
+  const descriptionControl = row.querySelector('[data-delay-master-field="requires_description"]');
+  const requires_description = descriptionControl ? Boolean(descriptionControl.checked) : row.dataset.requiresDescription === 'true';
   if (!kode || !kategori) return alert('Kode dan kategori wajib diisi.');
   const endpoint = tipe === 'standby' ? 'standby-codes' : 'breakdown-codes';
+  const feedback = window.OMOSActionFeedback?.begin(saveButton);
+  if (!feedback) return;
   try {
     const response = await fetch(getProdApiUrl(`/api/admin/production/${endpoint}/${encodeURIComponent(id)}`), {
       method: 'PATCH',
@@ -623,7 +727,9 @@ async function simpanDelayMaster(tipe, id) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     await muatProdParamStandbyBd();
+    await feedback.finish('success');
   } catch (error) {
+    await feedback.finish('error', error);
     alert(`Gagal memperbarui kode ${tipe}: ${error.message}`);
   }
 }
@@ -644,12 +750,14 @@ async function hapusDelayMaster(tipe, id) {
   }
 }
 
-async function simpanJobCode(id) {
+async function simpanJobCode(id, saveButton) {
   const row = document.querySelector(`[data-job-code-row="${CSS.escape(String(id))}"]`);
   if (!row) return;
   const jobCode = row.querySelector('[data-job-code-field="job_code"]')?.value.trim().toUpperCase();
   const jobDesc = row.querySelector('[data-job-code-field="job_desc"]')?.value.trim();
   if (!jobCode || !jobDesc) return alert('JOB dan JOB DESC wajib diisi.');
+  const feedback = window.OMOSActionFeedback?.begin(saveButton);
+  if (!feedback) return;
   try {
     const response = await fetch(getProdApiUrl(`/api/admin/production/job-codes/${encodeURIComponent(id)}`), {
       method: 'PATCH',
@@ -659,7 +767,9 @@ async function simpanJobCode(id) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     await muatProdParamStandbyBd();
+    await feedback.finish('success');
   } catch (error) {
+    await feedback.finish('error', error);
     alert(`Gagal memperbarui master JOB: ${error.message}`);
   }
 }
@@ -696,28 +806,32 @@ function bukaModalTambahJobCode() {
     const jobCode = document.getElementById('pmJobCode').value.trim().toUpperCase();
     const jobDesc = document.getElementById('pmJobDesc').value.trim();
     try {
-      const response = await fetch(getProdApiUrl('/api/admin/production/job-codes'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-        body: JSON.stringify({ job_code: jobCode, job_desc: jobDesc }),
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl('/api/admin/production/job-codes'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+          body: JSON.stringify({ job_code: jobCode, job_desc: jobDesc }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        await muatProdParamStandbyBd();
       });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
       tutupModalGenerik();
-      await muatProdParamStandbyBd();
     } catch (error) {
       alert(`Gagal menyimpan master JOB: ${error.message}`);
     }
   });
 }
 
-async function simpanProblemCode(id) {
+async function simpanProblemCode(id, saveButton) {
   const row = document.querySelector(`[data-problem-code-row="${CSS.escape(String(id))}"]`);
   if (!row) return;
   const kategori = row.dataset.kat || '';
   const kode = row.querySelector('[data-problem-code-field="kode"]')?.value.trim().toUpperCase();
   const problem = row.querySelector('[data-problem-code-field="problem"]')?.value.trim();
   if (!kategori || !kode || !problem) return alert('Kategori, Kode, dan Problem wajib diisi.');
+  const feedback = window.OMOSActionFeedback?.begin(saveButton);
+  if (!feedback) return;
   try {
     const response = await fetch(getProdApiUrl(`/api/admin/production/problem-codes/${encodeURIComponent(id)}`), {
       method: 'PATCH',
@@ -727,7 +841,9 @@ async function simpanProblemCode(id) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     await muatProdParamStandbyBd();
+    await feedback.finish('success');
   } catch (error) {
+    await feedback.finish('error', error);
     alert(`Gagal memperbarui problem: ${error.message}`);
   }
 }
@@ -767,15 +883,17 @@ function bukaModalTambahProblemCode() {
     const kode = document.getElementById('pmProblemKode').value.trim().toUpperCase();
     const problem = document.getElementById('pmProblemDesc').value.trim();
     try {
-      const response = await fetch(getProdApiUrl('/api/admin/production/problem-codes'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-        body: JSON.stringify({ kategori, kode, problem }),
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl('/api/admin/production/problem-codes'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+          body: JSON.stringify({ kategori, kode, problem }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        await muatProdParamStandbyBd();
       });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
       tutupModalGenerik();
-      await muatProdParamStandbyBd();
     } catch (error) {
       alert(`Gagal menyimpan problem: ${error.message}`);
     }
@@ -913,6 +1031,10 @@ function bukaModalEditEquipment(id) {
           <input type="text" id="peEditKeterangan" class="input-filter" placeholder="cth: Unit Backup" value="${u.keterangan || ''}" />
         </div>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;">
+        <input type="checkbox" id="peEditKmOnly" ${u.km_only ? 'checked' : ''} style="width:16px;height:16px;accent-color:#d97706;" />
+        <label for="peEditKmOnly" style="font-size:13px;font-weight:700;color:#92400e;cursor:pointer;">Unit Km-only (hanya mencatat KM/Odometer, tanpa HM)</label>
+      </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button>
         <button type="submit" class="tombol tombol--utama">Simpan Perubahan Data</button>
@@ -930,6 +1052,8 @@ function bukaModalEditEquipment(id) {
 
   document.getElementById('formEditParamEquipment').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const feedback = window.OMOSActionFeedback?.begin(window.OMOSActionFeedback.submitter(e));
+    if (!feedback) return;
     const kelasSel = document.getElementById('peEditKelas').value;
     const kelasVal = kelasSel === 'MANUAL' ? (document.getElementById('peEditKelasManual').value.trim() || 'Heavy Equipment') : kelasSel;
 
@@ -948,7 +1072,8 @@ function bukaModalEditEquipment(id) {
       kapasitas_unit_uom: document.getElementById('peEditKapasitasUom').value.trim() || null,
       status_alat: document.getElementById('peEditStatus').value,
       lokasi: document.getElementById('peEditLokasi').value,
-      keterangan: document.getElementById('peEditKeterangan').value
+      keterangan: document.getElementById('peEditKeterangan').value,
+      km_only: document.getElementById('peEditKmOnly').checked
     };
 
     try {
@@ -958,14 +1083,16 @@ function bukaModalEditEquipment(id) {
         body: JSON.stringify(bodyData)
       });
       if (res.ok) {
+        await feedback.finish('success');
         tutupModalGenerik();
-        muatProdListEquipment();
+        await muatProdListEquipment();
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert('Gagal memperbarui data unit: ' + (errData.error || 'Terjadi kesalahan pada server.'));
+        throw new Error(errData.error || 'Terjadi kesalahan pada server.');
       }
     } catch (err) {
-      alert('Terjadi kesalahan: ' + err.message);
+      await feedback.finish('error', err);
+      alert('Gagal memperbarui data unit: ' + err.message);
     }
   });
 }
@@ -1067,6 +1194,10 @@ function bukaModalTambahEquipment() {
           <input type="text" id="peKeterangan" class="input-filter" placeholder="cth: Perlu Service 250H, Unit Backup" />
         </div>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;">
+        <input type="checkbox" id="peKmOnly" style="width:16px;height:16px;accent-color:#d97706;" />
+        <label for="peKmOnly" style="font-size:13px;font-weight:700;color:#92400e;cursor:pointer;">Unit Km-only (hanya mencatat KM/Odometer, tanpa HM)</label>
+      </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button>
         <button type="submit" class="tombol tombol--utama">Simpan Parameter Unit</button>
@@ -1084,6 +1215,8 @@ function bukaModalTambahEquipment() {
 
   document.getElementById('formInputParamEquipment').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const feedback = window.OMOSActionFeedback?.begin(window.OMOSActionFeedback.submitter(e));
+    if (!feedback) return;
     const kelasSel = document.getElementById('peKelas').value;
     const kelasVal = kelasSel === 'MANUAL' ? (document.getElementById('peKelasManual').value.trim() || 'Heavy Equipment') : kelasSel;
 
@@ -1102,7 +1235,8 @@ function bukaModalTambahEquipment() {
       kapasitas_unit_uom: document.getElementById('peKapasitasUom').value.trim() || null,
       status_alat: document.getElementById('peStatus').value,
       lokasi: document.getElementById('peLokasi').value,
-      keterangan: document.getElementById('peKeterangan').value
+      keterangan: document.getElementById('peKeterangan').value,
+      km_only: document.getElementById('peKmOnly').checked
     };
 
     try {
@@ -1112,13 +1246,15 @@ function bukaModalTambahEquipment() {
         body: JSON.stringify(bodyData)
       });
       if (res.ok) {
+        await feedback.finish('success');
         tutupModalGenerik();
-        muatProdListEquipment();
+        await muatProdListEquipment();
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert('Gagal menyimpan unit: ' + (errData.error || 'Terjadi kesalahan pada server'));
+        throw new Error(errData.error || 'Terjadi kesalahan pada server');
       }
     } catch (err) {
+      await feedback.finish('error', err);
       alert('Gagal menyimpan unit: ' + err.message);
     }
   });
@@ -1133,7 +1269,14 @@ async function hapusEquipmentParameter(id) {
     });
     if (res.ok) {
       muatProdParameter();
+      return;
     }
+    let message = `Gagal menghapus unit (HTTP ${res.status}).`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch (_) { /* abaikan body non-JSON */ }
+    alert(message);
   } catch (err) {
     alert('Gagal menghapus unit: ' + err.message);
   }
@@ -1175,6 +1318,8 @@ function bukaModalTambahStandbyCode() {
 
   document.getElementById('formInputParamStb').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const feedback = window.OMOSActionFeedback?.begin(window.OMOSActionFeedback.submitter(e));
+    if (!feedback) return;
     const bodyData = {
       kode: document.getElementById('psKode').value,
       kategori: document.getElementById('psKategori').value,
@@ -1192,10 +1337,15 @@ function bukaModalTambahStandbyCode() {
         body: JSON.stringify(bodyData)
       });
       if (res.ok) {
+        await feedback.finish('success');
         tutupModalGenerik();
-        muatProdParameter();
+        await muatProdParameter();
+      } else {
+        const errorBody = await res.json().catch(() => ({}));
+        throw new Error(errorBody.error || `HTTP ${res.status}`);
       }
     } catch (err) {
+      await feedback.finish('error', err);
       alert('Gagal menyimpan kode standby: ' + err.message);
     }
   });
@@ -1231,6 +1381,8 @@ function bukaModalTambahBreakdownCode() {
 
   document.getElementById('formInputParamBd').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const feedback = window.OMOSActionFeedback?.begin(window.OMOSActionFeedback.submitter(e));
+    if (!feedback) return;
     const bodyData = {
       kode: document.getElementById('pbKode').value,
       kategori: document.getElementById('pbKategori').value,
@@ -1244,10 +1396,15 @@ function bukaModalTambahBreakdownCode() {
         body: JSON.stringify(bodyData)
       });
       if (res.ok) {
+        await feedback.finish('success');
         tutupModalGenerik();
-        muatProdParameter();
+        await muatProdParameter();
+      } else {
+        const errorBody = await res.json().catch(() => ({}));
+        throw new Error(errorBody.error || `HTTP ${res.status}`);
       }
     } catch (err) {
+      await feedback.finish('error', err);
       alert('Gagal menyimpan kode breakdown: ' + err.message);
     }
   });
@@ -1289,6 +1446,10 @@ const inputDataEditHistoryStart = new WeakMap();
 let inputDataHistoryApplying = false;
 let cachedInputOperators = [];
 let cachedInputOperatorsSource = 'none';
+// Manpower (Input Data): seluruh karyawan aktif (semua jabatan) + seleksi jabatan yang boleh tampil di dropdown Operator.
+let cachedInputManpower = [];
+let selectedManpowerJabatan = null; // null = semua jabatan; selain itu Set<string> jabatan terpilih
+let manpowerJabatanLoaded = false;
 let currentSortInputKey = null;
 let currentSortInputAsc = true;
 let inputDataDraftRecoveryPrompted = false;
@@ -1554,16 +1715,191 @@ async function promptInputDataDraftRecovery() {
   }
 }
 
-function isInputOperatorEmployee(employee) {
-  const position = String(employee?.jabatan || '').trim().toLocaleLowerCase('id-ID');
-  return employee?.is_active !== false && (position.includes('operator') || position === 'driver dt');
+function isInputManpowerActive(employee) {
+  return employee?.is_active !== false && String(employee?.jabatan || '').trim() !== '';
+}
+
+function manpowerJabatanOf(employee) {
+  return String(employee?.jabatan || '').trim();
+}
+
+// Daftar jabatan unik (urut) dari seluruh manpower aktif.
+function getManpowerJabatanList() {
+  return [...new Set(cachedInputManpower.map(manpowerJabatanOf).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'id-ID', { sensitivity: 'base' }));
+}
+
+function isManpowerJabatanSelected(jabatan) {
+  if (!selectedManpowerJabatan) return true; // null = semua jabatan
+  return selectedManpowerJabatan.has(String(jabatan || '').trim());
+}
+
+// Rekomputasi daftar operator yang tampil di dropdown berdasarkan seleksi jabatan.
+function recomputeInputOperators() {
+  cachedInputOperators = cachedInputManpower
+    .filter(employee => isManpowerJabatanSelected(manpowerJabatanOf(employee)))
+    .sort((a, b) => String(a.nama || '').localeCompare(String(b.nama || ''), 'id-ID', { sensitivity: 'base' }));
+  return cachedInputOperators;
+}
+
+function manpowerJabatanStorageKey() {
+  return 'omos_input_manpower_jabatan';
+}
+
+function readManpowerJabatanSelection() {
+  try {
+    const raw = localStorage.getItem(manpowerJabatanStorageKey());
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed === null) return null;
+    if (Array.isArray(parsed)) return new Set(parsed.map(String));
+    return null;
+  } catch (error) {
+    console.warn('[Manpower] Gagal membaca seleksi jabatan:', error);
+    return null;
+  }
+}
+
+function persistManpowerJabatanSelection() {
+  try {
+    const value = selectedManpowerJabatan ? Array.from(selectedManpowerJabatan) : null;
+    localStorage.setItem(manpowerJabatanStorageKey(), JSON.stringify(value));
+  } catch (error) {
+    console.warn('[Manpower] Gagal menyimpan seleksi jabatan:', error);
+  }
+}
+
+// Terapkan seleksi jabatan yang tersimpan (dipanggil sekali setelah manpower dimuat).
+function applySavedManpowerJabatanSelection() {
+  if (manpowerJabatanLoaded) return;
+  manpowerJabatanLoaded = true;
+  const saved = readManpowerJabatanSelection();
+  if (saved === null) {
+    selectedManpowerJabatan = null; // default: semua jabatan
+    return;
+  }
+  // Hanya pertahankan jabatan yang masih ada di data karyawan.
+  const available = new Set(getManpowerJabatanList());
+  const valid = [...saved].filter(jabatan => available.has(jabatan));
+  selectedManpowerJabatan = valid.length ? new Set(valid) : null;
+}
+
+// ===== Manpower "List Manpower" — UI checklist jabatan (Input Data) =====
+
+// Perbarui label tombol & ringkasan panel sesuai seleksi jabatan saat ini.
+function refreshManpowerFilterUi() {
+  const badge = document.getElementById('badgeManpowerFilter');
+  const summary = document.getElementById('manpowerFilterSummary');
+  const checkAll = document.getElementById('manpowerCheckAll');
+  const list = document.getElementById('manpowerJabatanList');
+
+  const allJabatan = getManpowerJabatanList();
+  const activeCount = selectedManpowerJabatan ? selectedManpowerJabatan.size : allJabatan.length;
+
+  if (badge) {
+    const isFiltered = selectedManpowerJabatan !== null && allJabatan.length > 0;
+    badge.style.display = isFiltered ? 'inline-block' : 'none';
+    badge.textContent = String(activeCount);
+  }
+  if (summary) {
+    summary.textContent = selectedManpowerJabatan === null
+      ? `Menampilkan semua jabatan (${allJabatan.length})`
+      : `Menampilkan ${activeCount} dari ${allJabatan.length} jabatan`;
+  }
+  if (checkAll) {
+    checkAll.checked = selectedManpowerJabatan === null || activeCount === allJabatan.length;
+    checkAll.indeterminate = selectedManpowerJabatan !== null && activeCount > 0 && activeCount < allJabatan.length;
+  }
+  if (list) renderManpowerFilterList(list);
+}
+
+// Render daftar checkbox jabatan di dalam panel.
+function renderManpowerFilterList(container) {
+  const allJabatan = getManpowerJabatanList();
+  if (!container) return;
+  if (!allJabatan.length) {
+    container.innerHTML = '<div style="padding:10px;font-size:12px;color:#94a3b8;text-align:center;">Belum ada data karyawan aktif.</div>';
+    return;
+  }
+  container.innerHTML = allJabatan.map(jabatan => {
+    const checked = isManpowerJabatanSelected(jabatan);
+    return `
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#334155;padding:5px 6px;border-radius:5px;cursor:pointer;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+        <input type="checkbox" data-manpower-jabatan="${escapeMinePlanning(jabatan)}" onchange="applyManpowerJabatanSelection(this.dataset.manpowerJabatan, this.checked)" ${checked ? 'checked' : ''} style="width:15px;height:15px;accent-color:#0f766e;">
+        <span style="flex:1;">${escapeMinePlanning(jabatan)}</span>
+        <span style="font-size:10px;color:#94a3b8;">${cachedInputManpower.filter(e => manpowerJabatanOf(e) === jabatan).length}</span>
+      </label>`;
+  }).join('');
+}
+
+// Buka/tutup panel checklist jabatan.
+function toggleManpowerFilterPanel() {
+  const panel = document.getElementById('panelManpowerFilter');
+  if (!panel) return;
+  if (panel.hidden) {
+    refreshManpowerFilterUi();
+    panel.hidden = false;
+  } else {
+    panel.hidden = true;
+  }
+}
+
+function tutupManpowerFilterPanel() {
+  const panel = document.getElementById('panelManpowerFilter');
+  if (panel) panel.hidden = true;
+}
+
+// Pilih / batalkan semua jabatan.
+function setAllManpowerJabatan(checked) {
+  if (checked) {
+    selectedManpowerJabatan = null; // semua jabatan
+  } else {
+    selectedManpowerJabatan = new Set(); // kosongkan = tidak ada yang tampil
+  }
+  persistManpowerJabatanSelection();
+  refreshManpowerFilterUi();
+  reapplyManpowerFilterToUi();
+}
+
+// Terapkan satu toggle jabatan.
+function applyManpowerJabatanSelection(jabatan, checked) {
+  const normalized = String(jabatan || '').trim();
+  if (!normalized) return;
+  if (selectedManpowerJabatan === null) {
+    // Saat ini semua tampil; berpindah ke mode seleksi eksplisit.
+    selectedManpowerJabatan = new Set(getManpowerJabatanList());
+  }
+  if (checked) {
+    selectedManpowerJabatan.add(normalized);
+  } else {
+    selectedManpowerJabatan.delete(normalized);
+  }
+  // Jika semua jabatan terpilih, kembalikan ke mode "semua" (null) agar ringkas.
+  if (selectedManpowerJabatan.size === getManpowerJabatanList().length) {
+    selectedManpowerJabatan = null;
+  }
+  persistManpowerJabatanSelection();
+  refreshManpowerFilterUi();
+  reapplyManpowerFilterToUi();
+}
+
+// Rekomputasi daftar operator & segarkan dropdown Operator yang sedang tampil.
+function reapplyManpowerFilterToUi() {
+  recomputeInputOperators();
+  const inputTab = document.getElementById('tab-prodInputData');
+  if (inputTab && !inputTab.hidden && cachedInputLogs.length) {
+    terapkanSlicerInputData();
+  }
 }
 
 function syncInputOperatorsFromKaryawan(employees) {
-  cachedInputOperators = (Array.isArray(employees) ? employees : [])
-    .filter(isInputOperatorEmployee)
+  cachedInputManpower = (Array.isArray(employees) ? employees : [])
+    .filter(isInputManpowerActive)
     .sort((a, b) => String(a.nama || '').localeCompare(String(b.nama || ''), 'id-ID', { sensitivity: 'base' }));
   cachedInputOperatorsSource = 'karyawan';
+  applySavedManpowerJabatanSelection();
+  recomputeInputOperators();
+  refreshManpowerFilterUi();
   const inputTab = document.getElementById('tab-prodInputData');
   if (inputTab && !inputTab.hidden && cachedInputLogs.length) terapkanSlicerInputData();
   return cachedInputOperators;
@@ -1659,6 +1995,10 @@ async function muatProdInputData() {
     const selectedMonth = periodMonthSelect?.value || '';
     if (selectedYear) periodParams.set('year', selectedYear);
     if (selectedYear && selectedMonth) periodParams.set('month', selectedMonth);
+    // Batas bawaan API (200) hanya cukup untuk sekitar beberapa hari operasi.
+    // Input Data memuat satu periode bulan sehingga histori awal bulan tidak
+    // terpotong oleh log terbaru.
+    periodParams.set('limit', '2000');
     const periodQuery = periodParams.toString();
     const res = await fetch(getProdApiUrl(`/api/admin/production/logs${periodQuery ? `?${periodQuery}` : ''}`), {
       headers: { ...getProdAuthHeaders() }
@@ -1879,7 +2219,15 @@ function inputLogEquipmentOptions(selectedValue, classFilter = '') {
 }
 
 function inputLogOperatorOptions(selectedValue) {
+  // Jika nilai terpilih tidak lagi ada di daftar operator aktif (mis. jabatannya
+  // sedang difilter), tetap tampilkan sebagai opsi "data lama" agar nilai yang
+  // sudah tersimpan pada baris tidak hilang/berubah tanpa disengaja.
+  const selectedStillListed = cachedInputOperators.some(employee => String(employee.id) === String(selectedValue || ''));
+  const legacyOption = selectedValue && !selectedStillListed
+    ? inputLogOption(selectedValue, `${selectedValue} — Data lama`, selectedValue)
+    : '';
   return inputLogOption('', 'Pilih Operator / Driver DT', selectedValue)
+    + legacyOption
     + cachedInputOperators.map(employee => inputLogOption(employee.id, `${employee.nama} — ${employee.jabatan || 'Operator'}`, selectedValue)).join('');
 }
 
@@ -2283,29 +2631,41 @@ async function simpanSemuaPerubahanInputData() {
   }
 
   const saveButton = document.getElementById('btnSimpanPerubahanInputData');
-  if (saveButton) saveButton.disabled = true;
+  const feedback = window.OMOSActionFeedback.begin(saveButton, {
+    loadingText: `Menyimpan ${inputDataDrafts.size} perubahan…`,
+    resolveDisabled: () => inputDataDrafts.size === 0,
+    onRestore: () => updateInputDataSaveIndicator(),
+  });
+  if (!feedback) return false;
   updateInputDataSaveIndicator('Menyimpan perubahan...');
   clearInputDataValidationGuide();
   const failures = [];
   let savedCount = 0;
-  for (const [logId, draft] of [...inputDataDrafts.entries()]) {
-    try {
-      await persistInputLogDraft(logId, draft);
-      inputDataDrafts.delete(logId);
-      savedCount += 1;
-    } catch (error) {
-      failures.push({ logId, message: error.message, fields: error.inputFields || [] });
+  let completed = false;
+  try {
+    for (const [logId, draft] of [...inputDataDrafts.entries()]) {
+      try {
+        await persistInputLogDraft(logId, draft);
+        inputDataDrafts.delete(logId);
+        savedCount += 1;
+      } catch (error) {
+        failures.push({ logId, message: error.message, fields: error.inputFields || [] });
+      }
     }
+    persistInputDataDrafts();
+    if (failures.length) {
+      updateInputDataSaveIndicator(`${failures.length} baris gagal disimpan`);
+      showInputDataValidationGuide(failures);
+      completed = true;
+      return false;
+    }
+    updateInputDataSaveIndicator(`${savedCount} baris berhasil disimpan`);
+    setTimeout(() => updateInputDataSaveIndicator(), 1400);
+    completed = true;
+    return true;
+  } finally {
+    await feedback.finish(completed && !failures.length ? 'success' : 'error', { savedCount, failures });
   }
-  persistInputDataDrafts();
-  if (failures.length) {
-    updateInputDataSaveIndicator(`${failures.length} baris gagal disimpan`);
-    showInputDataValidationGuide(failures);
-    return false;
-  }
-  updateInputDataSaveIndicator(`${savedCount} baris berhasil disimpan`);
-  setTimeout(() => updateInputDataSaveIndicator(), 1400);
-  return true;
 }
 
 function bindInputDataInlineEditing() {
@@ -2468,32 +2828,32 @@ async function bukaModalMultiWorkLog() {
     const equipmentIds = checkedUnits().map(input => input.value);
     if (!equipmentIds.length) return alert('Pilih minimal satu unit.');
     const submitButton = document.getElementById('btnSubmitMultiWorkLog');
-    submitButton.disabled = true;
-    submitButton.textContent = 'Membuat log...';
     try {
-      const response = await fetch(getProdApiUrl('/api/admin/production/logs/batch'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-        body: JSON.stringify({
-          tanggal: document.getElementById('multiWorkTanggal').value,
-          shift_id: document.getElementById('multiWorkShift').value,
-          equipment_ids: equipmentIds,
-          area_name: document.getElementById('multiWorkArea').value,
-          job: document.getElementById('multiWorkJob').value,
-        }),
+      await window.OMOSActionFeedback.run(submitButton, async () => {
+        const response = await fetch(getProdApiUrl('/api/admin/production/logs/batch'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+          body: JSON.stringify({
+            tanggal: document.getElementById('multiWorkTanggal').value,
+            shift_id: document.getElementById('multiWorkShift').value,
+            equipment_ids: equipmentIds,
+            area_name: document.getElementById('multiWorkArea').value,
+            job: document.getElementById('multiWorkJob').value,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        tutupModalGenerik();
+        await muatProdInputData();
+        const createdIds = (result.logs || []).map(log => String(log.id)).filter(Boolean);
+        if (createdIds.length) pushInputDataHistory({ type: 'create', ids: createdIds, label: `Tambah ${createdIds.length} Multi Work Log` });
+        const skippedMessage = result.skipped ? ` ${result.skipped} unit dilewati karena log pada hari dan shift tersebut sudah tersedia.` : '';
+        alert(`${result.inserted || 0} Work Log berhasil dibuat.${skippedMessage}`);
+      }, {
+        loadingText: `Membuat ${equipmentIds.length} Work Log…`,
       });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-      tutupModalGenerik();
-      await muatProdInputData();
-      const createdIds = (result.logs || []).map(log => String(log.id)).filter(Boolean);
-      if (createdIds.length) pushInputDataHistory({ type: 'create', ids: createdIds, label: `Tambah ${createdIds.length} Multi Work Log` });
-      const skippedMessage = result.skipped ? ` ${result.skipped} unit dilewati karena log pada hari dan shift tersebut sudah tersedia.` : '';
-      alert(`${result.inserted || 0} Work Log berhasil dibuat.${skippedMessage}`);
     } catch (error) {
       alert(`Gagal membuat Multi Work Log: ${error.message}`);
-      submitButton.disabled = false;
-      submitButton.textContent = 'Buat Multi Work Log';
     }
   });
 }
@@ -2667,10 +3027,12 @@ async function bukaModalInputDataProduksi() {
     };
 
     try {
-      const createdLog = await sendInputLogWithHmConfirmation('/api/admin/production/logs', 'POST', bodyData);
-      tutupModalGenerik();
-      await muatProdInputData();
-      if (createdLog?.id) pushInputDataHistory({ type: 'create', ids: [String(createdLog.id)], label: 'Tambah Work Log' });
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(e), async () => {
+        const createdLog = await sendInputLogWithHmConfirmation('/api/admin/production/logs', 'POST', bodyData);
+        tutupModalGenerik();
+        await muatProdInputData();
+        if (createdLog?.id) pushInputDataHistory({ type: 'create', ids: [String(createdLog.id)], label: 'Tambah Work Log' });
+      });
     } catch (err) {
       alert('Gagal menyimpan Work Log: ' + err.message);
     }
@@ -3419,25 +3781,37 @@ async function persistFuelDraft(logId, draft) {
 
 async function simpanPerubahanFuel() {
   if (!fuelDrafts.size) return;
+  const feedback = window.OMOSActionFeedback.begin(document.getElementById('btnSimpanFuel'), {
+    loadingText: `Menyimpan ${fuelDrafts.size} perubahan…`,
+    resolveDisabled: () => fuelDrafts.size === 0,
+    onRestore: () => updateFuelSaveUi(),
+  });
+  if (!feedback) return;
   const failures = [];
   const createdIds = [];
   let saved = 0;
-  for (const [id, draft] of [...fuelDrafts.entries()]) {
-    try {
-      const result = await persistFuelDraft(id, draft);
-      if (String(id).startsWith('new:') && result?.id) createdIds.push(String(result.id));
-      fuelDrafts.delete(id); saved += 1;
+  let completed = false;
+  try {
+    for (const [id, draft] of [...fuelDrafts.entries()]) {
+      try {
+        const result = await persistFuelDraft(id, draft);
+        if (String(id).startsWith('new:') && result?.id) createdIds.push(String(result.id));
+        fuelDrafts.delete(id); saved += 1;
+      }
+      catch (error) { failures.push(`Log ${id}: ${error.message}`); }
     }
-    catch (error) { failures.push(`Log ${id}: ${error.message}`); }
+    persistFuelDrafts();
+    if (saved) {
+      if (createdIds.length) pushFuelHistory({ type: 'create', ids: createdIds, label: `Tambah ${createdIds.length} Pengisian Fuel` });
+      if (typeof invalidateFuelDetailCache === 'function') invalidateFuelDetailCache();
+      await muatProdInputFuel();
+    }
+    if (failures.length) alert(`${saved} Log Fuel tersimpan.\n${failures.length} gagal:\n${failures.slice(0, 8).join('\n')}`);
+    else alert(`${saved} perubahan Log Fuel berhasil disimpan.`);
+    completed = true;
+  } finally {
+    await feedback.finish(completed && !failures.length ? 'success' : 'error', { saved, failures });
   }
-  persistFuelDrafts();
-  if (saved) {
-    if (createdIds.length) pushFuelHistory({ type: 'create', ids: createdIds, label: `Tambah ${createdIds.length} Pengisian Fuel` });
-    if (typeof invalidateFuelDetailCache === 'function') invalidateFuelDetailCache();
-    await muatProdInputFuel();
-  }
-  if (failures.length) alert(`${saved} Log Fuel tersimpan.\n${failures.length} gagal:\n${failures.slice(0, 8).join('\n')}`);
-  else alert(`${saved} perubahan Log Fuel berhasil disimpan.`);
 }
 
 function syncFuelBulkDeleteUi() {
@@ -3772,7 +4146,7 @@ function renderFuelUnitCard(card) {
         <span><small>Fuel</small><b>${fuelMetric(card.total_fuel,0)} L</b></span>
         <span><small>Std. Fuel Rate</small><b>${fuelMetric(card.fuel_rate_lph,2,' L/HM')}</b></span>
         <span><small>Ltr/HM</small><b>${fuelMetric(card.weighted_fuel_per_hm,2)}</b></span>
-        <span><small>${card.supports_distance ? 'Ltr/KM' : 'Target'}</small><b>${card.supports_distance ? fuelMetric(card.weighted_fuel_per_km,2) : fuelMetric(card.target_fuel,0,' L')}</b></span>
+        <span><small>${(card.supports_distance || card.km_only) ? 'Ltr/KM' : 'Target'}</small><b>${(card.supports_distance || card.km_only) ? fuelMetric(card.weighted_fuel_per_km,2) : fuelMetric(card.target_fuel,0,' L')}</b></span>
         <span class="${varianceTone}"><small>Variance</small><b>${fuelMetric(card.variance_pct,1,'%')}</b></span>
       </div>
       <div class="fuel-unit-status">${fuelConnectionBadge(card)}<b>${isOpen ? '▲' : '▼'}</b></div>
@@ -3851,7 +4225,7 @@ function renderFuelCardDetail(card, logs, summary) {
     <div class="fuel-card-table-wrap"><table class="fuel-card-table">
       <thead><tr><th data-fuel-delete-column${fuelBulkDeleteMode ? '' : ' hidden'}>Pilih</th><th>Tanggal</th><th>Shift</th><th>HM</th><th>ΔHM</th><th>KM</th><th>ΔKM</th><th>Fuel (L)</th><th>Ltr/HM</th><th>Ltr/KM</th><th>Variance</th><th>Status</th><th>Keterangan</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><th colspan="7">Weighted Summary — ${escapeMinePlanning(card.kode_alat)}</th><th>${fuelMetric(summary.totalFuelFilled,0)}</th><th>${fuelMetric(summary.weightedFuelPerHm,2)}</th><th>${card.supports_distance ? fuelMetric(summary.weightedFuelPerKm,2) : 'N/A'}</th><th colspan="3">ΔHM ${fuelMetric(summary.totalHm,2)} • ΔKM ${fuelMetric(summary.totalDistance,2)}</th></tr></tfoot>
+      <tfoot><tr><th colspan="7">Weighted Summary — ${escapeMinePlanning(card.kode_alat)}</th><th>${fuelMetric(summary.totalFuelFilled,0)}</th><th>${card.km_only ? 'N/A' : fuelMetric(summary.weightedFuelPerHm,2)}</th><th>${(card.supports_distance || card.km_only) ? fuelMetric(summary.weightedFuelPerKm,2) : 'N/A'}</th><th colspan="3">ΔHM ${fuelMetric(summary.totalHm,2)} • ΔKM ${fuelMetric(summary.totalDistance,2)}</th></tr></tfoot>
     </table></div>`;
 }
 
@@ -3861,17 +4235,17 @@ function renderFuelLogCardRow(card, log) {
   const statusText = status === 'critical' ? 'Anomali' : status === 'warning' ? 'Periksa' : 'Normal';
   const previousHm = log.previous_hm ?? '';
   const previousKm = log.previous_km ?? '';
-  return `<tr data-fuel-row data-fuel-id="${escapeMinePlanning(log.id)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="${escapeMinePlanning(previousHm)}" data-previous-km="${escapeMinePlanning(previousKm)}" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}" data-anomaly="${escapeMinePlanning(status)}">
+  return `<tr data-fuel-row data-fuel-id="${escapeMinePlanning(log.id)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="${escapeMinePlanning(previousHm)}" data-previous-km="${escapeMinePlanning(previousKm)}" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}" data-km-only="${card.km_only ? 'true' : 'false'}" data-anomaly="${escapeMinePlanning(status)}">
     <td data-fuel-delete-column${fuelBulkDeleteMode ? '' : ' hidden'}><input type="checkbox" data-fuel-select value="${escapeMinePlanning(log.id)}" onchange="toggleFuelSelection('${escapeMinePlanning(log.id)}',this.checked)" /></td>
     <td><input data-fuel-field="equipment_id" type="hidden" value="${escapeMinePlanning(card.id)}"/><input data-fuel-field="tanggal" type="date" value="${escapeMinePlanning(String(log.tanggal || '').split('T')[0])}" required/></td>
     <td><select data-fuel-field="shift_id" required>${inputLogShiftOptions(log.shift_id)}</select></td>
-    <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(log.hm_reading ?? '')}" required/></td>
+    <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(log.hm_reading ?? '')}" placeholder="${card.km_only ? 'Opsional' : 'Isi HM'}" ${card.km_only ? '' : 'required'}/></td>
     <td><output data-fuel-output="hm_delta">${fuelMetric(log.hm_delta,2)}</output></td>
-    <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(log.odometer_reading ?? '')}" placeholder="${card.supports_distance ? 'Wajib' : 'Opsional'}"/></td>
+    <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(log.odometer_reading ?? '')}" placeholder="${card.km_only ? 'Wajib' : (card.supports_distance ? 'Wajib' : 'Opsional')}" ${card.km_only ? 'required' : ''}/></td>
     <td><output data-fuel-output="distance_km">${fuelMetric(log.distance_km,2)}</output></td>
     <td><input data-fuel-field="fuel_filled" type="number" min="0.01" step="0.01" value="${escapeMinePlanning(log.fuel_filled ?? '')}" required/></td>
     <td><output data-fuel-output="fuel_per_hm">${fuelMetric(log.fuel_per_hm,2)}</output></td>
-    <td><output data-fuel-output="fuel_per_km">${card.supports_distance ? fuelMetric(log.fuel_per_km,2) : 'N/A'}</output></td>
+    <td><output data-fuel-output="fuel_per_km">${(card.supports_distance || card.km_only) ? fuelMetric(log.fuel_per_km,2) : 'N/A'}</output></td>
     <td><output data-fuel-output="variance_pct" class="${Number(log.variance_pct) > 20 ? 'is-danger' : ''}">${fuelMetric(log.variance_pct,1,'%')}</output></td>
     <td><div class="fuel-row-status"><span class="fuel-row-anomaly is-${escapeMinePlanning(status)}" title="${escapeMinePlanning(warnings.join(', '))}">${statusText}</span><select data-fuel-approval onchange="setFuelApproval('${escapeMinePlanning(log.id)}',this.value)"><option value="draft"${log.approval_status === 'draft' ? ' selected' : ''}>Draft</option><option value="submitted"${log.approval_status === 'submitted' ? ' selected' : ''}>Submitted</option><option value="verified"${log.approval_status === 'verified' ? ' selected' : ''}>Verified</option><option value="rejected"${log.approval_status === 'rejected' ? ' selected' : ''}>Rejected</option></select><button type="button" onclick="bukaFuelAudit('${escapeMinePlanning(log.id)}')" title="Audit trail">↗</button></div></td>
     <td><input data-fuel-field="fuel_ticket_no" type="text" value="${escapeMinePlanning(log.fuel_ticket_no || '')}" placeholder="Ticket"/><input data-fuel-field="remark" type="text" value="${escapeMinePlanning(log.remark || '')}" placeholder="Keterangan"/><input data-fuel-field="is_meter_reset" type="hidden" value="${log.is_meter_reset ? 'true' : 'false'}"/><input data-fuel-field="meter_reset_reason" type="hidden" value="${escapeMinePlanning(log.meter_reset_reason || '')}"/></td>
@@ -3880,18 +4254,18 @@ function renderFuelLogCardRow(card, log) {
 
 function renderFuelInlineRow(card, draftId, fields) {
   const values = fields || {};
-  return `<tr class="fuel-inline-new-row" data-fuel-row data-fuel-id="${escapeMinePlanning(draftId)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="" data-previous-km="" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}">
+  return `<tr class="fuel-inline-new-row" data-fuel-row data-fuel-id="${escapeMinePlanning(draftId)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="" data-previous-km="" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}" data-km-only="${card.km_only ? 'true' : 'false'}">
     <td data-fuel-delete-column hidden></td>
     <td><input data-fuel-field="equipment_id" type="hidden" value="${escapeMinePlanning(card.id)}"/><input data-fuel-field="tanggal" type="date" value="${escapeMinePlanning(values.tanggal || getLocalDateInputValue())}" required/></td>
     <td><select data-fuel-field="shift_id" required>${inputLogShiftOptions(values.shift_id || '')}</select></td>
-    <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.hm_reading ?? '')}" placeholder="Isi HM" required/></td>
-    <td><output data-fuel-output="hm_delta">â€”</output></td>
-    <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.odometer_reading ?? '')}" placeholder="${card.supports_distance ? 'Wajib' : 'Opsional'}"/></td>
-    <td><output data-fuel-output="distance_km">â€”</output></td>
+    <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.hm_reading ?? '')}" placeholder="${card.km_only ? 'Opsional' : 'Isi HM'}" ${card.km_only ? '' : 'required'}/></td>
+    <td><output data-fuel-output="hm_delta">—</output></td>
+    <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.odometer_reading ?? '')}" placeholder="${card.km_only ? 'Wajib' : (card.supports_distance ? 'Wajib' : 'Opsional')}" ${card.km_only ? 'required' : ''}/></td>
+    <td><output data-fuel-output="distance_km">—</output></td>
     <td><input data-fuel-field="fuel_filled" type="number" min="0.01" step="0.01" value="${escapeMinePlanning(values.fuel_filled ?? '')}" placeholder="Isi Liter" required/></td>
-    <td><output data-fuel-output="fuel_per_hm">â€”</output></td>
-    <td><output data-fuel-output="fuel_per_km">${card.supports_distance ? 'â€”' : 'N/A'}</output></td>
-    <td><output data-fuel-output="variance_pct">â€”</output></td>
+    <td><output data-fuel-output="fuel_per_hm">—</output></td>
+    <td><output data-fuel-output="fuel_per_km">${(card.supports_distance || card.km_only) ? '—' : 'N/A'}</output></td>
+    <td><output data-fuel-output="variance_pct">—</output></td>
     <td><span class="fuel-row-anomaly is-normal">Baru</span></td>
     <td><input data-fuel-field="fuel_ticket_no" type="text" value="${escapeMinePlanning(values.fuel_ticket_no || '')}" placeholder="Ticket"/><input data-fuel-field="remark" type="text" value="${escapeMinePlanning(values.remark || '')}" placeholder="Keterangan"/><input data-fuel-field="is_meter_reset" type="hidden" value="false"/><input data-fuel-field="meter_reset_reason" type="hidden" value=""/><button class="fuel-inline-cancel" type="button" onclick="hapusFuelInlineRow('${escapeMinePlanning(draftId)}')" title="Batalkan baris baru">×</button></td>
   </tr>`;
@@ -3899,17 +4273,17 @@ function renderFuelInlineRow(card, draftId, fields) {
 
 function renderFuelInlineRowV2(card, draftId, fields) {
   const values = fields || {};
-  return `<tr class="fuel-inline-new-row" data-fuel-row data-fuel-id="${escapeMinePlanning(draftId)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="" data-previous-km="" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}">
+  return `<tr class="fuel-inline-new-row" data-fuel-row data-fuel-id="${escapeMinePlanning(draftId)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="" data-previous-km="" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}" data-km-only="${card.km_only ? 'true' : 'false'}">
     <td data-fuel-delete-column hidden></td>
     <td><input data-fuel-field="equipment_id" type="hidden" value="${escapeMinePlanning(card.id)}"/><div class="fuel-inline-date"><input data-fuel-field="tanggal" type="date" value="${escapeMinePlanning(values.tanggal || getLocalDateInputValue())}" required/><button class="fuel-inline-cancel" type="button" onclick="hapusFuelInlineRow('${escapeMinePlanning(draftId)}')" title="Batalkan baris baru" aria-label="Batalkan baris baru">&minus;</button></div></td>
     <td><select data-fuel-field="shift_id" required>${inputLogShiftOptions(values.shift_id || '')}</select></td>
-    <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.hm_reading ?? '')}" placeholder="Isi HM" required/></td>
+    <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.hm_reading ?? '')}" placeholder="${card.km_only ? 'Opsional' : 'Isi HM'}" ${card.km_only ? '' : 'required'}/></td>
     <td><output data-fuel-output="hm_delta">&nbsp;</output></td>
-    <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.odometer_reading ?? '')}" placeholder="${card.supports_distance ? 'Wajib' : 'Opsional'}"/></td>
+    <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.odometer_reading ?? '')}" placeholder="${card.km_only ? 'Wajib' : (card.supports_distance ? 'Wajib' : 'Opsional')}" ${card.km_only ? 'required' : ''}/></td>
     <td><output data-fuel-output="distance_km">&nbsp;</output></td>
     <td><input data-fuel-field="fuel_filled" type="number" min="0.01" step="0.01" value="${escapeMinePlanning(values.fuel_filled ?? '')}" placeholder="Isi Liter" required/></td>
     <td><output data-fuel-output="fuel_per_hm">&nbsp;</output></td>
-    <td><output data-fuel-output="fuel_per_km">&nbsp;</output></td>
+    <td><output data-fuel-output="fuel_per_km">${(card.supports_distance || card.km_only) ? '&nbsp;' : 'N/A'}</output></td>
     <td><output data-fuel-output="variance_pct">&nbsp;</output></td>
     <td><span class="fuel-row-anomaly is-normal">Baru</span></td>
     <td><input data-fuel-field="fuel_ticket_no" type="text" value="${escapeMinePlanning(values.fuel_ticket_no || '')}" placeholder="Ticket"/><input data-fuel-field="remark" type="text" value="${escapeMinePlanning(values.remark || '')}" placeholder="Keterangan"/><input data-fuel-field="is_meter_reset" type="hidden" value="false"/><input data-fuel-field="meter_reset_reason" type="hidden" value=""/></td>
@@ -4032,8 +4406,9 @@ function updateFuelCalculatedFields(row) {
   const variancePct = target > 0 && fuel !== null ? (fuel-target)/target*100 : null;
   const output = (name,text) => { const targetOutput=row.querySelector(`[data-fuel-output="${name}"]`); if(targetOutput) targetOutput.textContent=text; };
   const display = (value, digits = 2, suffix = '') => value === null || value === undefined ? '' : fuelMetric(value, digits, suffix);
-  output('hm_delta',display(hmDelta)); output('distance_km',display(distance)); output('fuel_per_hm',display(perHm)); output('fuel_per_km',row.dataset.supportsDistance === 'true' ? display(perKm) : ''); output('variance_pct',display(variancePct,1,'%'));
-  const invalid = hm === null || fuel === null || fuel <= 0 || (!reset && previousHm !== null && hm <= previousHm) || (row.dataset.supportsDistance === 'true' && km === null);
+  output('hm_delta',display(hmDelta)); output('distance_km',display(distance)); output('fuel_per_hm',display(perHm)); output('fuel_per_km',(row.dataset.supportsDistance === 'true' || row.dataset.kmOnly === 'true') ? display(perKm) : ''); output('variance_pct',display(variancePct,1,'%'));
+  const kmOnly = row.dataset.kmOnly === 'true';
+  const invalid = (!kmOnly && hm === null) || fuel === null || fuel <= 0 || (!reset && !kmOnly && previousHm !== null && hm <= previousHm) || ((row.dataset.supportsDistance === 'true' || kmOnly) && km === null);
   row.dataset.validationError = invalid ? 'true' : 'false';
   return { valid: !invalid };
 }
@@ -4059,7 +4434,10 @@ function bindFuelInlineEditing() {
 
 async function persistFuelDraft(logId,draft) {
   const fields=draft?.fields||{};
-  const required=['tanggal','shift_id','equipment_id','hm_reading','fuel_filled'];
+  const equipment=(masterProdData.equipment||[]).find(item=>String(item.id)===String(fields.equipment_id));
+  const kmOnly=Boolean(equipment?.km_only);
+  const required=['tanggal','shift_id','equipment_id','fuel_filled'];
+  if(!kmOnly) required.push('hm_reading');
   const missing=required.filter(name=>fields[name]===undefined||fields[name]===null||String(fields[name]).trim()==='');
   if(missing.length) throw new Error(`Kolom wajib belum lengkap: ${missing.join(', ')}`);
   const isNew = String(logId).startsWith('new:');
@@ -4104,7 +4482,7 @@ async function importFuelExcel(file) {
     const headerIndex=matrix.findIndex(row=>row.map(value=>normalizeWorkLogImportText(value).toUpperCase()).includes('KODE UNIT')); if(headerIndex<0)throw new Error('Gunakan format Export terbaru dari Input Fuel.');
     const rows=matrix.slice(headerIndex+1).map((values,index)=>({values,excelRow:headerIndex+index+2})).filter(row=>row.values.some(value=>normalizeWorkLogImportText(value)!=='')); if(!rows.length||rows.length>500)throw new Error(rows.length?'Maksimal 500 baris per import.':'File tidak memiliki data.');
     const errors=[]; const payloads=[]; const keys=new Set();
-    rows.forEach(({values,excelRow})=>{const tanggal=workLogExcelDateToIso(values[0]);const shift=resolveWorkLogImportShift(values[1]);const code=normalizeWorkLogImportText(values[2]);const unit=(masterProdData.equipment||[]).find(item=>String(item.kode_alat||'').trim().toLowerCase()===code.toLowerCase());const hm=parseWorkLogImportNumber(values[6]);const km=normalizeWorkLogImportText(values[7])===''?null:parseWorkLogImportNumber(values[7]);const fuel=parseWorkLogImportNumber(values[8]);const rowErrors=[];if(!tanggal)rowErrors.push('Tanggal tidak valid');if(!shift)rowErrors.push('Shift tidak valid');if(!unit)rowErrors.push('Unit tidak ditemukan');if(!Number.isFinite(hm)||hm<0)rowErrors.push('HM tidak valid');if(km!==null&&(!Number.isFinite(km)||km<0))rowErrors.push('KM tidak valid');if(!Number.isFinite(fuel)||fuel<=0)rowErrors.push('Fuel harus > 0');const key=unit&&shift&&tanggal?`${tanggal}|${shift.id}|${unit.id}`:'';if(key&&keys.has(key))rowErrors.push('Duplikat unit/tanggal/shift dalam file');if(key)keys.add(key);if(rowErrors.length)errors.push(`Baris ${excelRow}: ${rowErrors.join(', ')}`);else payloads.push({excelRow,data:{tanggal,shift_id:shift.id,equipment_id:unit.id,hm_reading:hm,odometer_reading:km,fuel_filled:fuel,fuel_ticket_no:normalizeWorkLogImportText(values[14]),remark:normalizeWorkLogImportText(values[15]),source_type:'import'}});});
+    rows.forEach(({values,excelRow})=>{const tanggal=workLogExcelDateToIso(values[0]);const shift=resolveWorkLogImportShift(values[1]);const code=normalizeWorkLogImportText(values[2]);const unit=(masterProdData.equipment||[]).find(item=>String(item.kode_alat||'').trim().toLowerCase()===code.toLowerCase());const kmOnly=Boolean(unit?.km_only);const hm=parseWorkLogImportNumber(values[6]);const km=normalizeWorkLogImportText(values[7])===''?null:parseWorkLogImportNumber(values[7]);const fuel=parseWorkLogImportNumber(values[8]);const rowErrors=[];if(!tanggal)rowErrors.push('Tanggal tidak valid');if(!shift)rowErrors.push('Shift tidak valid');if(!unit)rowErrors.push('Unit tidak ditemukan');if(!kmOnly&&(!Number.isFinite(hm)||hm<0))rowErrors.push('HM tidak valid');if(kmOnly&&(km===null||!Number.isFinite(km)||km<0))rowErrors.push('KM wajib diisi untuk unit Km-only');if(km!==null&&(!Number.isFinite(km)||km<0))rowErrors.push('KM tidak valid');if(!Number.isFinite(fuel)||fuel<=0)rowErrors.push('Fuel harus > 0');const key=unit&&shift&&tanggal?`${tanggal}|${shift.id}|${unit.id}`:'';if(key&&keys.has(key))rowErrors.push('Duplikat unit/tanggal/shift dalam file');if(key)keys.add(key);if(rowErrors.length)errors.push(`Baris ${excelRow}: ${rowErrors.join(', ')}`);else payloads.push({excelRow,data:{tanggal,shift_id:shift.id,equipment_id:unit.id,hm_reading:kmOnly?null:hm,odometer_reading:km,fuel_filled:fuel,fuel_ticket_no:normalizeWorkLogImportText(values[14]),remark:normalizeWorkLogImportText(values[15]),source_type:'import'}});});
     if(errors.length)throw new Error(`Validasi gagal:\n${errors.slice(0,12).join('\n')}${errors.length>12?`\n...dan ${errors.length-12} baris lainnya.`:''}`);if(!confirm(`Import ${payloads.length} pengisian Fuel dari "${file.name}"?\n\nFormula rasio dan anomaly akan dihitung ulang oleh sistem.`))return;
     const createdIds=[];const failures=[];for(const item of payloads){const response=await fetch(getProdApiUrl('/api/admin/production/fuel'),{method:'POST',headers:{'Content-Type':'application/json',...getProdAuthHeaders()},body:JSON.stringify(item.data)});const result=await response.json().catch(()=>({}));if(response.ok&&result.id)createdIds.push(String(result.id));else failures.push(`Baris ${item.excelRow}: ${result.error||`HTTP ${response.status}`}`);}if(createdIds.length){pushFuelHistory({type:'create',ids:createdIds,label:`Import ${createdIds.length} Fuel`});invalidateFuelDetailCache();await muatProdInputFuel();}alert(`${createdIds.length} berhasil diimport.${failures.length?`\n${failures.length} gagal:\n${failures.slice(0,10).join('\n')}`:''}`);
   }catch(error){alert(`Import Fuel gagal:\n${error.message}`);}
@@ -4113,11 +4491,15 @@ async function importFuelExcel(file) {
 function bukaModalInputFuel(preselectedEquipmentId='') {
   const overlay=document.getElementById('modalOverlay');const konten=document.getElementById('modalKonten');if(!overlay||!konten)return;
   const equipmentOptions=inputLogEquipmentOptions(preselectedEquipmentId);const shiftOptions=inputLogShiftOptions('');
-  konten.innerHTML=`<h3 style="margin-top:0">⛽ Pengisian Fuel Aktual</h3><p class="fuel-modal-note">HM dan KM adalah pembacaan counter aktual pada saat pengisian. Sistem menghitung selisih terhadap pembacaan sebelumnya.</p><form id="formInputFuelCard">
-    <div class="fuel-modal-grid"><label>Tanggal<input id="ifcTanggal" type="date" value="${getLocalDateInputValue()}" required/></label><label>Shift<select id="ifcShift" required>${shiftOptions}</select></label><label class="is-wide">Kode Unit<select id="ifcEquipment" required>${equipmentOptions}</select></label><label>HM Aktual<input id="ifcHm" type="number" min="0" step="0.01" required/></label><label>KM/Odometer<input id="ifcKm" type="number" min="0" step="0.01" placeholder="Unit mobile"/></label><label>Fuel Diisikan (Liter)<input id="ifcFuel" type="number" min="0.01" step="0.01" required/></label><label>Fuel Ticket<input id="ifcTicket" type="text" placeholder="Nomor voucher/ticket"/></label><label class="is-wide">Keterangan<input id="ifcRemark" type="text" placeholder="Lokasi dispenser atau catatan pengisian"/></label><label class="is-wide fuel-reset-check"><input id="ifcReset" type="checkbox" onchange="document.getElementById('ifcResetReason').disabled=!this.checked"/> Reset/penggantian HM atau odometer</label><label class="is-wide">Alasan reset<input id="ifcResetReason" type="text" disabled placeholder="Wajib jika counter di-reset"/></label><label class="is-wide">URL Lampiran<input id="ifcAttachment" type="url" placeholder="Opsional: tautan foto voucher/meter"/></label></div>
+  const initialUnit=(masterProdData.equipment||[]).find(item=>String(item.id)===String(preselectedEquipmentId));
+  const initialKmOnly=Boolean(initialUnit?.km_only);
+  konten.innerHTML=`<h3 style="margin-top:0">⛽ Pengisian Fuel Aktual</h3><p class="fuel-modal-note" id="ifcNote">HM dan KM adalah pembacaan counter aktual pada saat pengisian. Sistem menghitung selisih terhadap pembacaan sebelumnya.</p><form id="formInputFuelCard">
+    <div class="fuel-modal-grid"><label>Tanggal<input id="ifcTanggal" type="date" value="${getLocalDateInputValue()}" required/></label><label>Shift<select id="ifcShift" required>${shiftOptions}</select></label><label class="is-wide">Kode Unit<select id="ifcEquipment" required>${equipmentOptions}</select></label><label id="ifcHmLabel">HM Aktual<input id="ifcHm" type="number" min="0" step="0.01" ${initialKmOnly?'':'required'}/></label><label>KM/Odometer<input id="ifcKm" type="number" min="0" step="0.01" placeholder="Unit mobile"/></label><label>Fuel Diisikan (Liter)<input id="ifcFuel" type="number" min="0.01" step="0.01" required/></label><label>Fuel Ticket<input id="ifcTicket" type="text" placeholder="Nomor voucher/ticket"/></label><label class="is-wide">Keterangan<input id="ifcRemark" type="text" placeholder="Lokasi dispenser atau catatan pengisian"/></label><label class="is-wide fuel-reset-check"><input id="ifcReset" type="checkbox" onchange="document.getElementById('ifcResetReason').disabled=!this.checked"/> Reset/penggantian HM atau odometer</label><label class="is-wide">Alasan reset<input id="ifcResetReason" type="text" disabled placeholder="Wajib jika counter di-reset"/></label><label class="is-wide">URL Lampiran<input id="ifcAttachment" type="url" placeholder="Opsional: tautan foto voucher/meter"/></label></div>
     <div class="fuel-modal-actions"><button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button><button type="submit" class="tombol tombol--utama">Simpan Pengisian</button></div></form>`;
   overlay.hidden=false;
-  document.getElementById('formInputFuelCard').addEventListener('submit',async event=>{event.preventDefault();const bodyData={tanggal:document.getElementById('ifcTanggal').value,shift_id:document.getElementById('ifcShift').value,equipment_id:document.getElementById('ifcEquipment').value,hm_reading:document.getElementById('ifcHm').value,odometer_reading:document.getElementById('ifcKm').value||null,fuel_filled:document.getElementById('ifcFuel').value,fuel_ticket_no:document.getElementById('ifcTicket').value,remark:document.getElementById('ifcRemark').value,is_meter_reset:document.getElementById('ifcReset').checked,meter_reset_reason:document.getElementById('ifcResetReason').value,attachment_url:document.getElementById('ifcAttachment').value,source_type:'manual'};try{const response=await fetch(getProdApiUrl('/api/admin/production/fuel'),{method:'POST',headers:{'Content-Type':'application/json',...getProdAuthHeaders()},body:JSON.stringify(bodyData)});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||`HTTP ${response.status}`);tutupModalGenerik();if(result.id)pushFuelHistory({type:'create',ids:[String(result.id)],label:'Tambah Pengisian Fuel'});invalidateFuelDetailCache();fuelOpenCards.add(String(bodyData.equipment_id));await muatProdInputFuel();}catch(error){alert(`Gagal menyimpan Fuel: ${error.message}`);}});
+  const syncKmOnlyUi=()=>{const unit=(masterProdData.equipment||[]).find(item=>String(item.id)===String(document.getElementById('ifcEquipment').value));const kmOnly=Boolean(unit?.km_only);const hmInput=document.getElementById('ifcHm');const kmInput=document.getElementById('ifcKm');const note=document.getElementById('ifcNote');if(kmOnly){hmInput.removeAttribute('required');hmInput.placeholder='Opsional';kmInput.placeholder='Wajib';kmInput.setAttribute('required','');note.textContent='Unit ini terdaftar sebagai Km-only: cukup isi KM/Odometer, HM bersifat opsional.';}else{hmInput.setAttribute('required','');hmInput.placeholder='';kmInput.removeAttribute('required');kmInput.placeholder='Unit mobile';note.textContent='HM dan KM adalah pembacaan counter aktual pada saat pengisian. Sistem menghitung selisih terhadap pembacaan sebelumnya.';}};
+  document.getElementById('ifcEquipment').addEventListener('change',syncKmOnlyUi);
+  document.getElementById('formInputFuelCard').addEventListener('submit',async event=>{event.preventDefault();const bodyData={tanggal:document.getElementById('ifcTanggal').value,shift_id:document.getElementById('ifcShift').value,equipment_id:document.getElementById('ifcEquipment').value,hm_reading:document.getElementById('ifcHm').value||null,odometer_reading:document.getElementById('ifcKm').value||null,fuel_filled:document.getElementById('ifcFuel').value,fuel_ticket_no:document.getElementById('ifcTicket').value,remark:document.getElementById('ifcRemark').value,is_meter_reset:document.getElementById('ifcReset').checked,meter_reset_reason:document.getElementById('ifcResetReason').value,attachment_url:document.getElementById('ifcAttachment').value,source_type:'manual'};try{const response=await fetch(getProdApiUrl('/api/admin/production/fuel'),{method:'POST',headers:{'Content-Type':'application/json',...getProdAuthHeaders()},body:JSON.stringify(bodyData)});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||`HTTP ${response.status}`);tutupModalGenerik();if(result.id)pushFuelHistory({type:'create',ids:[String(result.id)],label:'Tambah Pengisian Fuel'});invalidateFuelDetailCache();fuelOpenCards.add(String(bodyData.equipment_id));await muatProdInputFuel();}catch(error){alert(`Gagal menyimpan Fuel: ${error.message}`);}});
 }
 
 // -------------------------------------------------------------
@@ -4605,28 +4987,40 @@ async function simpanPerubahanStandby() {
     return true;
   }
   const saveButton = document.getElementById('btnSimpanPerubahanStandby');
-  if (saveButton) saveButton.disabled = true;
+  const feedback = window.OMOSActionFeedback.begin(saveButton, {
+    loadingText: `Menyimpan ${standbyDrafts.size} perubahan…`,
+    resolveDisabled: () => standbyDrafts.size === 0,
+    onRestore: () => updateStandbySaveIndicator(),
+  });
+  if (!feedback) return false;
   updateStandbySaveIndicator('Menyimpan perubahan...');
   const failures = [];
   let savedCount = 0;
-  for (const [logId, draft] of [...standbyDrafts.entries()]) {
-    try {
-      await persistStandbyDraft(logId, draft);
-      standbyDrafts.delete(logId);
-      savedCount += 1;
-    } catch (error) {
-      failures.push({ logId, message: error.message });
+  let completed = false;
+  try {
+    for (const [logId, draft] of [...standbyDrafts.entries()]) {
+      try {
+        await persistStandbyDraft(logId, draft);
+        standbyDrafts.delete(logId);
+        savedCount += 1;
+      } catch (error) {
+        failures.push({ logId, message: error.message });
+      }
     }
+    if (failures.length) {
+      updateStandbySaveIndicator(`${failures.length} baris gagal disimpan`);
+      alert(`${failures.length} baris standby gagal disimpan:\n` + failures.map(f => `- ${f.message}`).join('\n'));
+      completed = true;
+      return false;
+    }
+    updateStandbySaveIndicator(`${savedCount} baris berhasil disimpan`);
+    setTimeout(() => updateStandbySaveIndicator(), 1400);
+    terapkanSlicerStandby();
+    completed = true;
+    return true;
+  } finally {
+    await feedback.finish(completed && !failures.length ? 'success' : 'error', { savedCount, failures });
   }
-  if (failures.length) {
-    updateStandbySaveIndicator(`${failures.length} baris gagal disimpan`);
-    alert(`${failures.length} baris standby gagal disimpan:\n` + failures.map(f => `- ${f.message}`).join('\n'));
-    return false;
-  }
-  updateStandbySaveIndicator(`${savedCount} baris berhasil disimpan`);
-  setTimeout(() => updateStandbySaveIndicator(), 1400);
-  terapkanSlicerStandby();
-  return true;
 }
 
 function renderChartStandby(paretoData) {
@@ -4737,15 +5131,17 @@ function bukaModalInputStandbyLegacy() {
     };
 
     try {
-      const res = await fetch(getProdApiUrl('/api/admin/production/standby'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-        body: JSON.stringify(bodyData)
-      });
-      if (res.ok) {
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(e), async () => {
+        const res = await fetch(getProdApiUrl('/api/admin/production/standby'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+          body: JSON.stringify(bodyData)
+        });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
         tutupModalGenerik();
-        muatProdStandby();
-      }
+        await muatProdStandby();
+      });
     } catch (err) {
       alert('Gagal menyimpan standby log: ' + err.message);
     }
@@ -4812,7 +5208,7 @@ function updateStandbyEditSessionUi(message = '') {
   if (note) note.textContent = message || 'Anda dapat lanjut membuka unit lain. Seluruh perubahan akan disimpan bersama dan dikirim ulang untuk review.';
   if (button) {
     button.disabled = standbyEditSaving || standbyEditDrafts.size === 0;
-    button.textContent = standbyEditSaving ? 'Menyimpan Sesiâ€¦' : `Simpan Sesi (${standbyEditDrafts.size})`;
+    button.textContent = standbyEditSaving ? 'Menyimpan Sesi…' : `Simpan Sesi (${standbyEditDrafts.size})`;
   }
 }
 
@@ -5112,7 +5508,7 @@ function standbyRowCanDelete(row) {
 function standbyDeleteCell(row, id) {
   if (!standbyBulkDeleteMode) return '';
   const allowed = standbyRowCanDelete(row);
-  return `<td class="standby-delete-cell">${allowed ? `<input data-standby-select type="checkbox" value="${escapeMinePlanning(id)}" aria-label="Pilih record ${escapeMinePlanning(row.kode_standby || '')}" onchange="toggleStandbySelection('${escapeMinePlanning(id)}',this.checked)"${standbyDeleteSelection.has(id) ? ' checked' : ''}/>` : '<span title="Record terkunci">â€”</span>'}</td>`;
+  return `<td class="standby-delete-cell">${allowed ? `<input data-standby-select type="checkbox" value="${escapeMinePlanning(id)}" aria-label="Pilih record ${escapeMinePlanning(row.kode_standby || '')}" onchange="toggleStandbySelection('${escapeMinePlanning(id)}',this.checked)"${standbyDeleteSelection.has(id) ? ' checked' : ''}/>` : '<span title="Record terkunci">—</span>'}</td>`;
 }
 
 function standbyManualCodeEditOptions(selectedId) {
@@ -5246,10 +5642,16 @@ async function simpanSesiStandby() {
   if (!standbyEditDrafts.size || standbyEditSaving) return;
   const invalid = document.querySelector('[data-standby-edit-row][data-validation-error="true"]');
   if (invalid) { invalid.scrollIntoView({ behavior: 'smooth', block: 'center' }); return updateStandbyEditSessionUi('Perbaiki rentang jam yang ditandai sebelum menyimpan.'); }
+  let failureMessage = '';
+  const feedback = window.OMOSActionFeedback.begin(document.getElementById('btnSimpanSesiStandby'), {
+    loadingText: `Menyimpan ${standbyEditDrafts.size} perubahan…`,
+    resolveDisabled: () => standbyEditDrafts.size === 0,
+    onRestore: () => updateStandbyEditSessionUi(failureMessage),
+  });
+  if (!feedback) return;
   standbyEditSaving = true;
   updateStandbyEditSessionUi();
   const viewSession = captureStandbyViewSession();
-  let failureMessage = '';
   try {
     const changes = [...standbyEditDrafts.entries()].map(([id, payload]) => ({ id, ...payload }));
     const response = await fetch(getProdApiUrl('/api/admin/production/standby/session'), {
@@ -5267,6 +5669,7 @@ async function simpanSesiStandby() {
   } finally {
     standbyEditSaving = false;
     updateStandbyEditSessionUi(failureMessage);
+    await feedback.finish(failureMessage ? 'error' : 'success', failureMessage);
   }
 }
 
@@ -5334,7 +5737,7 @@ async function deleteSelectedStandbyLogs() {
   if (!ids.length || !confirm(`Hapus ${ids.length} record Standby terpilih?\n\nRecord akan disembunyikan dari laporan dan KPI, tetapi audit penghapusan tetap tersimpan.`)) return;
   const viewSession = captureStandbyViewSession();
   const button = document.getElementById('btnDeleteSelectedStandby');
-  if (button) { button.disabled = true; button.textContent = 'Menghapusâ€¦'; }
+  if (button) { button.disabled = true; button.textContent = 'Menghapus…'; }
   try {
     const response = await fetch(getProdApiUrl('/api/admin/production/standby/batch'), {
       method: 'DELETE', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify({ ids })
@@ -5594,24 +5997,22 @@ async function bukaInsertStandbyUnit(operationalDate, shiftId, equipmentId) {
         finish_time: standbyMultiTimeToIso(operationalDate, finishClock, shiftKind),
         description: description.value.trim()
       };
-      submit.disabled = true;
-      submit.textContent = 'Menyimpan…';
-      const response = await fetch(getProdApiUrl('/api/admin/production/standby'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-        body: JSON.stringify(payload)
+      await window.OMOSActionFeedback.run(submit, async () => {
+        const response = await fetch(getProdApiUrl('/api/admin/production/standby'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        viewSession.openKeys = [...new Set([...(viewSession.openKeys || []), ...standbyUnitOpenKeys(operationalDate, shift.id, unit)])];
+        tutupModalGenerik();
+        await muatProdStandby();
+        await restoreStandbyViewSession(viewSession);
       });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-      viewSession.openKeys = [...new Set([...(viewSession.openKeys || []), ...standbyUnitOpenKeys(operationalDate, shift.id, unit)])];
-      tutupModalGenerik();
-      await muatProdStandby();
-      await restoreStandbyViewSession(viewSession);
     } catch (error) {
       errorBox.textContent = error.message;
       errorBox.hidden = false;
-      submit.disabled = false;
-      submit.textContent = 'Simpan Standby';
     }
   });
 }
@@ -5654,10 +6055,12 @@ function bukaModalInputStandbySingleLegacy(preselectedEquipmentId = '') {
     event.preventDefault();
     const payload = { tanggal: document.getElementById('svTanggal').value, shift_id: document.getElementById('svShift').value, equipment_id: document.getElementById('svUnit').value, standby_code_id: document.getElementById('svCode').value, start_time: breakdownToIso(document.getElementById('svStart').value), finish_time: breakdownToIso(document.getElementById('svFinish').value), description: document.getElementById('svDescription').value.trim() };
     try {
-      const response = await fetch(getProdApiUrl('/api/admin/production/standby'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-      tutupModalGenerik(); await muatProdStandby();
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl('/api/admin/production/standby'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        tutupModalGenerik(); await muatProdStandby();
+      });
     } catch (error) { alert(`Gagal menyimpan Standby: ${error.message}`); }
   });
 }
@@ -5967,23 +6370,21 @@ async function bukaModalInputStandby(preselectedEquipmentId = '') {
     } catch (error) { return showFormError(error.message); }
     if (records.length > 500) return showFormError('Maksimal 500 isian dalam satu proses Multi Unit.');
     const submit = document.getElementById('smSubmit');
-    submit.disabled = true;
-    submit.textContent = `Menyimpan ${records.length} record...`;
     try {
-      const response = await fetch(getProdApiUrl('/api/admin/production/standby/batch'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify({ tanggal, shift_id: document.getElementById('smShift').value, description: document.getElementById('smDescription').value.trim(), records }) });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-      tutupModalGenerik();
-      await muatProdStandby();
-      const skipped = Array.isArray(result.skipped) ? result.skipped : [];
-      const skippedInfo = skipped.length
-        ? `\n${skipped.length} record dilewati karena waktunya bertumpang tindih: ${skipped.slice(0, 5).map(item => `${item.kode_alat} / ${item.kode_standby}`).join(', ')}${skipped.length > 5 ? ', …' : ''}.`
-        : '';
-      alert(`${result.inserted || 0} record Standby berhasil dibuat untuk ${selectedUnitIds.size} unit.${skippedInfo}`);
+      await window.OMOSActionFeedback.run(submit, async () => {
+        const response = await fetch(getProdApiUrl('/api/admin/production/standby/batch'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify({ tanggal, shift_id: document.getElementById('smShift').value, description: document.getElementById('smDescription').value.trim(), records }) });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        tutupModalGenerik();
+        await muatProdStandby();
+        const skipped = Array.isArray(result.skipped) ? result.skipped : [];
+        const skippedInfo = skipped.length
+          ? `\n${skipped.length} record dilewati karena waktunya bertumpang tindih: ${skipped.slice(0, 5).map(item => `${item.kode_alat} / ${item.kode_standby}`).join(', ')}${skipped.length > 5 ? ', …' : ''}.`
+          : '';
+        alert(`${result.inserted || 0} record Standby berhasil dibuat untuk ${selectedUnitIds.size} unit.${skippedInfo}`);
+      }, { loadingText: `Menyimpan ${records.length} record…` });
     } catch (error) {
       showFormError(`Gagal menyimpan Multi Unit: ${error.message}`);
-      submit.disabled = false;
-      submit.textContent = 'Simpan Multi Unit';
     }
   });
   renderUnits();
@@ -6244,14 +6645,25 @@ function terapkanSlicerBreakdown() {
   if (!tbody || !completedBody) return;
   const search = String(document.getElementById('slicerBreakdownCari')?.value || '').trim().toLowerCase();
   const statusFilter = String(document.getElementById('slicerBreakdownStatus')?.value || '');
-  const units = [...(masterProdData.equipment || [])].filter(unit => unit?.id && unit?.kode_alat)
-    .sort((a, b) => String(a.kode_alat).localeCompare(String(b.kode_alat), 'id-ID', { numeric: true, sensitivity: 'base' }));
-  const logsByUnit = new Map();
-  cachedBreakdownLogs.forEach(log => {
-    const key = String(log.equipment_id || '');
-    if (!logsByUnit.has(key)) logsByUnit.set(key, []);
-    logsByUnit.get(key).push(log);
+  // Peta unit dari master data (hanya unit aktif). Breakdown log yang equipment-nya
+  // sudah dihapus (soft-delete) tetap dirender memakai fallback dari field log itu
+  // sendiri, sehingga insiden tidak hilang dari tabel (kasus orphan DT-01).
+  const unitById = new Map();
+  [...(masterProdData.equipment || [])].forEach(unit => {
+    if (unit?.id) unitById.set(String(unit.id), unit);
   });
+  const resolveUnit = (log) => {
+    const found = log?.equipment_id ? unitById.get(String(log.equipment_id)) : null;
+    if (found) return found;
+    // Fallback: equipment sudah tidak ada di master (soft-delete) -> pakai field log.
+    return {
+      id: log?.equipment_id,
+      kode_alat: log?.kode_alat || 'Unit tidak dikenal',
+      kelas_alat: log?.kelas_alat || '',
+      class_unit: log?.class_unit || '',
+      tipe_alat: log?.tipe_alat || ''
+    };
+  };
 
   const activeRows = [];
   const completedRows = [];
@@ -6264,40 +6676,50 @@ function terapkanSlicerBreakdown() {
       ? `<button class="tombol tombol--kecil breakdown-ready-button" onclick="bukaModalReadyVerification('${escapeMinePlanning(log.id)}')">Verifikasi Ready</button><button class="tombol tombol--kecil standby-review-button" onclick="bukaModalRekonsiliasiReady('${escapeMinePlanning(log.id)}')">Rekonsiliasi Operasi</button><button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">Detail</button>`
       : isResolved
         ? `<button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">${Array.isArray(log.ready_verifications) && log.ready_verifications.length ? 'Lihat Verifikasi' : 'Detail'}</button>`
-        : `<button class="tombol tombol--kecil tombol--utama" onclick="bukaModalUpdateStatusBreakdown('${escapeMinePlanning(log.id)}')">Update</button><button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">Detail</button>`;
+        : `<button class="tombol tombol--kecil tombol--utama" onclick="bukaModalUpdateStatusBreakdown('${escapeMinePlanning(log.id)}')">Update</button><button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">Detail</button><button class="tombol tombol--kecil tombol--error" onclick="hapusBreakdownLog('${escapeMinePlanning(log.id)}', '${escapeMinePlanning(unit.kode_alat)}')">Hapus</button>`;
+    const picCell = isResolved
+      ? `<span class="breakdown-pic-static">${escapeMinePlanning(log.pic_name || 'Belum ditetapkan')}</span>`
+      : `<select class="breakdown-pic-select" data-breakdown-id="${escapeMinePlanning(log.id)}" onchange="ubahPicBreakdown('${escapeMinePlanning(log.id)}', this.value, this)">${breakdownPersonnelOptions(log.pic_id, true)}</select>`;
     return `<tr class="breakdown-incident-row${!isResolved && !isPending ? ' is-active' : ''}" data-breakdown-id="${escapeMinePlanning(log.id)}">
       <td><strong>${escapeMinePlanning(unit.kode_alat)}</strong><small>${escapeMinePlanning(unit.kelas_alat || unit.class_unit || unit.tipe_alat || 'Unit')}</small>${index ? '<em>Insiden tambahan</em>' : ''}</td>
       <td><strong>${escapeMinePlanning(String(log.tanggal || '').slice(0, 10))}</strong><small>${escapeMinePlanning(log.nama_shift || '—')}</small></td>
       <td><strong>${escapeMinePlanning(`${log.kode_breakdown || ''} ${log.kategori_breakdown || ''}`.trim() || '—')}</strong><small title="${escapeMinePlanning(log.description || '')}">${escapeMinePlanning(log.description || 'Tanpa deskripsi')}</small></td>
       <td>${escapeMinePlanning(formatBreakdownDateTime(log.start_time))}</td><td>${breakdownStatusBadge(log.current_status)}</td>
       <td class="breakdown-duration-total">${formatBreakdownHours(log.elapsed_breakdown_hours)}<small>jam</small></td>
-      <td>${escapeMinePlanning(log.report_by_name || 'Sistem')}</td><td>${escapeMinePlanning(log.pic_name || 'Belum ditetapkan')}</td>
+      <td>${escapeMinePlanning(log.report_by_name || 'Sistem')}</td><td>${picCell}</td>
       <td><div class="breakdown-parts-cell">${breakdownPartSummary(log.parts)}</div></td>
       <td><div class="breakdown-row-actions">${actions}</div></td>
     </tr>`;
   };
-  units.forEach(unit => {
-    const unitLogs = logsByUnit.get(String(unit.id)) || [];
-    const matchingLogs = unitLogs.filter(log => {
-      const statusMatches = !statusFilter || (statusFilter === 'open' ? log.current_status !== 'resolved' : log.current_status === statusFilter);
-      return statusMatches && (!search || breakdownRowSearchText(unit, log).includes(search));
-    });
-    if (!matchingLogs.length) return;
-    visibleUnitIds.add(String(unit.id));
-    matchingLogs.forEach((log, index) => {
-      visibleIncidents += 1;
-      const target = ['awaiting_verification', 'resolved'].includes(log.current_status) ? completedRows : activeRows;
-      target.push(rowMarkup(unit, log, index));
-    });
+  // Render berbasis LOG (bukan berbasis unit) agar insiden yang equipment-nya sudah
+  // dihapus tetap tampil. Urutkan per unit lalu berdasarkan start_time menurun.
+  const logs = [...(cachedBreakdownLogs || [])].sort((a, b) => {
+    const ka = String(a.kode_alat || '').localeCompare(String(b.kode_alat || ''), 'id-ID', { numeric: true, sensitivity: 'base' });
+    if (ka !== 0) return ka;
+    return String(b.start_time || '').localeCompare(String(a.start_time || ''));
+  });
+  const perUnitIndex = new Map();
+  logs.forEach(log => {
+    const unit = resolveUnit(log);
+    const statusMatches = !statusFilter || (statusFilter === 'open' ? log.current_status !== 'resolved' : log.current_status === statusFilter);
+    if (!statusMatches) return;
+    if (search && !breakdownRowSearchText(unit, log).includes(search)) return;
+    const unitKey = String(log.equipment_id || log.id || '');
+    const index = perUnitIndex.get(unitKey) || 0;
+    perUnitIndex.set(unitKey, index + 1);
+    visibleUnitIds.add(unitKey);
+    visibleIncidents += 1;
+    const target = ['awaiting_verification', 'resolved'].includes(log.current_status) ? completedRows : activeRows;
+    target.push(rowMarkup(unit, log, index));
   });
   tbody.innerHTML = activeRows.length ? activeRows.join('') : '<tr><td colspan="10" class="tabel__kosong">Tidak ada breakdown aktif yang sesuai filter.</td></tr>';
   completedBody.innerHTML = completedRows.length ? completedRows.join('') : '<tr><td colspan="10" class="tabel__kosong">Belum ada unit selesai perbaikan yang sesuai filter.</td></tr>';
   const activeCount = document.getElementById('breakdownActiveCount');
   const completedCount = document.getElementById('breakdownCompletedCount');
-  if (activeCount) activeCount.textContent = `${activeRows.length} insiden`;
-  if (completedCount) completedCount.textContent = `${completedRows.length} insiden`;
+  if (activeCount) activeCount.textContent = `${activeRows.length} BD`;
+  if (completedCount) completedCount.textContent = `${completedRows.length} BD`;
   const counter = document.getElementById('counterSlicerBreakdown');
-  if (counter) counter.textContent = `${visibleUnitIds.size} unit · ${visibleIncidents} insiden`;
+  if (counter) counter.textContent = `${visibleUnitIds.size} unit · ${visibleIncidents} BD`;
 }
 
 function resetSlicerBreakdown() {
@@ -6306,6 +6728,74 @@ function resetSlicerBreakdown() {
   if (search) search.value = '';
   if (status) status.value = '';
   terapkanSlicerBreakdown();
+}
+
+// Hapus insiden breakdown aktif (koreksi kesalahan input). Data breakdown beserta
+// seluruh data terkait (timeline, part, verifikasi) ikut dihapus sehingga tidak lagi
+// mempengaruhi Breakdown History maupun Unit Performance. Standby otomatis hasil
+// verifikasi tidak ikut dihapus dan status unit dibiarkan apa adanya.
+async function hapusBreakdownLog(id, kodeAlat) {
+  const label = kodeAlat ? ` unit ${kodeAlat}` : '';
+  if (!confirm(`Hapus insiden breakdown${label} ini?\n\nSeluruh data breakdown (timeline, part, verifikasi) akan dihapus dan tidak lagi mempengaruhi Breakdown History maupun Unit Performance. Tindakan ini tidak dapat dibatalkan.`)) return;
+  try {
+    const res = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}`), {
+      method: 'DELETE',
+      headers: { ...getProdAuthHeaders() }
+    });
+    if (res.ok) {
+      alert(`Insiden breakdown${label} berhasil dihapus.`);
+      await muatProdBreakdown();
+      return;
+    }
+    let message = `Gagal menghapus insiden breakdown (HTTP ${res.status}).`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch (_) { /* abaikan body non-JSON */ }
+    alert(message);
+  } catch (err) {
+    alert('Gagal menghapus insiden breakdown: ' + err.message);
+  }
+}
+
+// Auto-save PIC Maintenance pada baris breakdown aktif (termasuk Menunggu Verifikasi).
+async function ubahPicBreakdown(breakdownId, picId, selectEl) {
+  const prevValue = selectEl?.dataset?.prevPic || '';
+  const setBusy = (busy) => {
+    if (!selectEl) return;
+    selectEl.disabled = busy;
+    selectEl.classList.toggle('is-saving', busy);
+  };
+  const revert = () => {
+    if (!selectEl) return;
+    selectEl.value = prevValue;
+    setBusy(false);
+  };
+  try {
+    if (!picId) {
+      revert();
+      return;
+    }
+    setBusy(true);
+    const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(breakdownId)}/pic`), {
+      method: 'PATCH',
+      headers: { ...getProdAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pic_id: picId })
+    });
+    const data = await readBreakdownResponse(response);
+    const log = (cachedBreakdownLogs || []).find(item => String(item.id) === String(breakdownId));
+    if (log) {
+      log.pic_id = data.pic_id || picId;
+      log.pic_name = data.pic_name || (masterProdData.personnel || []).find(p => String(p.id) === String(picId))?.nama || log.pic_name;
+    }
+    if (selectEl) selectEl.dataset.prevPic = picId;
+    terapkanSlicerBreakdown();
+  } catch (err) {
+    revert();
+    alert(`Gagal menyimpan PIC: ${err.message}`);
+  } finally {
+    setBusy(false);
+  }
 }
 
 function breakdownPersonnelOptions(selectedId = '', includeEmpty = true) {
@@ -6914,11 +7404,13 @@ async function bukaModalMaintenanceEvent(eventId = '') {
       failure_cause: get('meFailureCause').value.trim(), corrective_action: get('meCorrectiveAction').value.trim()
     };
     try {
-      const response = await fetch(getProdApiUrl(event ? `/api/admin/production/maintenance-events/${encodeURIComponent(event.id)}` : '/api/admin/production/maintenance-events'), {
-        method: event ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload)
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(submitEvent), async () => {
+        const response = await fetch(getProdApiUrl(event ? `/api/admin/production/maintenance-events/${encodeURIComponent(event.id)}` : '/api/admin/production/maintenance-events'), {
+          method: event ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload)
+        });
+        await readBreakdownResponse(response);
+        await bukaUnitPerformance(cachedUnitPerformance?.period?.year, cachedUnitPerformance?.period?.month);
       });
-      await readBreakdownResponse(response);
-      await bukaUnitPerformance(cachedUnitPerformance?.period?.year, cachedUnitPerformance?.period?.month);
     } catch (error) { alert(`Gagal menyimpan maintenance: ${error.message}`); }
   });
 }
@@ -6962,8 +7454,10 @@ async function bukaModalInputBreakdown(selectedEquipmentId = '') {
     const payload = { tanggal: document.getElementById('ibTanggal').value, shift_id: document.getElementById('ibShift').value, equipment_id: document.getElementById('ibEquipment').value, breakdown_code_id: document.getElementById('ibBreakdownCode').value, description: document.getElementById('ibDescription').value.trim(), remark: document.getElementById('ibRemark').value.trim(), start_time: breakdownToIso(document.getElementById('ibStart').value), initial_status: status, pic_id: document.getElementById('ibPic').value };
     if (status === 'waiting_part') payload.parts = [collectBreakdownPart('ib')];
     try {
-      const response = await fetch(getProdApiUrl('/api/admin/production/breakdown'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
-      await readBreakdownResponse(response); tutupModalGenerik(); await muatProdBreakdown();
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl('/api/admin/production/breakdown'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
+        await readBreakdownResponse(response); tutupModalGenerik(); await muatProdBreakdown();
+      });
     } catch (err) { alert(`Gagal menyimpan breakdown: ${err.message}`); }
   });
 }
@@ -6999,8 +7493,10 @@ async function bukaModalUpdateStatusBreakdown(id) {
     const payload = { status, changed_at: breakdownToIso(document.getElementById('ubChangedAt').value), pic_id: document.getElementById('ubPic').value || null, note: document.getElementById('ubNote').value.trim() };
     if (status === 'waiting_part') payload.parts = [collectBreakdownPart('ub')];
     try {
-      const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/status`), { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
-      await readBreakdownResponse(response); tutupModalGenerik(); await muatProdBreakdown();
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/status`), { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
+        await readBreakdownResponse(response); tutupModalGenerik(); await muatProdBreakdown();
+      });
     } catch (err) { alert(`Gagal mengubah status: ${err.message}`); }
   });
 }
@@ -7058,10 +7554,12 @@ function bukaModalReadyVerification(id) {
       new_pic_id: rejectionType === 'new_fault' ? document.getElementById('rvNewPic').value || null : null
     };
     try {
-      const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/ready-verification`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
-      await readBreakdownResponse(response);
-      tutupModalGenerik();
-      await muatProdBreakdown();
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/ready-verification`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
+        await readBreakdownResponse(response);
+        tutupModalGenerik();
+        await muatProdBreakdown();
+      });
     } catch (error) {
       alert(`Verifikasi Ready gagal: ${error.message}`);
     }
@@ -7096,13 +7594,15 @@ function bukaModalRekonsiliasiReady(id) {
     event.preventDefault();
     const payload = { effective_at: breakdownToIso(document.getElementById('rrEffectiveAt').value), evidence_source: document.getElementById('rrSource').value, note: document.getElementById('rrNote').value.trim() };
     try {
-      const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/ready-reconciliation`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
-      await readBreakdownResponse(response); tutupModalGenerik(); await muatProdBreakdown();
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/ready-reconciliation`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
+        await readBreakdownResponse(response); tutupModalGenerik(); await muatProdBreakdown();
+      });
     } catch (error) { alert(`Rekonsiliasi Ready gagal: ${error.message}`); }
   });
 }
 
-function breakdownHistoryMarkup(history, verifications = []) {
+function breakdownHistoryMarkup(history, verifications = [], breakdownId = null, editable = false) {
   const entries = [];
   (Array.isArray(history) ? history : []).forEach(item => entries.push({ type: 'status', at: item.started_at, item }));
   (Array.isArray(verifications) ? verifications : []).forEach(item => entries.push({ type: 'verification', at: item.verified_at, item }));
@@ -7116,7 +7616,10 @@ function breakdownHistoryMarkup(history, verifications = []) {
     }
     const end = item.ended_at ? new Date(item.ended_at) : new Date();
     const hours = Math.max(0, (end - new Date(item.started_at)) / 3600000);
-    return `<article><span class="breakdown-timeline-dot"></span><div><b>${escapeMinePlanning(BREAKDOWN_STATUS_LABELS[item.status] || item.status)}</b><small>${escapeMinePlanning(formatBreakdownDateTime(item.started_at))} → ${item.ended_at ? escapeMinePlanning(formatBreakdownDateTime(item.ended_at)) : 'sekarang'} · ${formatBreakdownHours(hours)} jam</small>${item.note ? `<p>${escapeMinePlanning(item.note)}</p>` : ''}<em>${escapeMinePlanning(item.changed_by_name || 'Sistem')}</em></div></article>`;
+    const editBtn = editable && breakdownId
+      ? `<button type="button" class="tombol tombol--kecil breakdown-segment-edit" onclick="bukaModalEditSegmenBreakdown('${escapeMinePlanning(breakdownId)}','${escapeMinePlanning(item.id)}')">Edit</button>`
+      : '';
+    return `<article><span class="breakdown-timeline-dot"></span><div><b>${escapeMinePlanning(BREAKDOWN_STATUS_LABELS[item.status] || item.status)}</b><small>${escapeMinePlanning(formatBreakdownDateTime(item.started_at))} → ${item.ended_at ? escapeMinePlanning(formatBreakdownDateTime(item.ended_at)) : 'sekarang'} · ${formatBreakdownHours(hours)} jam</small>${item.note ? `<p>${escapeMinePlanning(item.note)}</p>` : ''}<em>${escapeMinePlanning(item.changed_by_name || 'Sistem')}</em>${editBtn}</div></article>`;
   }).join('');
 }
 
@@ -7135,7 +7638,7 @@ function bukaDetailBreakdown(id) {
   konten.innerHTML = `<div class="breakdown-modal-content breakdown-detail">
     <div class="breakdown-detail-head"><div><h3>${escapeMinePlanning(log.kode_alat || 'Unit')} · ${escapeMinePlanning(log.kategori_breakdown || 'Breakdown')}</h3><p>${escapeMinePlanning(log.description || 'Tanpa deskripsi')}</p></div>${breakdownStatusBadge(log.current_status)}</div>
     <div class="breakdown-detail-meta"><span><b>Mulai</b>${escapeMinePlanning(formatBreakdownDateTime(log.start_time))}</span><span><b>Selesai Perbaikan</b>${log.repair_completed_at ? escapeMinePlanning(formatBreakdownDateTime(log.repair_completed_at)) : '—'}</span><span><b>Ready Release</b>${log.finish_time ? escapeMinePlanning(formatBreakdownDateTime(log.finish_time)) : '—'}</span><span><b>Total BD</b>${formatBreakdownHours(log.elapsed_breakdown_hours)} jam</span><span><b>Report By</b>${escapeMinePlanning(log.report_by_name || 'Sistem')}</span><span><b>PIC</b>${escapeMinePlanning(log.pic_name || 'Belum ditetapkan')}</span></div>
-    <h4>Timeline Status</h4><div class="breakdown-timeline">${breakdownHistoryMarkup(log.status_history, log.ready_verifications)}</div>
+    <h4>Timeline Status</h4><div class="breakdown-timeline">${breakdownHistoryMarkup(log.status_history, log.ready_verifications, log.id, log.status !== 'resolved')}</div>
     <h4>Part dan Purchase Order</h4><div class="tabel-wrap"><table class="tabel breakdown-part-table"><thead><tr><th>Detail Part</th><th>Qty</th><th>No. PO</th><th>Status PO</th><th>ETA</th></tr></thead><tbody>${partRows}</tbody></table></div>
     <form id="formAddBreakdownPart" class="breakdown-inline-part-form"><input id="dbPartDetail" placeholder="Detail part baru" required /><input id="dbPoNumber" placeholder="Nomor PO / belum terbit" /><input id="dbQuantity" type="number" min="0.01" step="0.01" placeholder="Qty" /><select id="dbPoStatus"><option value="requested">Request dibuat</option><option value="po_process">Proses PO</option><option value="ordered">Dipesan</option><option value="arrived">Tiba</option></select><input id="dbEtaDate" type="date" /><button class="tombol tombol--kecil" type="submit">+ Tambah Part</button></form>
     <div class="breakdown-modal-actions"><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button>${detailAction}</div>
@@ -7145,9 +7648,57 @@ function bukaDetailBreakdown(id) {
     event.preventDefault();
     const payload = { part_detail: document.getElementById('dbPartDetail').value.trim(), po_number: document.getElementById('dbPoNumber').value.trim(), quantity: document.getElementById('dbQuantity').value || null, po_status: document.getElementById('dbPoStatus').value, eta_date: document.getElementById('dbEtaDate').value || null };
     try {
-      const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/parts`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
-      await readBreakdownResponse(response); await muatProdBreakdown(); bukaDetailBreakdown(id);
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/parts`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
+        await readBreakdownResponse(response); await muatProdBreakdown(); bukaDetailBreakdown(id);
+      });
     } catch (err) { alert(`Gagal menambah part: ${err.message}`); }
+  });
+}
+
+function bukaModalEditSegmenBreakdown(breakdownId, segmentId) {
+  const log = findBreakdownLog(breakdownId);
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!log || !overlay || !konten) return alert('Data breakdown tidak ditemukan pada periode ini.');
+  const seg = (Array.isArray(log.status_history) ? log.status_history : []).find(s => String(s.id) === String(segmentId));
+  if (!seg) return alert('Segmen timeline tidak ditemukan.');
+  const isOpen = !seg.ended_at;
+  const isAwaitingVerification = seg.status === 'awaiting_verification';
+  const statusOptions = Object.entries(BREAKDOWN_STATUS_LABELS)
+    .filter(([status]) => status !== 'awaiting_verification' && status !== 'resolved')
+    .map(([status, label]) => `<option value="${status}"${status === seg.status ? ' selected' : ''}>${escapeMinePlanning(label)}</option>`).join('');
+  const statusField = isAwaitingVerification
+    ? `<div class="breakdown-form-field"><label>Status</label><input value="${escapeMinePlanning(BREAKDOWN_STATUS_LABELS[seg.status] || seg.status)}" disabled /></div>`
+    : `<div class="breakdown-form-field"><label>Status *</label><select id="esStatus">${statusOptions}</select></div>`;
+  const endField = isOpen
+    ? ''
+    : `<div class="breakdown-form-field"><label>Waktu Selesai *</label><input id="esEndedAt" type="datetime-local" value="${breakdownLocalDateTime(new Date(seg.ended_at))}" required /></div>`;
+  konten.innerHTML = `<div class="breakdown-modal-content"><h3>Edit Segmen Timeline · ${escapeMinePlanning(log.kode_alat || 'Unit')}</h3>
+    <p class="breakdown-modal-note">${breakdownStatusBadge(seg.status)} · ${escapeMinePlanning(formatBreakdownDateTime(seg.started_at))} → ${seg.ended_at ? escapeMinePlanning(formatBreakdownDateTime(seg.ended_at)) : 'sekarang'}</p>
+    <form id="formEditBreakdownSegment" class="breakdown-form-grid">
+      ${statusField}
+      <div class="breakdown-form-field"><label>Waktu Mulai *</label><input id="esStartedAt" type="datetime-local" value="${breakdownLocalDateTime(new Date(seg.started_at))}" required /></div>
+      ${endField}
+      <div class="breakdown-form-field is-wide"><label>Catatan Status</label><textarea id="esNote" rows="3" placeholder="Tindakan, kendala, atau alasan"></textarea></div>
+      <div class="breakdown-modal-actions is-wide"><button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button><button type="submit" class="tombol tombol--utama">Simpan Perubahan</button></div>
+    </form></div>`;
+  overlay.hidden = false;
+  document.getElementById('esNote').value = seg.note || '';
+  document.getElementById('formEditBreakdownSegment').addEventListener('submit', async event => {
+    event.preventDefault();
+    const payload = {
+      started_at: breakdownToIso(document.getElementById('esStartedAt').value),
+      note: document.getElementById('esNote').value.trim()
+    };
+    if (!isAwaitingVerification) payload.status = document.getElementById('esStatus').value;
+    if (!isOpen) payload.ended_at = breakdownToIso(document.getElementById('esEndedAt').value);
+    try {
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
+        const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(breakdownId)}/status-history/${encodeURIComponent(segmentId)}`), { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
+        await readBreakdownResponse(response); tutupModalGenerik(); await muatProdBreakdown(); bukaDetailBreakdown(breakdownId);
+      });
+    } catch (err) { alert(`Gagal mengedit segmen: ${err.message}`); }
   });
 }
 
@@ -7188,6 +7739,7 @@ async function muatProdRitase() {
     const fleets = await res.json();
 
     if (!Array.isArray(fleets) || !fleets.length) {
+      window.OMOSRitaseReportSnapshot = { tanggal, shiftId, fleets: [], truckFactors: {}, loadedAt: Date.now() };
       container.innerHTML = '<p class="tabel__kosong" style="padding:24px;text-align:center;color:#64748b;">Belum ada fleet untuk tanggal ini. Klik "+ Tambah Fleet" untuk membuat tabel fleet.</p>';
       return;
     }
@@ -7199,9 +7751,21 @@ async function muatProdRitase() {
     const truckFactors = {};
     (Array.isArray(tfRows) ? tfRows : []).forEach(r => { truckFactors[`${r.kategori}|${r.tipe_alat}|${r.material}`] = r.factor_value; });
 
+    // Snapshot read-only untuk generator laporan. Kalkulasi laporan selalu
+    // memakai payload backend terakhir, bukan nilai DOM yang belum disimpan.
+    window.OMOSRitaseReportSnapshot = {
+      tanggal,
+      shiftId,
+      fleets,
+      truckFactors,
+      loadedAt: Date.now()
+    };
+
+    ritaseDistanceContexts.clear();
     container.innerHTML = fleets.map(f => renderFleetRitaseCard(f, truckFactors)).join('');
     container.querySelectorAll('input[data-ritase-hour]').forEach(inp => inp.addEventListener('input', hitungTotalRitaseBaris));
   } catch (err) {
+    window.OMOSRitaseReportSnapshot = null;
     container.innerHTML = `<p class="tabel__kosong" style="padding:24px;text-align:center;color:#dc2626;">Gagal memuat ritase: ${escapeMinePlanning(err.message)}</p>`;
   }
 }
@@ -7220,6 +7784,43 @@ function slotJamShift(shift) {
   return slots;
 }
 
+function classifyRitaseProductivityUi(actual, plan, complete) {
+  const production = Number(actual);
+  const target = Number(plan);
+  if (!complete || !Number.isFinite(production) || !Number.isFinite(target) || target <= 0) {
+    return { key: 'incomplete', achievement: null, shortfall: null, label: 'Data belum lengkap', bg: '#f1f5f9', color: '#64748b', border: '#cbd5e1' };
+  }
+  if (production === 0) return { key: 'inactive', achievement: 0, shortfall: target, label: 'Fleet tidak beroperasi', bg: '#f1f5f9', color: '#64748b', border: '#cbd5e1' };
+  const achievement = (production / target) * 100;
+  const shortfall = Math.max(0, target - production);
+  if (achievement >= RITASE_PRODUCTIVITY_THRESHOLDS.achieved) return { key: 'achieved', achievement, shortfall, label: 'Target tercapai', bg: '#dcfce7', color: '#166534', border: '#86efac' };
+  if (achievement >= RITASE_PRODUCTIVITY_THRESHOLDS.near) return { key: 'near', achievement, shortfall, label: 'Mendekati target', bg: '#fef3c7', color: '#92400e', border: '#fbbf24' };
+  return { key: 'below', achievement, shortfall, label: 'Di bawah ambang', bg: '#fee2e2', color: '#b91c1c', border: '#fca5a5' };
+}
+
+function ritaseProductivityButton(metric, fleetId, hour, problemCount = 0) {
+  const disabled = ['incomplete', 'inactive'].includes(metric.key) ? ' disabled' : '';
+  const shadow = ['incomplete', 'inactive'].includes(metric.key) ? '#94a3b8' : metric.border;
+  const label = problemCount ? `${problemCount} problem` : metric.key === 'below' ? 'Input' : 'Detail';
+  return `<button type="button" data-pdty-problem-hour="${hour}" onclick="bukaPdtyProblem(event,'${fleetId}',${hour})"${disabled}
+    title="${escapeMinePlanning(metric.label)}" style="min-width:48px;padding:4px 7px;border:1px solid ${metric.border};border-radius:7px;background:${metric.bg};color:${metric.color};font-size:10px;font-weight:800;box-shadow:0 3px 0 ${shadow};cursor:${disabled ? 'not-allowed' : 'pointer'};">${escapeMinePlanning(label)}</button>`;
+}
+
+function buildRitaseHourMetric(fleet, truckFactors, hour, planProductivity) {
+  const category = fleet.material_type === 'Coal' ? 'Coal' : 'OB';
+  const material = fleet.material_detail || '';
+  const trucks = fleet.trucks || [];
+  let actual = 0;
+  const complete = trucks.length > 0 && trucks.every(truck => {
+    const factorRaw = truckFactors[`${category}|${truck.tipe_alat}|${material}`];
+    const hasFactor = factorRaw !== undefined && factorRaw !== null && factorRaw !== '';
+    const hasRitase = Object.prototype.hasOwnProperty.call(truck.hours || {}, hour);
+    if (hasFactor && hasRitase) actual += Number(factorRaw) * (Number(truck.hours[hour]) || 0);
+    return hasFactor && hasRitase;
+  });
+  return { actual: complete ? actual : null, ...classifyRitaseProductivityUi(actual, planProductivity, complete) };
+}
+
 function renderFleetRitaseCard(fleet, truckFactors) {
   const shift = (masterProdData.shifts || []).find(s => s.id === fleet.shift_id) || {};
   const slots = slotJamShift(shift);
@@ -7228,6 +7829,20 @@ function renderFleetRitaseCard(fleet, truckFactors) {
   const materialDetail = fleet.material_detail || '';
   const truckIds = (fleet.trucks || []).map(t => t.dump_truck_id).join(',');
   const materialBg = fleet.material_type === 'Coal' ? '#1e293b;color:#f8fafc' : '#fef3c7;color:#92400e';
+  const planProductivity = Number(fleet.plan_productivity);
+  const planIsValid = fleet.plan_status === 'synced' && Number.isFinite(planProductivity) && planProductivity > 0;
+  const planStatusLabel = fleet.plan_status === 'ambiguous' ? 'Plan ganda' : 'Plan tidak ditemukan';
+  const planBadge = planIsValid
+    ? `<span title="Sumber: ${fleet.plan_source === 'coal' ? 'Coal' : 'OB'} Productivity Planning${fleet.plan_updated_at ? ` · diperbarui ${escapeMinePlanning(new Date(fleet.plan_updated_at).toLocaleString('id-ID'))}` : ''}" style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:800;">Plan Fleet Productivity: ${planProductivity.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeMinePlanning(fleet.plan_productivity_unit || '')}</span>`
+    : `<span style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:800;">${planStatusLabel}</span>`;
+  const distanceSummary = fleet.distance_summary || {};
+  const finalDistance = Number(distanceSummary.finalDistanceKm);
+  const finalDistanceReady = distanceSummary.complete && Number.isFinite(finalDistance) && finalDistance > 0;
+  const distanceStatus = distanceSummary.status === 'missing-truck-factor' ? 'Truck Factor belum lengkap'
+    : distanceSummary.status === 'invalid-allocation' ? (distanceSummary.error || 'Alokasi jarak tidak valid')
+      : distanceSummary.status === 'no-production' ? 'Belum ada ritase tersimpan'
+        : distanceSummary.status === 'missing-setup-distance' ? 'Jarak setup belum diisi'
+          : 'Hitung jarak rata-rata tertimbang';
 
   const truckFactorFor = (tipe) => {
     const key = `${kategori}|${tipe}|${materialDetail}`;
@@ -7257,10 +7872,12 @@ function renderFleetRitaseCard(fleet, truckFactors) {
   }).join('');
 
   const fleetTotalRitase = fleet.total_ritase || 0;
-  const fleetTotalProduksi = (fleet.trucks || []).reduce((sum, t) => {
-    const tf = truckFactorFor(t.tipe_alat);
-    return tf !== null ? sum + tf * (t.total_ritase || 0) : sum;
-  }, 0);
+  const fleetTrucks = fleet.trucks || [];
+  const fleetFactorsComplete = fleetTrucks.length > 0
+    && fleetTrucks.every(t => truckFactorFor(t.tipe_alat) !== null);
+  const fleetTotalProduksi = fleetFactorsComplete
+    ? fleetTrucks.reduce((sum, t) => sum + truckFactorFor(t.tipe_alat) * (t.total_ritase || 0), 0)
+    : null;
 
   // Total per jam (ritase & productivity) dihitung saat render, agar angka
   // tetap tampil setelah reload/simpan — bukan hanya saat user mengetik.
@@ -7275,22 +7892,39 @@ function renderFleetRitaseCard(fleet, truckFactors) {
     });
   });
 
+  const exceptionsByHour = new Map((fleet.productivity_exceptions || []).map(item => [Number(item.period_hour), item]));
+  const metricsByHour = {};
+  slots.forEach(slot => {
+    const metric = buildRitaseHourMetric(fleet, truckFactors, slot.hour, planIsValid ? planProductivity : null);
+    metricsByHour[slot.hour] = metric;
+    ritaseProductivityContexts.set(`${fleet.id}:${slot.hour}`, {
+      fleetId: fleet.id, hour: slot.hour, fleet, metric,
+      exception: exceptionsByHour.get(slot.hour) || null
+    });
+  });
+  ritaseDistanceContexts.set(String(fleet.id), { fleet, slots });
+
   return `
   <div data-fleet-card="${fleet.id}" data-shift-id="${fleet.shift_id}" data-excavator-id="${fleet.excavator_id}" data-material-type="${escapeMinePlanning(fleet.material_type || 'Overburden')}" data-material-detail="${escapeMinePlanning(materialDetail)}" data-truck-ids="${truckIds}"
        data-pit-area="${escapeMinePlanning(fleet.pit_area || '')}" data-job="${escapeMinePlanning(fleet.job_code || '')}" data-jarak="${fleet.jarak_km != null ? Number(fleet.jarak_km) : ''}"
+       data-plan-productivity="${planIsValid ? planProductivity : ''}" data-productivity-unit="${escapeMinePlanning(fleet.plan_productivity_unit || '')}" data-pic-user-ids="${escapeMinePlanning((fleet.pic_user_ids || [fleet.pic_user_id]).filter(Boolean).join(','))}"
        style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;overflow:hidden;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <strong style="font-size:15px;color:#0f172a;">🚚 ${escapeMinePlanning(excavatorKode)}</strong>
-        <span style="background:#e0f2fe;color:#075985;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;">Loader</span>
+        <strong style="font-size:15px;color:#0f172a;">${escapeMinePlanning(excavatorKode)}</strong>
+        <span style="background:#ede9fe;color:#5b21b6;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;">${escapeMinePlanning(shift.nama_shift || '—')}</span>
         <span style="background:#f1f5f9;color:#334155;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;">📍 ${escapeMinePlanning(fleet.pit_area || '—')}</span>
-        <span style="background:#f1f5f9;color:#334155;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;">JOB: ${escapeMinePlanning(fleet.job_code || '—')}${fleet.job_desc ? ' · ' + escapeMinePlanning(fleet.job_desc) : ''}</span>
+        <span style="background:#f1f5f9;color:#334155;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;">${escapeMinePlanning(fleet.job_code || '—')}${fleet.job_desc ? ' · ' + escapeMinePlanning(fleet.job_desc) : ''}</span>
         <span style="background:${materialBg};border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;">${escapeMinePlanning(materialDetail || fleet.material_type || 'Overburden')}</span>
-        <span style="background:#f1f5f9;color:#334155;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;">📏 ${fleet.jarak_km != null ? Number(fleet.jarak_km) + ' km' : '—'}</span>
+        <span style="background:#f1f5f9;color:#334155;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;">Jarak Setup: ${fleet.jarak_km != null ? Number(fleet.jarak_km).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' km' : '—'}</span>
+        <button type="button" onclick="bukaJarakFinal('${fleet.id}')" title="${escapeMinePlanning(distanceStatus)}" style="border:1px solid ${finalDistanceReady ? '#0f766e' : '#94a3b8'};border-radius:7px;padding:4px 10px;background:${finalDistanceReady ? '#ccfbf1' : '#f1f5f9'};color:${finalDistanceReady ? '#115e59' : '#475569'};font-size:12px;font-weight:900;box-shadow:0 3px 0 ${finalDistanceReady ? '#0f766e' : '#94a3b8'};cursor:pointer;">Jarak Final: ${finalDistanceReady ? finalDistance.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' km' : '—'}</button>
+        ${planIsValid ? `<span style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:800;">Target : ${planProductivity.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeMinePlanning(fleet.plan_productivity_unit || '')}</span>` : planBadge}
+        <span style="background:#fff;border:1px solid #cbd5e1;color:#334155;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:700;">PIC: ${escapeMinePlanning(fleet.pic_names || fleet.pic_name || 'Belum ditentukan')}</span>
       </div>
       <div style="display:flex;gap:8px;">
         <button class="tombol" onclick="muatFleetUntukEdit('${fleet.id}')">✏️ Edit Fleet</button>
-        <button class="tombol tombol--utama" onclick="simpanRitaseFleet('${fleet.id}')">💾 Simpan Ritase</button>
+        <button class="tombol tombol--utama" onclick="simpanRitaseFleet('${fleet.id}',this)">💾 Simpan Ritase</button>
+        <button class="tombol tombol--hapus" onclick="hapusFleet('${fleet.id}')">🗑️ Hapus</button>
       </div>
     </div>
     <div class="tabel-wrap" style="max-height:560px;overflow:auto;">
@@ -7309,18 +7943,241 @@ function renderFleetRitaseCard(fleet, truckFactors) {
             <td style="color:#0f172a;">TOTAL RIT/JAM</td>
             ${slots.map(s => { const t = hourTotals[s.hour] || {}; return `<td style="text-align:center;color:#334155;" data-fleet-hour-total="${s.hour}">${t.ritase || 0}</td>`; }).join('')}
             <td style="text-align:center;color:#2563eb;" data-fleet-total-ritase>${fleetTotalRitase}</td>
-            <td style="text-align:center;color:#2563eb;" data-fleet-total-produksi>${fleetTotalProduksi ? fleetTotalProduksi.toLocaleString('id-ID') : '0'}</td>
+            <td style="text-align:center;color:#2563eb;" data-fleet-total-produksi>${fleetTotalProduksi != null ? fleetTotalProduksi.toLocaleString('id-ID') : '&mdash;'}</td>
           </tr>
-          <tr style="background:#f0fdfa;font-weight:800;">
+          <tr style="font-weight:900;">
             <td style="color:#0f766e;">Productivity <span style="font-weight:600;font-size:10px;color:#64748b;">(${kategori === 'Coal' ? 'Ton' : 'BCM'})</span></td>
-            ${slots.map(s => { const t = hourTotals[s.hour] || {}; const p = t.prod || 0; return `<td style="text-align:center;color:#0f766e;" data-fleet-hour-prod="${s.hour}">${p ? p.toLocaleString('id-ID') : '0'}</td>`; }).join('')}
+            ${slots.map(s => { const m = metricsByHour[s.hour]; return `<td style="text-align:center;background:${m.bg};color:${m.color};font-weight:900;" data-fleet-hour-prod="${s.hour}" data-pdty-state="${m.key}">${m.actual == null ? '—' : m.actual.toLocaleString('id-ID')}</td>`; }).join('')}
             <td style="text-align:center;color:#94a3b8;">—</td>
-            <td style="text-align:center;color:#0f766e;" data-fleet-total-produksi>${fleetTotalProduksi ? fleetTotalProduksi.toLocaleString('id-ID') : '0'}</td>
+            <td style="text-align:center;color:#0f766e;" data-fleet-total-produksi>${fleetTotalProduksi != null ? fleetTotalProduksi.toLocaleString('id-ID') : '&mdash;'}</td>
+          </tr>
+          <tr style="background:#f8fafc;font-weight:800;">
+            <td style="color:#334155;">Pdty Problem</td>
+            ${slots.map(s => { const m = metricsByHour[s.hour]; const ex = exceptionsByHour.get(s.hour); return `<td style="text-align:center;" data-pdty-problem-cell="${s.hour}">${ritaseProductivityButton(m, fleet.id, s.hour, ex?.problems?.length || 0)}</td>`; }).join('')}
+            <td style="text-align:center;color:#94a3b8;">—</td><td style="text-align:center;color:#94a3b8;">—</td>
           </tr>
         </tfoot>
       </table>
     </div>
   </div>`;
+}
+
+function ritaseTersimpanUntukJarak(fleet, truckId, hour) {
+  const truck = (fleet?.trucks || []).find(item => String(item.dump_truck_id) === String(truckId));
+  return Math.max(0, Number(truck?.hours?.[hour]) || 0);
+}
+
+function adaRitaseFleetBelumTersimpan(fleet) {
+  const card = document.querySelector(`[data-fleet-card="${fleet.id}"]`);
+  if (!card) return false;
+  return [...card.querySelectorAll('input[data-ritase-hour]')].some(input => {
+    const current = Math.max(0, Math.floor(Number(input.value) || 0));
+    const saved = ritaseTersimpanUntukJarak(fleet, input.dataset.truck, Number(input.dataset.hour));
+    return current !== saved;
+  });
+}
+
+function opsiDumpTruckJarak(fleet, selectedId = '') {
+  return (fleet?.trucks || []).map(truck => `<option value="${escapeMinePlanning(truck.dump_truck_id)}"${String(selectedId) === String(truck.dump_truck_id) ? ' selected' : ''}>${escapeMinePlanning(truck.kode_alat || truck.dump_truck_id)}</option>`).join('');
+}
+
+function opsiJamJarak(slots, selectedHour) {
+  return (slots || []).map(slot => `<option value="${slot.hour}"${Number(selectedHour) === Number(slot.hour) ? ' selected' : ''}>${String(slot.hour).padStart(2, '0')}:00–${String((slot.hour + 1) % 24).padStart(2, '0')}:00</option>`).join('');
+}
+
+function barisAlokasiJarak(fleetId, allocation = {}) {
+  const context = ritaseDistanceContexts.get(String(fleetId));
+  const fleet = context?.fleet || {};
+  const slots = context?.slots || [];
+  const truckId = allocation.dump_truck_id || fleet.trucks?.[0]?.dump_truck_id || '';
+  const hour = allocation.period_hour ?? slots[0]?.hour ?? 0;
+  return `<div data-distance-allocation-row style="display:grid;grid-template-columns:minmax(145px,1.2fr) 110px 90px 105px 72px minmax(150px,1.4fr) 34px;gap:7px;align-items:end;padding:9px;border:1px solid #dbe4ef;border-radius:9px;background:#f8fafc;margin-bottom:8px;">
+    <div><label style="display:block;font-size:10px;font-weight:800;color:#475569;margin-bottom:3px;">DUMP TRUCK</label><select data-distance-truck class="input-filter" style="width:100%;" onchange="perbaruiInfoAlokasiJarak(this)">${opsiDumpTruckJarak(fleet, truckId)}</select></div>
+    <div><label style="display:block;font-size:10px;font-weight:800;color:#475569;margin-bottom:3px;">JAM</label><select data-distance-hour class="input-filter" style="width:100%;" onchange="perbaruiInfoAlokasiJarak(this)">${opsiJamJarak(slots, hour)}</select></div>
+    <div><label style="display:block;font-size:10px;font-weight:800;color:#475569;margin-bottom:3px;">RITASE</label><input data-distance-ritase type="number" min="1" step="1" class="input-filter" style="width:100%;" value="${allocation.ritase_count ?? ''}" placeholder="Rit"></div>
+    <div><label style="display:block;font-size:10px;font-weight:800;color:#475569;margin-bottom:3px;">JARAK AKTUAL</label><input data-distance-value type="number" min="0.001" step="0.001" class="input-filter" style="width:100%;" value="${allocation.input_distance ?? ''}" placeholder="200"></div>
+    <div><label style="display:block;font-size:10px;font-weight:800;color:#475569;margin-bottom:3px;">SATUAN</label><select data-distance-unit class="input-filter" style="width:100%;"><option value="m"${allocation.input_unit !== 'km' ? ' selected' : ''}>meter</option><option value="km"${allocation.input_unit === 'km' ? ' selected' : ''}>km</option></select></div>
+    <div><label style="display:block;font-size:10px;font-weight:800;color:#475569;margin-bottom:3px;">KETERANGAN</label><input data-distance-notes class="input-filter" style="width:100%;" value="${escapeMinePlanning(allocation.notes || '')}" placeholder="Lokasi dumping / alasan"><small data-distance-available style="display:block;color:#64748b;margin-top:3px;font-size:10px;"></small></div>
+    <button type="button" onclick="this.closest('[data-distance-allocation-row]').remove()" title="Hapus alokasi" style="height:34px;border:0;border-radius:7px;background:#dc2626;color:#fff;font-size:20px;font-weight:900;box-shadow:0 3px 0 #991b1b;cursor:pointer;">−</button>
+  </div>`;
+}
+
+function perbaruiInfoAlokasiJarak(element) {
+  const row = element?.closest?.('[data-distance-allocation-row]');
+  const modal = element?.closest?.('[data-distance-fleet-id]');
+  if (!row || !modal) return;
+  const context = ritaseDistanceContexts.get(String(modal.dataset.distanceFleetId));
+  const truckId = row.querySelector('[data-distance-truck]')?.value || '';
+  const hour = Number(row.querySelector('[data-distance-hour]')?.value);
+  const available = ritaseTersimpanUntukJarak(context?.fleet, truckId, hour);
+  const hint = row.querySelector('[data-distance-available]');
+  if (hint) hint.textContent = `Ritase tersimpan pada jam ini: ${available} rit`;
+  const ritaseInput = row.querySelector('[data-distance-ritase]');
+  if (ritaseInput) ritaseInput.max = String(available);
+}
+
+function tambahBarisAlokasiJarak(fleetId) {
+  const list = document.getElementById('distanceAllocationRows');
+  if (!list) return;
+  list.insertAdjacentHTML('beforeend', barisAlokasiJarak(fleetId));
+  const row = list.lastElementChild;
+  perbaruiInfoAlokasiJarak(row?.querySelector('[data-distance-truck]'));
+}
+
+async function bukaJarakFinal(fleetId) {
+  const context = ritaseDistanceContexts.get(String(fleetId));
+  const fleet = context?.fleet;
+  if (!fleet) return alert('Data fleet belum tersedia. Muat ulang halaman lalu coba kembali.');
+  if (adaRitaseFleetBelumTersimpan(fleet)) return alert('Simpan perubahan ritase fleet terlebih dahulu sebelum mengatur Jarak Final.');
+  if (!(Number(fleet.jarak_km) > 0)) return alert('Jarak setup fleet harus diisi terlebih dahulu melalui Edit Fleet.');
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!overlay || !konten) return;
+  const summary = fleet.distance_summary || {};
+  const finalDistance = Number(summary.finalDistanceKm);
+  const allocations = Array.isArray(fleet.distance_allocations) ? fleet.distance_allocations : [];
+  overlay.hidden = false;
+  konten.innerHTML = `<div data-distance-fleet-id="${escapeMinePlanning(fleetId)}" style="width:min(1050px,calc(100vw - 40px));max-height:calc(100vh - 70px);overflow:auto;">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:start;margin-bottom:12px;"><div><h3 style="margin:0;color:#0f172a;">Jarak Final · ${escapeMinePlanning(fleet.excavator_kode || fleet.nama_fleet || '')}</h3><p style="margin:5px 0 0;color:#64748b;font-size:12px;">Catat hanya ritase yang menempuh jarak berbeda. Sisa ritase otomatis menggunakan jarak setup ${Number(fleet.jarak_km).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km.</p></div><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:9px;margin-bottom:12px;">
+      <div style="padding:10px;border:1px solid #cbd5e1;border-radius:9px;background:#f8fafc;"><small style="color:#64748b;font-weight:800;">JARAK SETUP</small><strong style="display:block;margin-top:3px;color:#0f172a;font-size:18px;">${Number(fleet.jarak_km).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km</strong></div>
+      <div style="padding:10px;border:1px solid #99f6e4;border-radius:9px;background:#f0fdfa;"><small style="color:#0f766e;font-weight:800;">JARAK FINAL</small><strong style="display:block;margin-top:3px;color:#115e59;font-size:18px;">${summary.complete && Number.isFinite(finalDistance) ? finalDistance.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' km' : 'Belum dapat dihitung'}</strong></div>
+      <div style="padding:10px;border:1px solid #bfdbfe;border-radius:9px;background:#eff6ff;"><small style="color:#1d4ed8;font-weight:800;">FORMULA</small><strong style="display:block;margin-top:3px;color:#1e3a8a;font-size:12px;">Σ(Volume × Jarak) ÷ ΣVolume</strong><small style="color:#64748b;">Volume = Ritase × Truck Factor efektif</small></div>
+    </div>
+    <div id="distanceAllocationRows">${allocations.map(item => barisAlokasiJarak(fleetId, item)).join('')}</div>
+    <button type="button" onclick="tambahBarisAlokasiJarak('${fleetId}')" style="border:1px dashed #2563eb;background:#eff6ff;color:#1d4ed8;border-radius:7px;padding:7px 10px;font-weight:800;cursor:pointer;">+ Tambah Penyimpangan Jarak</button>
+    <p style="font-size:11px;color:#64748b;margin:9px 0 0;">Kosongkan seluruh alokasi lalu simpan untuk mengembalikan Jarak Final ke jarak setup. Perhitungan final memakai data ritase yang sudah disimpan.</p>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;"><button class="tombol" onclick="tutupModalGenerik()">Batal</button><button class="tombol tombol--utama" onclick="simpanAlokasiJarak('${fleetId}',this)">Simpan Jarak Final</button></div>
+  </div>`;
+  konten.querySelectorAll('[data-distance-allocation-row]').forEach(row => perbaruiInfoAlokasiJarak(row.querySelector('[data-distance-truck]')));
+}
+
+async function simpanAlokasiJarak(fleetId, saveButton) {
+  const context = ritaseDistanceContexts.get(String(fleetId));
+  if (!context?.fleet) return;
+  const allocations = [...document.querySelectorAll('#distanceAllocationRows [data-distance-allocation-row]')].map(row => ({
+    dump_truck_id: row.querySelector('[data-distance-truck]')?.value || '',
+    period_hour: Number(row.querySelector('[data-distance-hour]')?.value),
+    ritase_count: Number(row.querySelector('[data-distance-ritase]')?.value),
+    input_distance: Number(row.querySelector('[data-distance-value]')?.value),
+    input_unit: row.querySelector('[data-distance-unit]')?.value || 'm',
+    notes: row.querySelector('[data-distance-notes]')?.value || ''
+  }));
+  if (allocations.some(row => !row.dump_truck_id || !Number.isInteger(row.ritase_count) || row.ritase_count <= 0 || !(row.input_distance > 0))) {
+    return alert('Lengkapi dump truck, jam, ritase, dan jarak aktual pada setiap alokasi.');
+  }
+  try {
+    await window.OMOSActionFeedback.run(saveButton, async () => {
+      const response = await fetch(getProdApiUrl('/api/admin/production/ritase/distance-allocations'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+        body: JSON.stringify({ fleet_mapping_id: fleetId, allocations })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      tutupModalGenerik();
+      await muatProdRitase();
+    });
+  } catch (error) {
+    alert(`Gagal menyimpan Jarak Final: ${error.message}`);
+  }
+}
+
+function pdtyProblemOptions(selectedId = '') {
+  const grouped = new Map();
+  (masterProdData.problemCodes || []).forEach(item => {
+    const category = String(item.kategori || 'LAINNYA');
+    if (!grouped.has(category)) grouped.set(category, []);
+    grouped.get(category).push(item);
+  });
+  return '<option value="">Pilih Kode dan Problem</option>' + [...grouped.entries()].map(([category, items]) =>
+    `<optgroup label="${escapeMinePlanning(category)}">${items.map(item => `<option value="${escapeMinePlanning(item.id)}"${String(selectedId) === String(item.id) ? ' selected' : ''}>${escapeMinePlanning(item.kode)} — ${escapeMinePlanning(item.problem)}</option>`).join('')}</optgroup>`
+  ).join('');
+}
+
+function pdtyProblemEntryRow(problem = {}) {
+  return `<div data-pdty-problem-entry style="display:grid;grid-template-columns:minmax(210px,1fr) 90px 32px;gap:7px;align-items:end;margin-bottom:8px;">
+    <div><label style="display:block;font-size:10px;font-weight:800;color:#475569;margin-bottom:3px;">KODE &amp; PROBLEM</label><select data-problem-code class="input-filter" style="width:100%;">${pdtyProblemOptions(problem.problem_code_id)}</select></div>
+    <div><label style="display:block;font-size:10px;font-weight:800;color:#475569;margin-bottom:3px;">DAMPAK (MENIT)</label><input data-impact-minutes type="number" min="0.01" max="60" step="0.01" class="input-filter" style="width:100%;" value="${problem.impact_minutes ?? ''}"></div>
+    <button type="button" onclick="this.closest('[data-pdty-problem-entry]').remove()" title="Hapus problem" style="height:34px;border:0;border-radius:7px;background:#fee2e2;color:#b91c1c;font-weight:900;cursor:pointer;">−</button>
+  </div>`;
+}
+
+function tambahPdtyProblemEntry() {
+  const list = document.getElementById('pdtyProblemEntryList');
+  if (list) list.insertAdjacentHTML('beforeend', pdtyProblemEntryRow());
+}
+
+function tutupPdtyProblemPopover() {
+  document.getElementById('pdtyProblemPopover')?.remove();
+}
+
+async function bukaPdtyProblem(event, fleetId, hour) {
+  event?.stopPropagation();
+  if (!(masterProdData.problemCodes || []).length) await muatMasterDataProduksi();
+  const context = ritaseProductivityContexts.get(`${fleetId}:${hour}`);
+  if (!context || ['incomplete', 'inactive'].includes(context.metric?.key)) return;
+  tutupPdtyProblemPopover();
+  const exception = context.exception || {};
+  const fleet = context.fleet || {};
+  const popover = document.createElement('div');
+  popover.id = 'pdtyProblemPopover';
+  popover.style.cssText = 'position:fixed;z-index:10050;width:min(440px,calc(100vw - 24px));max-height:min(620px,calc(100vh - 24px));overflow:auto;padding:14px;background:#fff;border:1px solid #cbd5e1;border-radius:12px;box-shadow:0 18px 45px rgba(15,23,42,.28);';
+  const entries = Array.isArray(exception.problems) && exception.problems.length ? exception.problems : [{}];
+  popover.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px;align-items:start;margin-bottom:10px;">
+      <div><strong style="color:#0f172a;">Pdty Problem · ${String(hour).padStart(2, '0')}:00</strong><div style="font-size:11px;color:#64748b;margin-top:2px;">${escapeMinePlanning(fleet.excavator_kode || '')} · Actual ${Number(context.metric.actual || 0).toLocaleString('id-ID')} / Target ${Number(fleet.plan_productivity || 0).toLocaleString('id-ID')}</div></div>
+      <button type="button" onclick="tutupPdtyProblemPopover()" style="border:0;background:#f1f5f9;border-radius:7px;width:30px;height:30px;cursor:pointer;">×</button>
+    </div>
+    <div id="pdtyProblemEntryList">${entries.map(pdtyProblemEntryRow).join('')}</div>
+    <button type="button" onclick="tambahPdtyProblemEntry()" style="border:1px dashed #2563eb;background:#eff6ff;color:#1d4ed8;border-radius:7px;padding:6px 9px;font-weight:800;cursor:pointer;">+ Tambah Problem</button>
+    <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px;">
+      <div><label class="label">Catatan</label><textarea id="pdtyProblemNotes" class="input-filter" rows="2" style="width:100%;resize:vertical;">${escapeMinePlanning(exception.notes || '')}</textarea></div>
+      <div><label class="label">Lampiran (URL opsional)</label><input id="pdtyProblemEvidence" type="url" class="input-filter" style="width:100%;" value="${escapeMinePlanning(exception.evidence_url || '')}" placeholder="https://..."></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"><button type="button" class="tombol" onclick="tutupPdtyProblemPopover()">Batal</button><button type="button" class="tombol tombol--utama" onclick="simpanPdtyProblem('${fleetId}',${hour},this)">Simpan Problem</button></div>`;
+  document.body.appendChild(popover);
+  const rect = event?.currentTarget?.getBoundingClientRect?.() || { left: 12, bottom: 12, right: 12, top: 12 };
+  const width = Math.min(440, window.innerWidth - 24);
+  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+  const estimatedHeight = Math.min(620, window.innerHeight - 24);
+  const top = rect.bottom + estimatedHeight <= window.innerHeight ? rect.bottom + 8 : Math.max(12, rect.top - estimatedHeight - 8);
+  popover.style.left = `${left}px`; popover.style.top = `${top}px`;
+}
+
+async function simpanPdtyProblem(fleetId, hour, saveButton) {
+  const rows = [...document.querySelectorAll('#pdtyProblemEntryList [data-pdty-problem-entry]')];
+  const problems = rows.map(row => ({
+    problem_code_id: row.querySelector('[data-problem-code]')?.value || '',
+    impact_minutes: row.querySelector('[data-impact-minutes]')?.value || ''
+  }));
+  if (!problems.length || problems.some(item => !item.problem_code_id || !(Number(item.impact_minutes) > 0))) return alert('Lengkapi kode problem dan durasi dampak pada setiap baris.');
+  try {
+    await window.OMOSActionFeedback.run(saveButton, async () => {
+      const response = await fetch(getProdApiUrl('/api/admin/production/ritase/productivity-exceptions'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+        body: JSON.stringify({ fleet_mapping_id: fleetId, period_hour: hour, problems, notes: document.getElementById('pdtyProblemNotes')?.value || '', evidence_url: document.getElementById('pdtyProblemEvidence')?.value || '' })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      tutupPdtyProblemPopover();
+      await muatProdRitase();
+    });
+  } catch (error) { alert(`Gagal menyimpan problem productivity: ${error.message}`); }
+}
+
+async function bukaProductivityHistory() {
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!overlay || !konten) return;
+  overlay.hidden = false;
+  konten.innerHTML = '<h3 style="margin-top:0;">Productivity History</h3><p style="color:#64748b;">Memuat histori exception productivity…</p>';
+  try {
+    const response = await fetch(getProdApiUrl('/api/admin/production/ritase/productivity-exceptions'), { headers: getProdAuthHeaders() });
+    const rows = await response.json().catch(() => []);
+    if (!response.ok) throw new Error(rows.error || `HTTP ${response.status}`);
+    konten.innerHTML = `<div class="productivity-history-modal"><div class="ph-header"><div><h3>Productivity History</h3><p>Snapshot plan dan actual disimpan agar histori tetap dapat diaudit.</p></div><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></div>
+      <div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Tanggal / Shift</th><th>PIT / Area</th><th>Fleet / JOB</th><th>Material</th><th>Jam</th><th>Plan</th><th>Actual</th><th>Achievement</th><th>Shortfall</th><th>Problem</th><th>Durasi</th><th>Catatan</th><th>Lampiran</th><th>PIC</th></tr></thead><tbody>${rows.length ? rows.map(item => `<tr><td>${escapeMinePlanning(String(item.tanggal || '').slice(0,10))}<br><small>${escapeMinePlanning(item.nama_shift || '')}</small></td><td>${escapeMinePlanning(item.pit_area || '—')}</td><td><strong>${escapeMinePlanning(item.fleet_code || item.nama_fleet || '')}</strong><br><small>${escapeMinePlanning(item.job_code || '')}${item.job_desc ? ' · ' + escapeMinePlanning(item.job_desc) : ''}</small></td><td>${escapeMinePlanning(item.material || '')}</td><td>${String(item.period_hour).padStart(2,'0')}:00</td><td>${Number(item.plan_productivity).toLocaleString('id-ID',{maximumFractionDigits:2})}</td><td>${Number(item.actual_productivity).toLocaleString('id-ID',{maximumFractionDigits:2})}</td><td>${Number(item.achievement_percentage).toLocaleString('id-ID',{maximumFractionDigits:2})}%</td><td>${Number(item.shortfall_production).toLocaleString('id-ID',{maximumFractionDigits:2})}</td><td>${(item.problems || []).map(problem => `${escapeMinePlanning(problem.code)} — ${escapeMinePlanning(problem.problem)}`).join('<br>')}</td><td>${(item.problems || []).map(problem => `${Number(problem.impact_minutes).toLocaleString('id-ID')} menit`).join('<br>')}</td><td>${escapeMinePlanning(item.notes || '—')}</td><td>${item.evidence_url ? `<a href="${escapeMinePlanning(item.evidence_url)}" target="_blank" rel="noopener noreferrer">Buka</a>` : '—'}</td><td>${escapeMinePlanning(item.pic_names || item.pic_name || '—')}</td></tr>`).join('') : '<tr><td colspan="14" class="tabel__kosong">Belum ada histori problem productivity.</td></tr>'}</tbody></table></div></div>`;
+  } catch (error) { konten.innerHTML = `<h3>Productivity History</h3><p style="color:#dc2626;">Gagal memuat histori: ${escapeMinePlanning(error.message)}</p><button class="tombol" onclick="tutupModalGenerik()">Tutup</button>`; }
 }
 
 function hitungTotalRitaseBaris(e) {
@@ -7346,6 +8203,8 @@ function hitungTotalRitaseBaris(e) {
   card.querySelectorAll('input[data-ritase-hour]').forEach(i => hours.add(i.dataset.hour));
   let fleetRitase = 0;
   let fleetProduksi = 0;
+  const fleetFactorComplete = [...card.querySelectorAll('tbody tr[data-tf]')]
+    .every(tr => tr.dataset.tf !== '');
   hours.forEach(h => {
     let r = 0, p = 0;
     card.querySelectorAll('tbody tr[data-tf]').forEach(tr => {
@@ -7358,13 +8217,33 @@ function hitungTotalRitaseBaris(e) {
     const rCell = card.querySelector(`[data-fleet-hour-total="${h}"]`);
     if (rCell) rCell.textContent = r;
     const pCell = card.querySelector(`[data-fleet-hour-prod="${h}"]`);
-    if (pCell) pCell.textContent = p ? p.toLocaleString('id-ID') : '0';
+    const rows = [...card.querySelectorAll('tbody tr[data-tf]')];
+    const complete = rows.length > 0 && rows.every(tr => {
+      const value = tr.querySelector(`input[data-ritase-hour][data-hour="${h}"]`)?.value;
+      return tr.dataset.tf !== '' && value !== '' && value != null;
+    });
+    const plan = Number(card.dataset.planProductivity);
+    const metric = classifyRitaseProductivityUi(p, plan, complete);
+    if (pCell) {
+      pCell.textContent = complete ? p.toLocaleString('id-ID') : '—';
+      pCell.style.background = metric.bg;
+      pCell.style.color = metric.color;
+      pCell.dataset.pdtyState = metric.key;
+    }
+    const fleetId = card.dataset.fleetCard;
+    const contextKey = `${fleetId}:${h}`;
+    const current = ritaseProductivityContexts.get(contextKey) || {};
+    ritaseProductivityContexts.set(contextKey, { ...current, fleetId, hour: Number(h), metric: { ...metric, actual: complete ? p : null } });
+    const problemCell = card.querySelector(`[data-pdty-problem-cell="${h}"]`);
+    if (problemCell) problemCell.innerHTML = ritaseProductivityButton(metric, fleetId, Number(h), current.exception?.problems?.length || 0);
     fleetRitase += r;
     fleetProduksi += p;
   });
   const ft = card.querySelector('[data-fleet-total-ritase]');
   if (ft) ft.textContent = fleetRitase;
-  card.querySelectorAll('[data-fleet-total-produksi]').forEach(c => { c.textContent = fleetProduksi ? fleetProduksi.toLocaleString('id-ID') : '0'; });
+  card.querySelectorAll('[data-fleet-total-produksi]').forEach(c => {
+    c.textContent = fleetFactorComplete ? fleetProduksi.toLocaleString('id-ID') : '\u2014';
+  });
 }
 
 function ritasePitAreaOptions(selected) {
@@ -7374,30 +8253,125 @@ function ritasePitAreaOptions(selected) {
   return '<option value="">Pilih PIT / Area</option>' + areas.map(a => `<option value="${escapeMinePlanning(a)}"${a === selected ? ' selected' : ''}>${escapeMinePlanning(a)}</option>`).join('');
 }
 
+function syncFleetPicChecklist() {
+  const summary = document.getElementById('ffPicSummary');
+  if (!summary) return;
+  const selected = Array.from(document.querySelectorAll('[data-fleet-pic]:checked'));
+  if (!selected.length) {
+    summary.textContent = 'Pilih minimal satu PIC Produksi';
+    return;
+  }
+  const names = selected.map(input => input.closest('label')?.querySelector('strong')?.textContent || '').filter(Boolean);
+  summary.textContent = names.join(', ');
+}
+
+function resolveMasterJobForSpo(value) {
+  const key = String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
+  if (!key) return null;
+  return (masterProdData.jobCodes || []).find(job => {
+    const code = String(job.job_code || '').trim();
+    const description = String(job.job_desc || '').trim();
+    return code.toLocaleLowerCase('id-ID') === key
+      || description.toLocaleLowerCase('id-ID') === key
+      || (code.toUpperCase() === 'OB' && key === 'ob removal');
+  }) || null;
+}
+
+async function muatJobSpoDeployed() {
+  const response = await fetch(getProdApiUrl('/api/admin/production/productivity-plans/spo'), { headers: getProdAuthHeaders() });
+  if (!response.ok) throw new Error(`JOB SPO tidak dapat dimuat (${response.status})`);
+  const payload = await response.json();
+  const result = new Map();
+  const add = value => {
+    const job = resolveMasterJobForSpo(value?.jobCode || value?.job_code || value);
+    if (job) result.set(String(job.job_code), job);
+  };
+  (payload.planningData?.deployedJobs || []).forEach(add);
+  Object.values(payload.planningData?.tables || {}).forEach(table => {
+    if (table?.deployed) add(table.jobCode || table.job_code || table.jobDescription);
+  });
+  if (!result.size) {
+    const documentCopy = parseMinePlanningHtml(payload);
+    [...documentCopy.querySelectorAll('.spo-table')]
+      .filter(table => /^\s*deployed\s*$/i.test(table.querySelector('[data-spo-status]')?.textContent || ''))
+      .forEach(table => add(table.querySelector('[data-spo-job]')?.value
+        || table.querySelector('[data-spo-job]')?.getAttribute('value')
+        || table.querySelector('[data-spo-job-label]')?.textContent));
+  }
+  return [...result.values()].sort((first, second) => String(first.job_code).localeCompare(String(second.job_code)));
+}
+
+let ritaseFleetPlanCatalogCache = null;
+let ritaseFleetPlanCatalogLoadedAt = 0;
+async function muatFleetPlanCatalog(force = false, tanggal = '') {
+  const cacheKey = String(tanggal || 'latest');
+  if (!force && ritaseFleetPlanCatalogCache?.key === cacheKey && Date.now() - ritaseFleetPlanCatalogLoadedAt < 30000) {
+    return ritaseFleetPlanCatalogCache.catalog;
+  }
+  const query = tanggal ? `?tanggal=${encodeURIComponent(tanggal)}` : '';
+  const response = await fetch(getProdApiUrl(`/api/admin/production/fleet-plans/catalog${query}`), { headers: getProdAuthHeaders() });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `Fleet Plan Catalog HTTP ${response.status}`);
+  ritaseFleetPlanCatalogCache = { key: cacheKey, catalog: Array.isArray(payload.catalog) ? payload.catalog : [] };
+  ritaseFleetPlanCatalogLoadedAt = Date.now();
+  return ritaseFleetPlanCatalogCache.catalog;
+}
+
 async function bukaModalInputFleet(fleet) {
   const overlay = document.getElementById('modalOverlay');
   const konten = document.getElementById('modalKonten');
   if (!overlay || !konten) return;
 
   if (!(masterProdData.equipment || []).length) await muatMasterDataProduksi();
-
-  const excOptions = (masterProdData.equipment || []).filter(e => e.kelas_alat === 'Excavator').map(e =>
-    `<option value="${e.id}"${fleet && fleet.excavator_id === e.id ? ' selected' : ''}>${escapeMinePlanning(e.kode_alat)} (${escapeMinePlanning(e.tipe_alat || '')})</option>`).join('');
+  let fleetPlanCatalog = [];
+  try {
+    const operationalDate = String(fleet?.tanggal || document.getElementById('filterTanggalRitase')?.value || '').slice(0, 10);
+    fleetPlanCatalog = await muatFleetPlanCatalog(true, operationalDate);
+  } catch (error) {
+    alert(`Fleet Planning gagal dimuat: ${error.message}`);
+    return;
+  }
+  const eligiblePlans = fleetPlanCatalog.filter(plan => plan.equipmentId && plan.jobCode && Number(plan.fleetProductivity) > 0);
+  if (!eligiblePlans.length) {
+    alert('Belum ada kombinasi fleet yang siap digunakan. Pastikan Excavator sudah diset pada OB/Coal Productivity Planning, memiliki Fleet Productivity valid, dan JOB unit sudah dipilih pada tabel PA.');
+    return;
+  }
+  const initialPlan = fleet ? eligiblePlans.find(plan => String(plan.equipmentId) === String(fleet.excavator_id)
+    && String(plan.jobCode) === String(fleet.job_code || '')
+    && String(plan.material || '').trim().toLocaleLowerCase('id-ID') === String(fleet.material_detail || '').trim().toLocaleLowerCase('id-ID')) : null;
+  const excavatorsById = new Map();
+  eligiblePlans.forEach(plan => {
+    if (!excavatorsById.has(String(plan.equipmentId))) excavatorsById.set(String(plan.equipmentId), plan);
+  });
+  const selectedExcavatorId = String(initialPlan?.equipmentId || eligiblePlans[0]?.equipmentId || '');
+  const excOptions = '<option value="">Pilih Excavator dari Productivity Planning</option>' + [...excavatorsById.values()].map(plan =>
+    `<option value="${escapeMinePlanning(plan.equipmentId)}"${selectedExcavatorId === String(plan.equipmentId) ? ' selected' : ''}>${escapeMinePlanning(plan.loaderCode)} (${escapeMinePlanning(plan.equipmentType || '')})</option>`).join('');
   const dtOptions = (masterProdData.equipment || []).filter(e => e.kelas_alat === 'Dump Truck').map(e => {
     const checked = fleet && (fleet.trucks || []).some(t => t.dump_truck_id === e.id) ? ' checked' : '';
     return `<label style="display:block;margin-bottom:4px;"><input type="checkbox" name="chkFleetDt" value="${e.id}"${checked}> ${escapeMinePlanning(e.kode_alat)} - ${escapeMinePlanning(e.tipe_alat || '')}</label>`;
   }).join('');
   const shiftOptions = (masterProdData.shifts || []).map(s =>
     `<option value="${s.id}"${fleet && fleet.shift_id === s.id ? ' selected' : ''}>${escapeMinePlanning(s.nama_shift)}</option>`).join('');
-  const jobOptions = '<option value="">Pilih JOB</option>' + (masterProdData.jobCodes || []).map(j =>
-    `<option value="${escapeMinePlanning(j.job_code)}"${fleet && fleet.job_code === j.job_code ? ' selected' : ''}>${escapeMinePlanning(j.job_code)} - ${escapeMinePlanning(j.job_desc)}</option>`).join('');
-  const tfMat = await muatTruckFactorMaterials();
-  const obMatOptions = (tfMat.OB || []).map(m => `<option value="${escapeMinePlanning(m)}" data-kat="OB"${fleet && fleet.material_detail === m ? ' selected' : ''}>${escapeMinePlanning(m)}</option>`).join('');
-  const coalMatOptions = (tfMat.Coal || []).map(m => `<option value="${escapeMinePlanning(m)}" data-kat="Coal"${fleet && fleet.material_detail === m ? ' selected' : ''}>${escapeMinePlanning(m)}</option>`).join('');
-  const materialOptions = `
-    <option value="">Pilih Material</option>
-    <optgroup label="Overburden (OB)">${obMatOptions || '<option value="" disabled>Belum ada material</option>'}</optgroup>
-    <optgroup label="Coal">${coalMatOptions || '<option value="" disabled>Belum ada material</option>'}</optgroup>`;
+  const selectedPicIds = new Set(Array.isArray(fleet?.pic_user_ids)
+    ? fleet.pic_user_ids.map(String)
+    : String(fleet?.pic_user_id || '').split(',').filter(Boolean));
+  const picChecklist = (masterProdData.productionSupervisors || []).map(person =>
+    `<label style="display:flex;gap:8px;align-items:flex-start;padding:7px 8px;border-bottom:1px solid #e2e8f0;cursor:pointer;">
+      <input type="checkbox" data-fleet-pic value="${escapeMinePlanning(person.id)}"${selectedPicIds.has(String(person.id)) ? ' checked' : ''} onchange="syncFleetPicChecklist()" style="margin-top:3px;">
+      <span><strong>${escapeMinePlanning(person.nama)}</strong>${person.jabatan ? `<small style="display:block;color:#64748b;">${escapeMinePlanning(person.jabatan)}</small>` : ''}</span>
+    </label>`).join('');
+  const initialJob = initialPlan?.jobCode || eligiblePlans.find(plan => String(plan.equipmentId) === selectedExcavatorId)?.jobCode || '';
+  const jobOptionsFor = (equipmentId, selected = '') => {
+    const unique = new Map();
+    eligiblePlans.filter(plan => String(plan.equipmentId) === String(equipmentId)).forEach(plan => unique.set(plan.jobCode, plan));
+    return '<option value="">Pilih JOB dari SPO Deployed sesuai Fleet Planning</option>' + [...unique.values()].map(plan =>
+      `<option value="${escapeMinePlanning(plan.jobCode)}"${String(selected) === String(plan.jobCode) ? ' selected' : ''}>${escapeMinePlanning(plan.jobCode)}${plan.jobDescription ? ' - ' + escapeMinePlanning(plan.jobDescription) : ''}</option>`).join('');
+  };
+  const materialOptionsFor = (equipmentId, jobCode, selectedRef = '') => '<option value="">Pilih Material / Plan</option>' + eligiblePlans
+    .filter(plan => String(plan.equipmentId) === String(equipmentId) && String(plan.jobCode) === String(jobCode))
+    .map(plan => `<option value="${escapeMinePlanning(plan.planRef)}" data-material="${escapeMinePlanning(plan.material)}" data-planning-type="${escapeMinePlanning(plan.planningType)}" data-productivity="${escapeMinePlanning(plan.fleetProductivity)}" data-unit="${escapeMinePlanning(plan.productivityUnit)}"${String(selectedRef) === String(plan.planRef) ? ' selected' : ''}>${escapeMinePlanning(plan.material)} - ${Number(plan.fleetProductivity).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${escapeMinePlanning(plan.productivityUnit)}</option>`).join('');
+  const jobOptions = jobOptionsFor(selectedExcavatorId, initialJob);
+  const materialOptions = materialOptionsFor(selectedExcavatorId, initialJob, initialPlan?.planRef || '');
 
   const tanggal = fleet ? (fleet.tanggal ? String(fleet.tanggal).split('T')[0] : '') : (document.getElementById('filterTanggalRitase')?.value || new Date().toISOString().split('T')[0]);
 
@@ -7415,6 +8389,14 @@ async function bukaModalInputFleet(fleet) {
         </div>
       </div>
       <div style="margin-bottom:10px;">
+        <label class="label">PIC (Pengawas Produksi)</label>
+        <details id="ffPicPicker" style="border:1px solid #cbd5e1;border-radius:7px;background:#fff;">
+          <summary id="ffPicSummary" style="padding:9px 10px;cursor:pointer;font-weight:700;color:#334155;">Pilih PIC Produksi</summary>
+          <div style="max-height:180px;overflow:auto;border-top:1px solid #e2e8f0;">${picChecklist || '<span style="display:block;padding:9px;color:#b91c1c;">Belum ada pengawas aktif di Departemen Produksi.</span>'}</div>
+        </details>
+        <small style="display:block;margin-top:4px;color:#64748b;">Centang satu atau lebih PIC. Daftar berasal dari karyawan aktif Departemen Produksi dengan jabatan pengawas.</small>
+      </div>
+      <div style="margin-bottom:10px;">
         <label class="label">Excavator (Loader) — nama fleet otomatis mengikuti kode unit</label>
         <select id="ffExcavator" class="input-filter" required>${excOptions}</select>
       </div>
@@ -7425,12 +8407,12 @@ async function bukaModalInputFleet(fleet) {
         </div>
         <div>
           <label class="label">JOB</label>
-          <select id="ffJob" class="input-filter">${jobOptions}</select>
+          <select id="ffJob" class="input-filter" required>${jobOptions}</select>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
         <div>
-          <label class="label">Material (granular)</label>
+          <label class="label">Material / Fleet Plan</label>
           <select id="ffMaterial" class="input-filter">${materialOptions}</select>
         </div>
         <div>
@@ -7438,6 +8420,8 @@ async function bukaModalInputFleet(fleet) {
           <input type="number" step="0.01" min="0" id="ffJarak" class="input-filter" placeholder="Misal: 2.5" value="${fleet && fleet.jarak_km != null ? fleet.jarak_km : ''}" />
         </div>
       </div>
+      <div id="ffPlanInfo" style="margin-bottom:12px;padding:9px 11px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#1e3a8a;font-size:12px;">Pilih kombinasi Excavator, JOB, dan Material.</div>
+      <small style="display:block;margin:-5px 0 12px;color:#64748b;line-height:1.45;">Fleet dengan excavator yang sama dapat dibuat pada tanggal dan shift yang sama bila PIT/Area, JOB, atau material berbeda. Kombinasi tiga data tersebut yang sama tidak dapat diduplikasi.</small>
       <div style="margin-bottom:14px;">
         <label class="label">Dump Truck Terikat (Hauling Fleet)</label>
         <div style="max-height:140px;overflow-y:auto;border:1px solid #cbd5e1;padding:8px;border-radius:6px;background:#f8fafc;">
@@ -7452,33 +8436,69 @@ async function bukaModalInputFleet(fleet) {
   `;
   overlay.hidden = false;
 
+  const excavatorSelect = document.getElementById('ffExcavator');
+  const jobSelect = document.getElementById('ffJob');
+  const materialSelect = document.getElementById('ffMaterial');
+  const planInfo = document.getElementById('ffPlanInfo');
+  syncFleetPicChecklist();
+  const syncPlanInfo = () => {
+    const option = materialSelect.selectedOptions[0];
+    if (!option?.value) {
+      planInfo.textContent = 'Pilih kombinasi Excavator, JOB, dan Material.';
+      return;
+    }
+    planInfo.innerHTML = `<strong>Plan Fleet Productivity:</strong> ${Number(option.dataset.productivity).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeMinePlanning(option.dataset.unit)} <span style="margin-left:8px;">Sumber: ${option.dataset.planningType === 'coal' ? 'Coal' : 'OB'} Productivity Planning</span>`;
+  };
+  const syncMaterials = (selectedRef = '') => {
+    materialSelect.innerHTML = materialOptionsFor(excavatorSelect.value, jobSelect.value, selectedRef);
+    syncPlanInfo();
+  };
+  excavatorSelect.addEventListener('change', () => {
+    const firstJob = eligiblePlans.find(plan => String(plan.equipmentId) === String(excavatorSelect.value))?.jobCode || '';
+    jobSelect.innerHTML = jobOptionsFor(excavatorSelect.value, firstJob);
+    syncMaterials();
+  });
+  jobSelect.addEventListener('change', () => syncMaterials());
+  materialSelect.addEventListener('change', syncPlanInfo);
+  syncPlanInfo();
+
   document.getElementById('formInputFleet').addEventListener('submit', async (e) => {
     e.preventDefault();
     const checkedDts = Array.from(document.querySelectorAll('input[name="chkFleetDt"]:checked')).map(c => c.value);
     if (!checkedDts.length) return alert('Pilih minimal satu Dump Truck untuk fleet ini.');
+    const checkedPics = Array.from(document.querySelectorAll('[data-fleet-pic]:checked')).map(input => input.value);
+    if (!checkedPics.length) return alert('Pilih minimal satu PIC Pengawas Produksi untuk fleet ini.');
     const materialSel = document.getElementById('ffMaterial');
-    if (!materialSel.value) return alert('Pilih Material (granular) terlebih dahulu.');
+    const selectedPlanOption = materialSel.selectedOptions[0];
+    if (!materialSel.value || !selectedPlanOption?.dataset.material) return alert('Pilih Material / Fleet Plan terlebih dahulu.');
     const bodyData = {
       tanggal: document.getElementById('ffTanggal').value,
       shift_id: document.getElementById('ffShift').value,
       excavator_id: document.getElementById('ffExcavator').value,
       pit_area: document.getElementById('ffPitArea').value,
       job_code: document.getElementById('ffJob').value,
-      material_type: materialSel.selectedOptions[0]?.dataset.kat === 'Coal' ? 'Coal' : 'Overburden',
-      material_detail: materialSel.value,
+      material_type: selectedPlanOption.dataset.planningType === 'coal' ? 'Coal' : 'Overburden',
+      material_detail: selectedPlanOption.dataset.material,
+      fleet_plan_ref: materialSel.value,
       jarak_km: document.getElementById('ffJarak').value,
+      // ID hanya dikirim ketika Edit Fleet. Backend memakai ini untuk
+      // membedakan update record yang dipilih dari penambahan fleet baru.
+      fleet_mapping_id: fleet?.id || null,
+      pic_user_ids: checkedPics,
       dump_truck_ids: checkedDts
     };
 
     try {
-      const res = await fetch(getProdApiUrl('/api/admin/production/fleet-mappings'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-        body: JSON.stringify(bodyData)
+      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(e), async () => {
+        const res = await fetch(getProdApiUrl('/api/admin/production/fleet-mappings'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+          body: JSON.stringify(bodyData)
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'HTTP ' + res.status);
+        tutupModalGenerik();
+        await muatProdRitase();
       });
-      if (!res.ok) throw new Error((await res.json()).error || 'HTTP ' + res.status);
-      tutupModalGenerik();
-      await muatProdRitase();
     } catch (err) {
       alert('Gagal menyimpan fleet: ' + err.message);
     }
@@ -7498,12 +8518,13 @@ function muatFleetUntukEdit(fleetId) {
     pit_area: card.dataset.pitArea || '',
     job_code: card.dataset.job || '',
     jarak_km: card.dataset.jarak === '' ? null : Number(card.dataset.jarak),
+    pic_user_ids: (card.dataset.picUserIds || '').split(',').filter(Boolean),
     trucks: (card.dataset.truckIds || '').split(',').filter(Boolean).map(id => ({ dump_truck_id: id }))
   };
   bukaModalInputFleet(fleet);
 }
 
-async function simpanRitaseFleet(fleetId) {
+async function simpanRitaseFleet(fleetId, saveButton) {
   const card = document.querySelector(`[data-fleet-card="${fleetId}"]`);
   if (!card) return;
 
@@ -7524,17 +8545,37 @@ async function simpanRitaseFleet(fleetId) {
   if (!rows.length) return alert('Tidak ada baris dump truck pada fleet ini.');
 
   try {
-    const res = await fetch(getProdApiUrl('/api/admin/production/ritase/hours'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-      body: JSON.stringify({ tanggal, shift_id: shiftId, fleet_mapping_id: fleetId, excavator_id: excavatorId, material, rows })
+    await window.OMOSActionFeedback.run(saveButton, async () => {
+      const res = await fetch(getProdApiUrl('/api/admin/production/ritase/hours'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+        body: JSON.stringify({ tanggal, shift_id: shiftId, fleet_mapping_id: fleetId, excavator_id: excavatorId, material, rows })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+      alert(`Ritase fleet berhasil disimpan (${data.saved || rows.length} baris).`);
+      await muatProdRitase();
+    });
+  } catch (err) {
+    alert('Gagal menyimpan ritase fleet: ' + err.message);
+  }
+}
+
+async function hapusFleet(fleetId) {
+  const card = document.querySelector(`[data-fleet-card="${fleetId}"]`);
+  const excavatorKode = card ? (card.querySelector('strong')?.textContent || '').replace('🚚 ', '').trim() : '';
+  if (!confirm(`Hapus tabel fleet ${excavatorKode ? `"${excavatorKode}" ` : ''}ini?\n\nSeluruh data ritase pada fleet ini akan dihapus dan tidak lagi tampil pada Input Ritase. Tindakan ini tidak dapat dibatalkan.`)) return;
+  try {
+    const res = await fetch(getProdApiUrl(`/api/admin/production/fleet-mappings/${encodeURIComponent(fleetId)}`), {
+      method: 'DELETE',
+      headers: { ...getProdAuthHeaders() }
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
-    alert(`Ritase fleet berhasil disimpan (${data.saved || rows.length} baris).`);
+    alert('Tabel fleet berhasil dihapus.');
     muatProdRitase();
   } catch (err) {
-    alert('Gagal menyimpan ritase fleet: ' + err.message);
+    alert('Gagal menghapus fleet: ' + err.message);
   }
 }
 
@@ -7549,19 +8590,21 @@ function dumpTruckTipeAlatList() {
 }
 
 let truckFactorMaterialsCache = null;
-async function muatTruckFactorMaterials() {
-  if (truckFactorMaterialsCache) return truckFactorMaterialsCache;
+async function muatTruckFactorMaterials(tanggal = '') {
+  if (truckFactorMaterialsCache?.tanggal === tanggal) return truckFactorMaterialsCache.data;
+  const periodQuery = tanggal ? `?effectiveFrom=${encodeURIComponent(tanggal)}` : '';
   const [obRes, coalRes] = await Promise.all([
-    fetch(getProdApiUrl('/api/admin/production/productivity-plans/ob'), { headers: { ...getProdAuthHeaders() } }),
-    fetch(getProdApiUrl('/api/admin/production/productivity-plans/coal'), { headers: { ...getProdAuthHeaders() } })
+    fetch(getProdApiUrl(`/api/admin/production/productivity-plans/ob${periodQuery}`), { headers: { ...getProdAuthHeaders() } }),
+    fetch(getProdApiUrl(`/api/admin/production/productivity-plans/coal${periodQuery}`), { headers: { ...getProdAuthHeaders() } })
   ]);
   const obPlan = await obRes.json().catch(() => ({}));
   const coalPlan = await coalRes.json().catch(() => ({}));
-  truckFactorMaterialsCache = {
+  const data = {
     OB: ekstrakMaterialPlan(obPlan.contentHtml),
     Coal: ekstrakMaterialPlan(coalPlan.contentHtml)
   };
-  return truckFactorMaterialsCache;
+  truckFactorMaterialsCache = { tanggal, data };
+  return data;
 }
 
 function ekstrakMaterialPlan(contentHtml) {
@@ -7579,13 +8622,18 @@ function ekstrakMaterialPlan(contentHtml) {
   return [...set].sort();
 }
 
-function renderTruckFactorMatriks(kategori, judul, materials, dtTypes, savedMap) {
+function renderTruckFactorMatriks(kategori, judul, materials, dtTypes, savedMap, sourceMap, activeDate) {
   const headerCols = materials.map(m => `<th>${escapeMinePlanning(m)}</th>`).join('');
   const rows = dtTypes.map(tipe => {
     const cells = materials.map(m => {
       const key = `${kategori}|${tipe}|${m}`;
       const v = savedMap[key] != null ? savedMap[key] : '';
-      return `<td><input type="number" step="any" data-tf-kat="${kategori}" data-tf-tipe="${escapeMinePlanning(tipe)}" data-tf-mat="${escapeMinePlanning(m)}" value="${v}" placeholder="0" /></td>`;
+      const sourceDate = sourceMap[key] || '';
+      const isCurrentVersion = sourceDate === activeDate;
+      const sourceTitle = sourceDate
+        ? (isCurrentVersion ? `Versi berlaku sejak ${sourceDate}.` : `Mengikuti versi berlaku sejak ${sourceDate}.`)
+        : 'Belum ada Truck Factor untuk kombinasi ini.';
+      return `<td><input type="number" step="any" data-tf-kat="${kategori}" data-tf-tipe="${escapeMinePlanning(tipe)}" data-tf-mat="${escapeMinePlanning(m)}" data-tf-original="${escapeMinePlanning(v)}" data-tf-source-date="${escapeMinePlanning(sourceDate)}" data-tf-has-current="${isCurrentVersion ? 'true' : 'false'}" value="${v}" placeholder="0" title="${escapeMinePlanning(sourceTitle)}" /></td>`;
     }).join('');
     return `<tr><td>${escapeMinePlanning(tipe)}</td>${cells}</tr>`;
   }).join('');
@@ -7623,34 +8671,26 @@ async function bukaModalTruckFactor() {
   const dtTypes = dumpTruckTipeAlatList();
 
   try {
-    const [obRes, coalRes, facRes, prevRes] = await Promise.all([
-      fetch(getProdApiUrl('/api/admin/production/productivity-plans/ob'), { headers: { ...getProdAuthHeaders() } }),
-      fetch(getProdApiUrl('/api/admin/production/productivity-plans/coal'), { headers: { ...getProdAuthHeaders() } }),
-      fetch(getProdApiUrl(`/api/admin/production/truck-factors?tanggal=${tanggal}`), { headers: { ...getProdAuthHeaders() } }),
-      fetch(getProdApiUrl(`/api/admin/production/truck-factors/previous?tanggal=${tanggal}`), { headers: { ...getProdAuthHeaders() } })
+    const [obRes, coalRes, facRes] = await Promise.all([
+      fetch(getProdApiUrl(`/api/admin/production/productivity-plans/ob?effectiveFrom=${encodeURIComponent(tanggal)}`), { headers: { ...getProdAuthHeaders() } }),
+      fetch(getProdApiUrl(`/api/admin/production/productivity-plans/coal?effectiveFrom=${encodeURIComponent(tanggal)}`), { headers: { ...getProdAuthHeaders() } }),
+      fetch(getProdApiUrl(`/api/admin/production/truck-factors?tanggal=${tanggal}`), { headers: { ...getProdAuthHeaders() } })
     ]);
     const obPlan = await obRes.json().catch(() => ({}));
     const coalPlan = await coalRes.json().catch(() => ({}));
     const saved = await facRes.json().catch(() => []);
-    const prev = await prevRes.json().catch(() => ({ tanggal: null, rows: [] }));
 
     const obMaterials = ekstrakMaterialPlan(obPlan.contentHtml);
     const coalMaterials = ekstrakMaterialPlan(coalPlan.contentHtml);
 
     const keyOf = r => `${r.kategori}|${r.tipe_alat}|${r.material}`;
-    const currentMap = {};
-    (Array.isArray(saved) ? saved : []).forEach(r => { currentMap[keyOf(r)] = r.factor_value; });
-    const prevMap = {};
-    (Array.isArray(prev.rows) ? prev.rows : []).forEach(r => { prevMap[keyOf(r)] = r.factor_value; });
-    // Carry-over: nilai periode sebelumnya menjadi default bila periode ini kosong.
     const effectiveMap = {};
-    Object.keys(prevMap).forEach(k => { effectiveMap[k] = prevMap[k]; });
-    Object.keys(currentMap).forEach(k => { effectiveMap[k] = currentMap[k]; });
-
-    const hasCurrent = (Array.isArray(saved) ? saved : []).length > 0;
-    const carryNote = (!hasCurrent && prev.tanggal)
-      ? `<div style="margin:0 0 14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;color:#92400e;font-size:12px;">📋 Periode ini belum punya data — nilai ditampilkan mengikuti periode sebelumnya (<strong>${escapeMinePlanning(String(prev.tanggal).split('T')[0])}</strong>). Klik "💾 Simpan" untuk menjadikannya data periode ini.</div>`
-      : '';
+    const sourceMap = {};
+    (Array.isArray(saved) ? saved : []).forEach(r => {
+      const key = keyOf(r);
+      effectiveMap[key] = r.factor_value;
+      sourceMap[key] = String(r.source_tanggal || '').split('T')[0];
+    });
 
     konten.innerHTML = `
       <div class="truck-factor-modal">
@@ -7663,12 +8703,12 @@ async function bukaModalTruckFactor() {
             <button class="tombol" onclick="copyTruckFactor()">📋 Copy</button>
             <button class="tombol" onclick="pasteTruckFactor()">📥 Paste</button>
             <button class="tombol" onclick="tutupModalGenerik()">Tutup</button>
-            <button class="tombol tombol--utama" onclick="simpanTruckFactorSetup()">💾 Simpan Truck Factor</button>
+            <button class="tombol tombol--utama" onclick="simpanTruckFactorSetup(this)">💾 Simpan Truck Factor</button>
           </div>
         </div>
-        ${carryNote}
-        ${renderTruckFactorMatriks('OB', 'Tabel OB', obMaterials, dtTypes, effectiveMap)}
-        ${renderTruckFactorMatriks('Coal', 'Tabel Coal', coalMaterials, dtTypes, effectiveMap)}
+        <div style="margin:0 0 14px;padding:10px 12px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;color:#065f46;font-size:12px;">Nilai Truck Factor mengikuti versi efektif terakhir. Ubah hanya nilai yang perlu dikoreksi; perubahan akan berlaku mulai <strong>${escapeMinePlanning(tanggal)}</strong> dan otomatis dipakai pada periode berikutnya sampai ada versi baru.</div>
+        ${renderTruckFactorMatriks('OB', 'Tabel OB', obMaterials, dtTypes, effectiveMap, sourceMap, tanggal)}
+        ${renderTruckFactorMatriks('Coal', 'Tabel Coal', coalMaterials, dtTypes, effectiveMap, sourceMap, tanggal)}
       </div>
     `;
   } catch (err) {
@@ -7676,31 +8716,42 @@ async function bukaModalTruckFactor() {
   }
 }
 
-async function simpanTruckFactorSetup() {
+async function simpanTruckFactorSetup(saveButton) {
   const tanggal = document.getElementById('filterTanggalRitase')?.value || '';
   if (!tanggal) return alert('Periode (tanggal) belum ditentukan.');
 
   const entries = [];
   document.querySelectorAll('.truck-factor-modal input[data-tf-kat]').forEach(inp => {
+    const factorValue = String(inp.value ?? '').trim();
+    const originalValue = String(inp.dataset.tfOriginal ?? '').trim();
+    const hasCurrentVersion = inp.dataset.tfHasCurrent === 'true';
+    // Inherited values are intentionally not copied into a new period. Only a
+    // user edit creates a new effective-date version; clearing a version on
+    // the active date restores the preceding version.
+    if (factorValue === originalValue) return;
+    if (!factorValue && !hasCurrentVersion) return;
     entries.push({
       kategori: inp.dataset.tfKat,
       tipe_alat: inp.dataset.tfTipe,
       material: inp.dataset.tfMat,
-      factor_value: inp.value
+      factor_value: factorValue
     });
   });
-  if (!entries.length) return alert('Tidak ada baris truck factor untuk disimpan.');
+  if (!entries.length) return alert('Belum ada perubahan Truck Factor untuk disimpan.');
 
   try {
-    const res = await fetch(getProdApiUrl('/api/admin/production/truck-factors'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-      body: JSON.stringify({ tanggal, entries })
+    await window.OMOSActionFeedback.run(saveButton, async () => {
+      const res = await fetch(getProdApiUrl('/api/admin/production/truck-factors'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+        body: JSON.stringify({ tanggal, entries })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+      alert(`Truck factor tersimpan (${data.saved} nilai disimpan, ${data.removed} dikosongkan).`);
+      tutupModalGenerik();
+      await muatRitaseFleetGrid();
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
-    alert(`Truck factor tersimpan (${data.saved} nilai disimpan, ${data.removed} dikosongkan).`);
-    tutupModalGenerik();
   } catch (err) {
     alert('Gagal menyimpan truck factor: ' + err.message);
   }
@@ -7741,100 +8792,6 @@ function pasteTruckFactor() {
   });
   if (!applied) return alert('Tidak ada sel yang cocok untuk ditempel (tipe model / material berbeda).');
   alert(`📥 Data ditempel ke ${applied} sel. Klik "💾 Simpan Truck Factor" untuk menyimpannya.`);
-}
-
-// -------------------------------------------------------------
-// 6. DAILY DASHBOARD
-// -------------------------------------------------------------
-async function muatDailyDashboard() {
-  try {
-    const tgl = document.getElementById('filterDateDailyDash')?.value || new Date().toISOString().split('T')[0];
-    const res = await fetch(getProdApiUrl(`/api/admin/production/daily-dashboard?tanggal=${tgl}`), {
-      headers: { ...getProdAuthHeaders() }
-    });
-    const data = await res.json();
-    const kpi = data.kpi || {};
-
-    document.getElementById('dashCoalActual').textContent = `${(kpi.coal?.actual || 0).toLocaleString('id-ID')} MT`;
-    document.getElementById('dashCoalAchieve').textContent = `Target: ${kpi.coal?.target || 0} MT (${kpi.coal?.achievement || 0}%)`;
-    document.getElementById('dashObActual').textContent = `${(kpi.ob?.actual || 0).toLocaleString('id-ID')} BCM`;
-    document.getElementById('dashObAchieve').textContent = `Target: ${kpi.ob?.target || 0} BCM (${kpi.ob?.achievement || 0}%)`;
-    document.getElementById('dashTotalFuel').textContent = `${(kpi.fuel || 0).toLocaleString('id-ID')} L`;
-    document.getElementById('dashAvgCycle').textContent = `${kpi.avgCycleTime || 0} Menit`;
-    document.getElementById('dashWeather').textContent = kpi.weather || 'Cerah (29°C)';
-
-    renderChartHourlyProd(data.hourlyChart || []);
-  } catch (err) {
-    console.warn('[Daily Dash Error]', err.message);
-  }
-}
-
-function renderChartHourlyProd(chartData) {
-  const ctx = document.getElementById('chartHourlyProd');
-  if (!ctx) return;
-  if (chartHourlyProdObj) chartHourlyProdObj.destroy();
-
-  chartHourlyProdObj = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: chartData.map(c => c.jam),
-      datasets: [
-        { label: 'Coal (MT)', data: chartData.map(c => c.coal), borderColor: '#0284c7', backgroundColor: 'rgba(2,132,199,0.1)', fill: true },
-        { label: 'Overburden (BCM)', data: chartData.map(c => c.ob), borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.1)', fill: true }
-      ]
-    },
-    options: { responsive: true, maintainAspectRatio: false }
-  });
-}
-
-// -------------------------------------------------------------
-// 7. SHIFT REPORT
-// -------------------------------------------------------------
-async function muatShiftReport() {
-  try {
-    const res = await fetch(getProdApiUrl('/api/admin/production/shift-report'), {
-      headers: { ...getProdAuthHeaders() }
-    });
-    const data = await res.json();
-
-    document.getElementById('srTanggal').textContent = data.tanggal || new Date().toISOString().split('T')[0];
-    const detailBox = document.getElementById('srKontenDetail');
-    if (!detailBox) return;
-
-    detailBox.innerHTML = `
-      <div style="margin-bottom:14px;">
-        <h4 style="margin:0 0 6px 0;color:#0f172a;">1. RINGKASAN PRODUKSI SHIFT</h4>
-        <ul style="margin:0;padding-left:18px;">
-          ${(data.production || []).map(p => `<li><strong>${p.material}:</strong> ${p.total_vol} (${p.total_rit} Ritase)</li>`).join('') || '<li>Produksi Shift Berjalan 100% Sesuai Jadwal</li>'}
-        </ul>
-      </div>
-      <div style="margin-bottom:14px;">
-        <h4 style="margin:0 0 6px 0;color:#0f172a;">2. CATATAN KENDALA STANDBY</h4>
-        <ul style="margin:0;padding-left:18px;">
-          ${(data.standby || []).map(s => `<li><strong>${s.kategori}:</strong> ${s.hours} Jam total delay</li>`).join('') || '<li>Tidak ada kendala standby signifikan.</li>'}
-        </ul>
-      </div>
-      <div style="margin-bottom:14px;">
-        <h4 style="margin:0 0 6px 0;color:#0f172a;">3. CATATAN PENGAWAS (SUPERVISOR NOTE)</h4>
-        <p style="margin:0;background:#f8fafc;padding:10px;border-radius:6px;border-left:4px solid #0284c7;">${data.supervisorNote}</p>
-      </div>
-    `;
-  } catch (err) {
-    console.warn('[Shift Report Error]', err.message);
-  }
-}
-
-function cetakPdfShiftReport() {
-  const element = document.getElementById('areaCetakShiftReport');
-  if (!element) return;
-  const opt = {
-    margin:       0.5,
-    filename:     `Shift_Report_${new Date().toISOString().split('T')[0]}.pdf`,
-    image:        { type: 'jpeg', quality: 0.98 },
-    html2canvas:  { scale: 2 },
-    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
-  };
-  html2pdf().set(opt).from(element).save();
 }
 
 // -------------------------------------------------------------

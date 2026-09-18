@@ -12,20 +12,22 @@ Baca [docs/OPERATIONS.md](docs/OPERATIONS.md) untuk rilis serta [docs/SECURITY_A
 Backend Node.js/Express untuk aplikasi absensi Android — validasi geofencing (radius 50m),
 verifikasi wajah via CompreFace, dan aturan shift 2 sesuai dokumen requirement.
 
-## 1. Persiapan
+## 1. Konfigurasi Vercel
 
 ```bash
-npm install
-cp .env.example .env
-# lalu isi .env: DATABASE_URL, JWT_SECRET, COMPREFACE_BASE_URL, COMPREFACE_RECOGNITION_API_KEY
+vercel link
+vercel env add DATABASE_URL
+vercel env add JWT_SECRET
+vercel env add SUPABASE_URL
+vercel env add SUPABASE_SERVICE_ROLE_KEY
 ```
 
-## 2. Setup database
+## 2. Setup Supabase PostgreSQL
 
-Buat database PostgreSQL, lalu jalankan skema:
+Jalankan skema terhadap database Supabase:
 
 ```bash
-psql -U <user> -d <nama_db> -f sql/schema.sql
+psql "$DATABASE_URL" -f backend/sql/schema.sql
 ```
 
 Skema ini otomatis membuat 2 shift standar (Shift 1 & Shift 2) dan 1 baris akun admin
@@ -35,38 +37,10 @@ dengan `password_hash` placeholder. **Jangan lupa** update password admin sebelu
 npm run seed:admin -- admin@perusahaan.com password_yang_kuat
 ```
 
-## 3. Setup MinIO (penyimpanan foto absensi, self-hosted & gratis)
+## 3. Setup Supabase Storage
 
-Jalankan MinIO via Docker:
-
-```bash
-docker run -d --name minio \
-  -p 9000:9000 -p 9001:9001 \
-  -e MINIO_ROOT_USER=ganti_access_key \
-  -e MINIO_ROOT_PASSWORD=ganti_secret_key \
-  -v ~/minio-data:/data \
-  quay.io/minio/minio server /data --console-address ":9001"
-```
-
-Lalu isi `.env`:
-
-```
-MINIO_ENDPOINT=localhost
-MINIO_PORT=9000
-MINIO_USE_SSL=false
-MINIO_ACCESS_KEY=ganti_access_key
-MINIO_SECRET_KEY=ganti_secret_key
-MINIO_BUCKET=absensi-foto
-```
-
-Bucket akan **otomatis dibuat saat server pertama kali dijalankan** (lihat
-`pastikanBucketTersedia()` di `src/config/minio.js`) — tidak perlu dibuat manual.
-
-**Catatan penting:** bucket ini private (bukan public-read), karena isinya foto
-wajah karyawan. Backend generate **presigned URL** bermasa berlaku singkat
-(default 15 menit, diatur lewat `MINIO_PRESIGNED_URL_EXPIRY`) setiap kali
-riwayat absensi ditampilkan — baik untuk karyawan maupun admin. Foto tidak
-pernah punya URL publik permanen.
+Buat bucket `absensi-foto` di Supabase Storage. Backend mengaksesnya melalui
+`SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`; tidak ada fallback storage lokal.
 
 ## 4. Setup CompreFace (verifikasi wajah, gratis & self-hosted)
 
@@ -80,11 +54,10 @@ Setelah jalan:
    (lihat `src/services/compreface.js` → `daftarkanWajahReferensi`), lalu simpan
    subject id itu ke kolom `users.compreface_subject`.
 
-## 5. Menjalankan server
+## 5. Deploy production
 
 ```bash
-npm run dev
-# server jalan di http://localhost:3000
+vercel --prod
 ```
 
 ## 6. Endpoint yang tersedia
@@ -111,7 +84,7 @@ Semua endpoint (kecuali `/login`) butuh header:
 
 1. `POST /api/admin/lokasi` — buat dulu titik lokasi kantor (kalau belum ada).
 2. `POST /api/admin/karyawan` — buat akun karyawan (perlu `shift_id` dari tabel `shifts` yang sudah di-seed, dan `lokasi_kantor_id` dari langkah 1).
-3. `POST /api/admin/karyawan/:id/foto-referensi` — upload foto wajah karyawan tsb. Ini yang mendaftarkan wajah ke CompreFace sekaligus menyimpan arsipnya di MinIO. Bisa dipanggil berkali-kali untuk menambah sampel wajah yang sama supaya matching lebih akurat.
+3. `POST /api/admin/karyawan/:id/foto-referensi` — upload foto wajah karyawan tsb. Ini yang mendaftarkan wajah ke CompreFace sekaligus menyimpan arsipnya di Supabase Storage. Bisa dipanggil berkali-kali untuk menambah sampel wajah yang sama supaya matching lebih akurat.
 
 Setelah langkah 3 selesai, karyawan baru bisa login dan absen — verifikasi wajahnya akan dicocokkan ke sampel yang didaftarkan di langkah ini.
 

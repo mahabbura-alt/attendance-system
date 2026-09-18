@@ -17,8 +17,8 @@ async function run() {
     const urlType = (url) => {
       if (!url) return 'NULL';
       if (url.startsWith('https://lpezydpyzvfydbhwimqq.supabase.co')) return 'SUPABASE_PUBLIC_URL ✅';
-      if (url.startsWith('data:image/')) return 'BASE64 (storage penuh)';
-      if (url.startsWith('absensi/')) return 'MinIO path';
+      if (url.startsWith('data:image/')) return 'BASE64 LEGACY';
+      if (url.startsWith('absensi/')) return 'SUPABASE OBJECT KEY';
       return 'UNKNOWN: ' + url.slice(0, 60);
     };
     console.log(`[${r.nama}] foto_datang: ${urlType(r.foto_datang_url)} | foto_pulang: ${urlType(r.foto_pulang_url)}`);

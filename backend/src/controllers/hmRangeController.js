@@ -7,7 +7,6 @@ const {
   validateDateRange,
   validateJamOperasi,
   sumDailyHm,
-  ensureHmDailySchema,
 } = require('../services/hmDaily');
 
 function isoToday() {
@@ -37,7 +36,6 @@ async function getEligibleUser(userId) {
 /** GET /api/admin/hm?tanggal_mulai=YYYY-MM-DD&tanggal_akhir=YYYY-MM-DD */
 async function daftarHm(req, res, next) {
   try {
-    await ensureHmDailySchema(pool);
     const tanggalMulai = req.query.tanggal_mulai || req.query.tanggal || isoToday();
     const tanggalAkhir = req.query.tanggal_akhir || req.query.tanggal || tanggalMulai;
     const tanggalList = buildDateRange(tanggalMulai, tanggalAkhir);
@@ -109,7 +107,6 @@ async function daftarHm(req, res, next) {
 async function simpanHmBulk(req, res, next) {
   const client = await pool.connect();
   try {
-    await ensureHmDailySchema(pool);
     const entries = Array.isArray(req.body.entries) ? req.body.entries : [];
     if (!entries.length) {
       return res.status(400).json({ error: 'Tidak ada nilai HM harian untuk disimpan' });
@@ -173,7 +170,6 @@ async function simpanHmBulk(req, res, next) {
 
 async function buatHm(req, res, next) {
   try {
-    await ensureHmDailySchema(pool);
     const { user_id, tanggal = isoToday(), jam_operasi, keterangan } = req.body;
     validateDateRange(tanggal, tanggal);
     const jam = validateJamOperasi(jam_operasi);
@@ -197,7 +193,6 @@ async function buatHm(req, res, next) {
 
 async function updateHm(req, res, next) {
   try {
-    await ensureHmDailySchema(pool);
     const jam = validateJamOperasi(req.body.jam_operasi);
     const { rows } = await pool.query(
       `UPDATE database_hm_harian SET jam_operasi = $1,
@@ -214,7 +209,6 @@ async function updateHm(req, res, next) {
 
 async function hapusHm(req, res, next) {
   try {
-    await ensureHmDailySchema(pool);
     const { rows } = await pool.query(
       'DELETE FROM database_hm_harian WHERE id = $1 RETURNING *',
       [req.params.id]
@@ -229,7 +223,6 @@ async function hapusHm(req, res, next) {
 /** GET /api/admin/hm/export — template Excel mengikuti range yang sedang tampil. */
 async function exportHmExcel(req, res, next) {
   try {
-    await ensureHmDailySchema(pool);
     const tanggalMulai = req.query.tanggal_mulai || isoToday();
     const tanggalAkhir = req.query.tanggal_akhir || tanggalMulai;
     const dates = buildDateRange(tanggalMulai, tanggalAkhir);
@@ -307,7 +300,6 @@ async function importHmExcel(req, res, next) {
     if (!req.file) {
       return res.status(400).json({ error: 'Berkas Excel (.xlsx / .xls) wajib diunggah' });
     }
-    await ensureHmDailySchema(pool);
 
     let workbook;
     try {

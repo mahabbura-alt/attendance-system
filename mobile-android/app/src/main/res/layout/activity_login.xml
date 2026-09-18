@@ -120,15 +120,5 @@
             android:padding="14dp"
             android:backgroundTint="#283593" />
 
-        <TextView
-            android:id="@+id/btnSetIp"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="⚙️ Pengaturan Server IP"
-            android:textColor="#718096"
-            android:textSize="12sp"
-            android:paddingTop="20dp"
-            android:paddingBottom="16dp" />
-
     </LinearLayout>
 </ScrollView>

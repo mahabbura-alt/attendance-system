@@ -1,8 +1,7 @@
 const axios = require('axios');
 const FormData = require('form-data');
 
-const BASE_URL = process.env.COMPREFACE_BASE_URL || 'http://localhost:8000';
-const API_KEY = process.env.COMPREFACE_RECOGNITION_API_KEY || '00000000-0000-0000-0000-000000000000';
+const API_KEY = process.env.COMPREFACE_RECOGNITION_API_KEY || '';
 const THRESHOLD = Number(process.env.FACE_MATCH_THRESHOLD || 0.85);
 const TIMEOUT_MS = Number(process.env.COMPREFACE_TIMEOUT_MS || 5000);
 
@@ -22,7 +21,7 @@ async function getComprefaceBaseUrl() {
       }
     }
   } catch (e) {}
-  return (process.env.COMPREFACE_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+  return (process.env.COMPREFACE_BASE_URL || '').replace(/\/$/, '');
 }
 
 /**
@@ -118,4 +117,3 @@ async function hapusSubjectWajah(subject) {
 }
 
 module.exports = { verifikasiWajah, daftarkanWajahReferensi, hapusSubjectWajah, getComprefaceBaseUrl };
-
