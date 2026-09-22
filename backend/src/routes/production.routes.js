@@ -112,7 +112,11 @@ router.put('/production-data/fuel/:id', ProductionDataController.saveAllocation)
 router.post('/production-data/fuel-allocation-rules', ProductionDataController.createAllocationRule);
 router.post('/production-data/density-snapshots', ProductionDataController.captureDensity);
 
-// 8. Productivity Report
+// 8. Review Produksi (agregasi read-only waterfall loss & gain)
+router.get('/review-produksi', ProductionController.getReviewProduksi);
+router.get('/review-produksi/pareto', ProductionController.getReviewProduksiPareto);
+
+// 9. Productivity Report
 router.get('/productivity-report', ProductionController.getProductivityReport);
 
 // 9. MTD Report

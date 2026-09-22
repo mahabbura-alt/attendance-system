@@ -250,6 +250,7 @@ function bukaTabProduksi(tabName) {
     prodStandby: ['xlsx', 'chart'],
     prodBreakdown: ['xlsx'],
     prodDataProduksi: [],
+    prodReviewProduksi: ['chart'],
     prodProductivityReport: ['xlsx'],
     prodMtdReport: ['chart'],
     prodYtdReport: ['chart'],
@@ -285,6 +286,7 @@ function bukaTabProduksi(tabName) {
       case 'prodInputRitase': return muatProdRitase();
       case 'prodDailyDashboard': return window.RainfallData?.init();
       case 'prodDataProduksi': return window.ProductionData.init();
+      case 'prodReviewProduksi': return window.ReviewProduksi.init();
       case 'prodProductivityReport': return muatProductivityReport();
       case 'prodMtdReport': return muatMtdReport();
       case 'prodYtdReport': return muatYtdReport();
@@ -5502,7 +5504,16 @@ function standbyRowCanEdit(row) {
 }
 
 function standbyRowCanDelete(row) {
-  return standbyRowCanEdit(row);
+  const frozen = standbyMohhControlFor(row)?.closure?.status === 'closed';
+  if (frozen || row.review_status === 'approved') return false;
+  const isSystem = row.is_system_generated || row.kode_is_system || row.kode_is_locked;
+  if (isSystem) {
+    // Record sistem (mis. STB-SYS-01) yang sudah tertutup boleh dipilih hapus;
+    // yang masih open (terikat verifikasi breakdown berjalan) tetap terkunci.
+    // Backend memvalidasi ulang sebelum menghapus.
+    return String(row.lifecycle_status || '') === 'confirmed';
+  }
+  return row.lifecycle_status === 'confirmed';
 }
 
 function standbyDeleteCell(row, id) {

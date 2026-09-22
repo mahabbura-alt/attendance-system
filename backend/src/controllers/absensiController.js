@@ -458,7 +458,13 @@ async function absenPulang(req, res, next) {
   }
 }
 
-/** GET /api/absensi/riwayat — riwayat absensi milik karyawan yang login */
+/** GET /api/absensi/riwayat — riwayat absensi milik karyawan yang login.
+ *  Aturan mutlak Rekap Performa: bila keterangan manual admin menimpa presensi
+ *  kamera, karyawan melihat data update terbaru admin — jam datang/pulang dan
+ *  status pulang disembunyikan (NULL), status mengikuti kategori admin. Record
+ *  kamera tetap tersimpan di tabel absensi sebagai histori (pengembalian oleh
+ *  admin). is_pending_session sengaja TIDAK di-mask agar manajemen sesi
+ *  checkout tetap berfungsi. */
 async function riwayat(req, res, next) {
   try {
     await autoCloseExpiredSessions(req.user.id);
@@ -471,18 +477,19 @@ async function riwayat(req, res, next) {
               a.shift_id,
               COALESCE(a.tanggal_kerja, kp.tanggal)::text AS tanggal,
               COALESCE(a.tanggal_kerja, kp.tanggal)::text AS tanggal_kerja,
-              a.waktu_datang,
-              a.waktu_pulang,
+              CASE WHEN a.id IS NOT NULL AND kp.kategori IS NOT NULL THEN NULL ELSE a.waktu_datang END AS waktu_datang,
+              CASE WHEN a.id IS NOT NULL AND kp.kategori IS NOT NULL THEN NULL ELSE a.waktu_pulang END AS waktu_pulang,
               COALESCE(kp.kategori, a.status_datang) AS status_datang,
-              a.status_pulang,
+              CASE WHEN a.id IS NOT NULL AND kp.kategori IS NOT NULL THEN NULL ELSE a.status_pulang END AS status_pulang,
               a.foto_datang_url,
               a.foto_pulang_url,
-              kp.kategori AS kategori_manual
-       FROM absensi a
-       FULL OUTER JOIN keterangan_presensi kp ON kp.user_id = a.user_id AND kp.tanggal = a.tanggal_kerja
-       WHERE COALESCE(a.user_id, kp.user_id) = $1
-       ORDER BY COALESCE(a.tanggal_kerja, kp.tanggal) DESC, a.waktu_datang DESC NULLS LAST
-       LIMIT 100`,
+              kp.kategori AS kategori_manual,
+              (a.id IS NOT NULL AND kp.kategori IS NOT NULL) AS kamera_ditimpa
+        FROM absensi a
+        FULL OUTER JOIN keterangan_presensi kp ON kp.user_id = a.user_id AND kp.tanggal = a.tanggal_kerja
+        WHERE COALESCE(a.user_id, kp.user_id) = $1
+        ORDER BY COALESCE(a.tanggal_kerja, kp.tanggal) DESC, a.waktu_datang DESC NULLS LAST
+        LIMIT 100`,
       [req.user.id]
     );
 
@@ -577,7 +584,15 @@ async function rekapKehadiran(req, res, next) {
         status = adaTelat ? 'telat' : 'hadir';
       }
 
-      hasil.push({ tanggal: tgl, status, ...data, kategori_manual: manualCat });
+      // Aturan mutlak Rekap Performa: hari yang ditimpa admin tidak lagi
+      // menampilkan jam/status kamera; karyawan melihat data update terbaru.
+      const ditimpa = Boolean(manualCat && data);
+      hasil.push({
+        tanggal: tgl,
+        status,
+        ...(ditimpa ? { status_datang: null, status_pulang: null, waktu_datang: null, waktu_pulang: null } : data),
+        kategori_manual: manualCat,
+      });
     }
 
     res.json(hasil);

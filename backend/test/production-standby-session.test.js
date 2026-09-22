@@ -37,8 +37,23 @@ test('standby delete permits confirmed manual records awaiting review', () => {
   }), true);
 });
 
-test('standby delete protects system, non-confirmed, and approved records', () => {
-  assert.throws(() => assertStandbyLogDeletable({ is_system_generated: true, lifecycle_status: 'confirmed', review_status: 'pending' }), /sistem/);
+test('standby delete permits closed system records (e.g. STB-SYS-01) awaiting review', () => {
+  assert.equal(assertStandbyLogDeletable({
+    is_system_generated: true, code_is_system: true, code_is_locked: true,
+    lifecycle_status: 'confirmed', review_status: 'pending', source_reference_id: 'bd-1'
+  }), true);
+});
+
+test('standby delete still blocks in-flight verification slices', () => {
+  assert.throws(() => assertStandbyLogDeletable({
+    is_system_generated: true, lifecycle_status: 'open', review_status: 'pending',
+    source_reference_id: 'bd-1'
+  }), /verifikasi/);
+});
+
+test('standby delete protects non-confirmed and approved records', () => {
+  assert.throws(() => assertStandbyLogDeletable({ is_system_generated: true, lifecycle_status: 'reclassified', review_status: 'pending' }), /Tercatat/);
+  assert.throws(() => assertStandbyLogDeletable({ is_system_generated: true, lifecycle_status: 'confirmed', review_status: 'approved' }), /Review/);
   assert.throws(() => assertStandbyLogDeletable({ lifecycle_status: 'reclassified', review_status: 'pending' }), /Tercatat/);
   assert.throws(() => assertStandbyLogDeletable({ lifecycle_status: 'confirmed', review_status: 'approved' }), /Review/);
 });

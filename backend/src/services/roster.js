@@ -127,7 +127,8 @@ function resolveDailyCategory({
   isSunday = false,
 } = {}) {
   const expectedWork = rosterStatus === 'S' || rosterStatus === 'M';
-  if (hasAttendance) return { category: 'hadir_kamera', source: 'camera', expectedWork: true };
+  // Aturan mutlak: data presensi bersumber dari Rekap Performa. Keterangan
+  // manual admin (hadir_manual, off, cuti, izin, alpa) menimpa presensi kamera.
   if (manualCategory) {
     return {
       category: manualCategory,
@@ -137,6 +138,7 @@ function resolveDailyCategory({
         : (rosterStatus ? expectedWork : manualCategory !== 'off'),
     };
   }
+  if (hasAttendance) return { category: 'hadir_kamera', source: 'camera', expectedWork: true };
   if (rosterStatus === 'C') return { category: 'cuti', source: 'roster', expectedWork: false };
   if (rosterStatus === 'CP') return { category: 'cuti', source: 'roster_periodik', expectedWork: false };
   if (rosterStatus === 'OFF') return { category: 'off', source: 'roster', expectedWork: false };

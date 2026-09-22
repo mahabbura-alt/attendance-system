@@ -134,6 +134,17 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
+    // Aturan mutlak Rekap Performa: karyawan melihat data update terbaru admin.
+    private fun labelStatusKaryawan(status: String?): String = when (status) {
+        "hadir_manual" -> "Hadir (Manual)"
+        "alpa" -> "Alpa"
+        "izin" -> "Izin"
+        "sakit" -> "Sakit"
+        "cuti" -> "Cuti"
+        "off" -> "OFF"
+        else -> status ?: "Hadir"
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // CEK SESI PENDING
     // ──────────────────────────────────────────────────────────────────────────
@@ -143,11 +154,14 @@ class HomeActivity : AppCompatActivity() {
                 val response = RetrofitClient.api.riwayat()
                 if (response.isSuccessful) {
                     val daftar = response.body().orEmpty()
-                    val terbaru = daftar.firstOrNull { it.waktu_datang != null }
-                    textAbsensiTercatat.text = if (terbaru == null) {
-                        "Belum ada absensi tercatat di server."
-                    } else {
-                        "Tercatat di server · Datang: ${formatWaktuTercatat(terbaru.waktu_datang)} · Pulang: ${formatWaktuTercatat(terbaru.waktu_pulang)}"
+                    val barisTerbaru = daftar.firstOrNull()
+                    textAbsensiTercatat.text = when {
+                        barisTerbaru == null -> "Belum ada absensi tercatat di server."
+                        barisTerbaru.kamera_ditimpa == true ->
+                            "Hari ini mengikuti Rekap Performa: ${labelStatusKaryawan(barisTerbaru.status_datang)}"
+                        barisTerbaru.waktu_datang != null ->
+                            "Tercatat di server · Datang: ${formatWaktuTercatat(barisTerbaru.waktu_datang)} · Pulang: ${formatWaktuTercatat(barisTerbaru.waktu_pulang)}"
+                        else -> "Belum ada absensi tercatat di server."
                     }
                     // Baris izin/cuti/sakit dari riwayat tidak memiliki clock-in dan
                     // bukan sesi aktif yang boleh mengunci tombol Absen Datang.

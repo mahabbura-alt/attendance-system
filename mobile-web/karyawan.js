@@ -13,6 +13,21 @@ function formatAttendanceTime(value) {
   })} WIB`;
 }
 
+const LABEL_STATUS_KARYAWAN = {
+  hadir_manual: 'Hadir (Manual)',
+  alpa: 'Alpa',
+  izin: 'Izin',
+  sakit: 'Sakit',
+  cuti: 'Cuti',
+  off: 'OFF',
+};
+
+// Aturan mutlak Rekap Performa: karyawan melihat data update terbaru admin.
+// Bila presensi kamera ditimpa, jam/status kamera tidak ditampilkan.
+function labelStatusKaryawan(status) {
+  return LABEL_STATUS_KARYAWAN[status] || status || 'Hadir';
+}
+
 function formatAttendanceWorkDate(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
   if (!match) return '—';
@@ -342,6 +357,42 @@ async function cekStatusToday() {
     const valPulang = document.getElementById('valJamPulang');
     const subPulang = document.getElementById('subPulang');
 
+    // 0. Aturan mutlak Rekap Performa: bila presensi kamera hari ini ditimpa
+    // admin, karyawan melihat data update terbaru admin (jam kamera
+    // disembunyikan). Sesi kamera yang masih terbuka tetap boleh di-close
+    // agar tidak menggantung; selain itu tombol absen mengikuti rekap.
+    const todayRow = rows.find(r => r.tanggal_kerja?.substring(0, 10) === todayStr);
+    if (todayRow && todayRow.kamera_ditimpa) {
+      const adaPending = isPendingAttendanceSession(todayRow);
+      if (valDatang) valDatang.textContent = '— (ditimpa Rekap)';
+      if (subDatang) {
+        subDatang.textContent = labelStatusKaryawan(todayRow.status_datang);
+        subDatang.style.color = 'var(--emerald-dark)';
+      }
+      if (valPulang) valPulang.textContent = adaPending ? '—' : '— (ditimpa Rekap)';
+      if (subPulang) {
+        subPulang.textContent = adaPending ? 'Belum checkout' : '—';
+        subPulang.style.color = 'var(--emerald-dark)';
+      }
+      if (btnDatang) {
+        btnDatang.classList.add('btn-disabled');
+        btnDatang.disabled = true;
+        btnDatang.textContent = adaPending ? '✅ SUDAH ABSEN DATANG' : '📋 MENGIKUTI REKAP';
+      }
+      if (btnPulang) {
+        if (adaPending) {
+          btnPulang.classList.remove('btn-disabled');
+          btnPulang.disabled = false;
+          btnPulang.textContent = '🔴 ABSEN PULANG';
+        } else {
+          btnPulang.classList.add('btn-disabled');
+          btnPulang.disabled = true;
+          btnPulang.textContent = '📋 MENGIKUTI REKAP';
+        }
+      }
+      return;
+    }
+
     // 1. Cari jika ada sesi absen yang belum checkout (waktu_pulang IS NULL)
     // Baris keterangan_presensi (cuti/izin/sakit/alpa) juga muncul di endpoint
     // riwayat, tetapi bukan sesi kamera. Sesi pending wajib memiliki clock-in.
@@ -349,9 +400,9 @@ async function cekStatusToday() {
 
     if (pendingRec) {
       // Ada sesi aktif yang belum checkout -> Karyawan harus Absen Pulang
-      if (valDatang) valDatang.textContent = formatAttendanceTime(pendingRec.waktu_datang);
+      if (valDatang) valDatang.textContent = pendingRec.kamera_ditimpa ? '— (ditimpa Rekap)' : formatAttendanceTime(pendingRec.waktu_datang);
       if (subDatang) {
-        subDatang.textContent = pendingRec.status_datang || 'Hadir';
+        subDatang.textContent = labelStatusKaryawan(pendingRec.status_datang);
         subDatang.style.color = 'var(--emerald-dark)';
       }
 
@@ -374,15 +425,15 @@ async function cekStatusToday() {
 
     if (todayCompleted) {
       // Sesi hari ini sudah selesai checkout
-      if (valDatang) valDatang.textContent = formatAttendanceTime(todayCompleted.waktu_datang);
+      if (valDatang) valDatang.textContent = todayCompleted.kamera_ditimpa ? '— (ditimpa Rekap)' : formatAttendanceTime(todayCompleted.waktu_datang);
       if (subDatang) {
-        subDatang.textContent = todayCompleted.status_datang || 'Hadir';
+        subDatang.textContent = labelStatusKaryawan(todayCompleted.status_datang);
         subDatang.style.color = 'var(--emerald-dark)';
       }
 
-      if (valPulang) valPulang.textContent = formatAttendanceTime(todayCompleted.waktu_pulang);
+      if (valPulang) valPulang.textContent = todayCompleted.kamera_ditimpa ? '— (ditimpa Rekap)' : formatAttendanceTime(todayCompleted.waktu_pulang);
       if (subPulang) {
-        subPulang.textContent = todayCompleted.status_pulang || 'Checkout';
+        subPulang.textContent = todayCompleted.kamera_ditimpa ? '—' : (todayCompleted.status_pulang || 'Checkout');
         subPulang.style.color = 'var(--emerald-dark)';
       }
 
@@ -684,15 +735,17 @@ async function muatRiwayat() {
 
     tbody.innerHTML = rows.map(r => {
       const tgl = formatAttendanceWorkDate(r.tanggal_kerja);
-      const jamD = r.waktu_datang ? formatAttendanceTime(r.waktu_datang) : '-';
-      const jamP = r.waktu_pulang ? formatAttendanceTime(r.waktu_pulang) : '-';
+      const ditimpa = Boolean(r.kamera_ditimpa);
+      const jamD = ditimpa ? '—' : (r.waktu_datang ? formatAttendanceTime(r.waktu_datang) : '-');
+      const jamP = ditimpa ? '—' : (r.waktu_pulang ? formatAttendanceTime(r.waktu_pulang) : '-');
+      const status = labelStatusKaryawan(r.status_datang);
 
       return `
         <tr>
           <td><b>${tgl}</b></td>
           <td>${jamD}</td>
           <td>${jamP}</td>
-          <td><span style="color:var(--emerald-dark); font-weight:700;">${r.status_datang || 'Hadir'}</span></td>
+          <td><span style="color:var(--emerald-dark); font-weight:700;">${status}</span></td>
         </tr>
       `;
     }).join('');

@@ -17,8 +17,16 @@ async function daftarShift(req, res, next) {
   }
 }
 
-function buatQueryAbsensiTerfilter(filter = {}, { batasi = true } = {}) {
+function buatQueryAbsensiTerfilter(filter = {}, { batasi = true, tampilkanKamera = false } = {}) {
   const { tanggal_dari, tanggal_sampai, shift, departemen, jabatan, nama, q } = filter;
+  // Aturan mutlak Rekap Performa: bila keterangan manual admin menimpa presensi
+  // kamera, kolom Shift/Datang/Status Datang/Pulang/Status Pulang disembunyikan
+  // dari tampilan (NULL). Record kamera TIDAK dihapus dari tabel absensi — data
+  // asli tetap tersimpan sebagai histori untuk pengembalian (pilih "Hadir
+  // (Kamera)" di Rekap Performa). Export Excel memakai tampilkanKamera=true agar
+  // histori kamera tetap bisa diambil.
+  const params = [tampilkanKamera];
+  const maskFlag = 1;
   let queryStr = `
       SELECT
         COALESCE(a.id::text, kp.id::text) AS id,
@@ -27,16 +35,21 @@ function buatQueryAbsensiTerfilter(filter = {}, { batasi = true } = {}) {
         u.email,
         u.departemen,
         u.jabatan,
-        COALESCE(s.nama_shift, '-') AS nama_shift,
+        CASE WHEN a.id IS NOT NULL AND kp.kategori IS NOT NULL AND NOT $${maskFlag}
+             THEN NULL ELSE COALESCE(s.nama_shift, '-') END AS nama_shift,
         COALESCE(a.tanggal_kerja, kp.tanggal)::text AS tanggal_kerja,
-        a.waktu_datang,
-        a.waktu_pulang,
+        CASE WHEN a.id IS NOT NULL AND kp.kategori IS NOT NULL AND NOT $${maskFlag}
+             THEN NULL ELSE a.waktu_datang END AS waktu_datang,
         COALESCE(kp.kategori, a.status_datang) AS status_datang,
-        a.status_pulang,
+        CASE WHEN a.id IS NOT NULL AND kp.kategori IS NOT NULL AND NOT $${maskFlag}
+             THEN NULL ELSE a.waktu_pulang END AS waktu_pulang,
+        CASE WHEN a.id IS NOT NULL AND kp.kategori IS NOT NULL AND NOT $${maskFlag}
+             THEN NULL ELSE a.status_pulang END AS status_pulang,
         a.foto_datang_url,
         a.foto_pulang_url,
         kp.kategori AS kategori_manual,
-        (a.id IS NULL) AS manual_only
+        (a.id IS NULL) AS manual_only,
+        (a.id IS NOT NULL AND kp.kategori IS NOT NULL AND NOT $${maskFlag}) AS kamera_ditimpa
       FROM absensi a
       FULL OUTER JOIN keterangan_presensi kp
         ON kp.user_id = a.user_id
@@ -46,7 +59,6 @@ function buatQueryAbsensiTerfilter(filter = {}, { batasi = true } = {}) {
       WHERE 1=1
         AND (a.id IS NOT NULL OR kp.kategori = 'hadir_manual')
     `;
-  const params = [];
 
   if (tanggal_dari) {
     params.push(tanggal_dari);
@@ -112,7 +124,9 @@ async function exportAbsensiExcel(req, res, next) {
     await autoCloseExpiredSessions();
     const errorRange = validasiRangeAbsensi(req.query);
     if (errorRange) return res.status(400).json({ error: errorRange });
-    const { queryStr, params } = buatQueryAbsensiTerfilter(req.query, { batasi: false });
+    // Export menampilkan histori kamera mentah (tanpa masking) agar data
+    // presensi asli tetap bisa diambil meski sudah ditimpa Rekap Performa.
+    const { queryStr, params } = buatQueryAbsensiTerfilter(req.query, { batasi: false, tampilkanKamera: true });
     const { rows } = await pool.query(queryStr, params);
     const output = buatWorkbookAbsensi(rows, req.query);
     const namaFile = `absensi_${req.query.tanggal_dari}_${req.query.tanggal_sampai}.xlsx`;
@@ -263,16 +277,28 @@ async function editAbsensiManual(req, res, next) {
   }
 }
 
-/** GET /api/admin/audit-log/:absensiId */
+/** GET /api/admin/audit-log/:absensiId
+ *  Histori lengkap satu baris absensi: perubahan manual (absensi_id) +
+ *  penimpaan Rekap Performa (absensi_id NULL, dicocokkan user_id & tanggal
+ *  dari payload audit). Dipakai modal Histori untuk antisipasi pengembalian
+ *  ke presensi kamera. */
 async function auditLogAbsensi(req, res, next) {
   try {
+    const { rows: absRows } = await pool.query(
+      'SELECT user_id, tanggal_kerja::text AS tanggal FROM absensi WHERE id = $1',
+      [req.params.absensiId]
+    );
+    const abs = absRows[0];
     const { rows } = await pool.query(
       `SELECT al.*, u.nama AS admin_nama
        FROM audit_log al
        JOIN users u ON u.id = al.admin_id
        WHERE al.absensi_id = $1
+          OR ($2::uuid IS NOT NULL AND al.absensi_id IS NULL
+              AND al.data_sesudah->>'user_id' = $2
+              AND al.data_sesudah->>'tanggal' = $3)
        ORDER BY al.waktu_perubahan DESC`,
-      [req.params.absensiId]
+      [req.params.absensiId, abs?.user_id || null, abs?.tanggal || null]
     );
     res.json(rows);
   } catch (err) {
@@ -553,7 +579,8 @@ async function rekapPerforma(req, res, next) {
       }
 
       // KPI wajib berasal dari status harian yang sudah dideduplikasi. Satu tanggal hanya
-      // boleh menyumbang satu kategori; absensi kamera adalah sumber aktual utama.
+      // boleh menyumbang satu kategori; keterangan manual Rekap Performa adalah sumber
+      // mutlak dan menimpa presensi kamera (lihat resolveDailyCategory).
       hadirAbsen = rincianHarian.filter((h) => h.kategori === 'hadir_kamera').length;
       hadirManual = rincianHarian.filter((h) => h.kategori === 'hadir_manual').length;
       hadir = rincianHarian.reduce((total, h) => total + h.hadir, 0);
@@ -1140,7 +1167,7 @@ async function updateTunnelUrl(req, res, next) {
 }
 
 module.exports = {
-  semuaAbsensi, exportAbsensiExcel, editAbsensiManual, auditLogAbsensi, daftarShift,
+  semuaAbsensi, exportAbsensiExcel, editAbsensiManual, buatQueryAbsensiTerfilter, auditLogAbsensi, daftarShift,
   rekapPerforma, simpanKeteranganPresensi, daftarAuditLogPerforma, daftarRegistrasiPending, prosesRegistrasi,
   getProfilMe, updateProfilMe, daftarSubAdmins, buatSubAdmin, updateSubAdmin, hapusSubAdmin, updateTunnelUrl
 };

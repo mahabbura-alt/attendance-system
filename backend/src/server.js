@@ -115,4 +115,13 @@ async function checkDependencies() {
 // P1: jangan jalankan DDL, seed, atau pemeriksaan DB pada cold start.
 // Infrastruktur database kini disiapkan lewat migration 024 sebelum deployment.
 
+// Preview localhost: buka port hanya saat file dijalankan langsung
+// (`node src/server.js`). Di Vercel file ini di-require sebagai handler
+// (require.main !== module) sehingga blok ini tidak berjalan dan tidak
+// mengubah perilaku produksi.
+if (require.main === module) {
+  const port = Number(process.env.PORT || 3000);
+  app.listen(port, () => console.log(`Backend preview: http://localhost:${port}`));
+}
+
 module.exports = app;

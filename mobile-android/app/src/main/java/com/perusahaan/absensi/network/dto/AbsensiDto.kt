@@ -18,7 +18,8 @@ data class AbsensiDto(
     @SerializedName("waktu_pulang") val waktu_pulang: String?,
     @SerializedName("is_pending_session") val is_pending_session: Boolean? = null,
     @SerializedName("status_datang") val status_datang: String?,
-    @SerializedName("status_pulang") val status_pulang: String?
+    @SerializedName("status_pulang") val status_pulang: String?,
+    @SerializedName("kamera_ditimpa") val kamera_ditimpa: Boolean? = null
 )
 
 /** Status per hari untuk kalender rekap kehadiran */

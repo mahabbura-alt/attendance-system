@@ -19,6 +19,13 @@ const DEPARTEMEN_JABATAN_MAP = {
 };
 
 function getApiBaseUrl() {
+  // Preview localhost: frontend statis (:8080) tidak punya /api/*, jadi
+  // arahkan ke backend lokal (:3000). Di Vercel (host non-lokal) tetap
+  // same-origin agar memakai serverless function /api/*.
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
+    return 'http://localhost:3000';
+  }
   return window.location.origin.replace(/\/$/, '');
 }
 
@@ -599,7 +606,13 @@ function pilStatus(status) {
   if (status === 'tepat waktu') return '<span class="pil pil--ok">Tepat waktu</span>';
   if (status === 'telat') return '<span class="pil pil--peringatan">Telat</span>';
   if (status === 'checkout lewat') return '<span class="pil pil--peringatan">Checkout lewat</span>';
-  return `<span class="pil pil--netral">${status}</span>`;
+  const labelKategori = {
+    hadir_manual: 'Hadir Manual', alpa: 'Alpa', izin: 'Izin',
+    sakit: 'Sakit', cuti: 'Cuti', off: 'OFF',
+  };
+  const label = labelKategori[status] || status;
+  const kelas = (status === 'alpa') ? 'pil--error' : 'pil--netral';
+  return `<span class="pil ${kelas}">${label}</span>`;
 }
 
 function formatWaktu(iso) {
@@ -789,6 +802,7 @@ function renderTabelAbsensi() {
   }
 
   tbody.innerHTML = filtered.map((a, idx) => {
+    const ditimpa = Boolean(a.kamera_ditimpa);
     const rawTgl = a.tanggal_kerja || a.waktu_datang;
     let tglStr = '—';
     if (rawTgl) {
@@ -805,20 +819,23 @@ function renderTabelAbsensi() {
     <tr>
       <td><b>${escapeHtml(a.nama)}</b></td>
       <td>${tglStr}</td>
-      <td>${escapeHtml(a.nama_shift || '—')}</td>
-      <td>${formatWaktu(a.waktu_datang)}</td>
+      <td>${ditimpa ? '<span style="color:#94a3b8;font-size:12px;">— (ditimpa Rekap)</span>' : escapeHtml(a.nama_shift || '—')}</td>
+      <td>${ditimpa ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : formatWaktu(a.waktu_datang)}</td>
       <td>${pilStatus(a.status_datang)}</td>
-      <td>${formatWaktu(a.waktu_pulang)}</td>
-      <td>${pilStatus(a.status_pulang)}</td>
+      <td>${ditimpa ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : formatWaktu(a.waktu_pulang)}</td>
+      <td>${ditimpa ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : pilStatus(a.status_pulang)}</td>
       <td>
         <div style="display:flex;gap:4px;">
-          ${a.foto_datang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-datang" data-idx="${idx}" style="color:#10B981;border-color:#a7f3d0;">📸 Datang</button>` : ''}
-          ${a.foto_pulang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-pulang" data-idx="${idx}" style="color:#0284c7;border-color:#bae6fd;">📸 Pulang</button>` : ''}
-          ${!a.foto_datang_url && !a.foto_pulang_url ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : ''}
+          ${!ditimpa && a.foto_datang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-datang" data-idx="${idx}" style="color:#10B981;border-color:#a7f3d0;">📸 Datang</button>` : ''}
+          ${!ditimpa && a.foto_pulang_url ? `<button class="tombol tombol--ghost tombol--kecil btn-lihat-foto-pulang" data-idx="${idx}" style="color:#0284c7;border-color:#bae6fd;">📸 Pulang</button>` : ''}
+          ${ditimpa || (!a.foto_datang_url && !a.foto_pulang_url) ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : ''}
         </div>
       </td>
       <td>
-        ${a.manual_only ? '<span class="badge badge--info">Input Rekap</span>' : `
+        ${a.manual_only ? '<span class="badge badge--info">Input Rekap</span>'
+          : ditimpa ? `<span class="badge badge--info" title="Presensi kamera ditimpa Rekap Performa. Data kamera tetap tersimpan di histori; kembalikan lewat Rekap Performa (pilih Hadir Kamera).">Ditimpa Rekap</span>
+            <button class="tombol tombol--ghost tombol--kecil" data-audit-absensi="${escapeHtml(a.id)}">Histori</button>`
+          : `
           <button class="tombol tombol--ghost tombol--kecil" data-edit-absensi="${escapeHtml(a.id)}">Edit</button>
           <button class="tombol tombol--ghost tombol--kecil" data-audit-absensi="${escapeHtml(a.id)}">Audit</button>
         `}
@@ -1982,9 +1999,9 @@ function renderTabelPerforma() {
           const tglTarget = hasil.tanggal_mulai;
           cellKeteranganHarian = `
             <select class="input-filter select-keterangan-presensi" data-user-id="${r.id}" data-tanggal="${tglTarget}" style="font-size:12px;padding:3px 6px;border-radius:4px;min-width:120px;">
-              <option value="" ${r.kategori_harian === 'hadir_kamera' || (r.hadir_absen > 0 && r.kategori_harian !== 'hadir_manual') ? 'selected' : ''}>Hadir (Kamera)</option>
+              <option value="" ${r.kategori_harian === 'hadir_kamera' ? 'selected' : ''}>Hadir (Kamera)</option>
               <option value="hadir_manual" ${r.kategori_harian === 'hadir_manual' ? 'selected' : ''}>Hadir Manual</option>
-              <option value="alpa" ${r.kategori_harian === 'alpa' && r.hadir_absen === 0 ? 'selected' : ''}>Alpa</option>
+              <option value="alpa" ${r.kategori_harian === 'alpa' ? 'selected' : ''}>Alpa</option>
               <option value="izin" ${r.kategori_harian === 'izin' ? 'selected' : ''}>Izin</option>
               <option value="sakit" ${r.kategori_harian === 'sakit' ? 'selected' : ''}>Sakit</option>
               <option value="cuti" ${r.kategori_harian === 'cuti' ? 'selected' : ''}>Cuti</option>

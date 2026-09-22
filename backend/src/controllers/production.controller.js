@@ -767,10 +767,22 @@ function assertStandbySessionIntervals(records) {
 }
 
 function assertStandbyLogDeletable(row) {
-  if (row?.is_system_generated || row?.code_is_system || row?.code_is_locked) {
-    const forbidden = new Error('Record Standby sistem tidak dapat dihapus manual.');
-    forbidden.statusCode = 403;
-    throw forbidden;
+  const isSystem = row?.is_system_generated || row?.code_is_system || row?.code_is_locked;
+  if (isSystem) {
+    // Slice verifikasi breakdown yang masih berjalan (open) tidak boleh dihapus:
+    // workflow penutupan mencarinya via (incident, attempt).
+    const inflight = String(row?.lifecycle_status || '') === 'open' && row?.source_reference_id != null;
+    if (inflight) {
+      throw new Error('Standby verifikasi masih dalam proses Breakdown. Selesaikan dulu verifikasinya.');
+    }
+    // Slice sistem yang sudah tertutup diperlakukan sama seperti record manual.
+    if (row?.lifecycle_status !== 'confirmed') {
+      throw new Error('Hanya Standby berstatus Tercatat yang dapat dihapus.');
+    }
+    if (row?.review_status === 'approved') {
+      throw new Error('Standby yang telah disetujui harus dikembalikan melalui Review sebelum dihapus.');
+    }
+    return true;
   }
   if (row?.lifecycle_status !== 'confirmed') {
     throw new Error('Hanya Standby berstatus Tercatat yang dapat dihapus.');
@@ -1520,6 +1532,31 @@ function classifyRitaseProductivity({ plan, actual, complete, warningThreshold =
 }
 
 const RITASE_DISTANCE_FORMULA_VERSION = 'weighted-final-distance-v1';
+
+// Sel plotting Fleet Capacity (murni, tanpa I/O): unit dianggap terplotting
+// untuk suatu pit+job pada hari tertentu bila checklist periodicSelections
+// aktif DAN pitAssignments unit tsb menunjuk pit yang sama.
+// Dipakai bersama oleh review-produksi (waterfall) dan pareto.
+function buildReviewPlottedCells(catalog, periodicSelections, pitAssignments, dateKeys) {
+  const pitKeyOf = loaderCode => `fleet:${String(loaderCode || '').trim().toLowerCase()}`;
+  const periodicKey = date => `${date.y}:${date.m}:${date.d}`;
+  const plottedCells = [];
+  for (const entry of catalog || []) {
+    const tableId = String(entry.tableId || '');
+    const selection = (periodicSelections || {})[tableId] || {};
+    const pitStore = (pitAssignments || {})[pitKeyOf(entry.loaderCode)] || {};
+    const entryJob = String(entry.jobCode || '').trim();
+    if (!entryJob) continue;
+    for (const date of dateKeys || []) {
+      const key = periodicKey(date);
+      if (selection[key] !== true) continue;
+      const pit = String(pitStore[key] || '').trim();
+      if (!pit) continue;
+      plottedCells.push({ equipmentId: String(entry.equipmentId), loaderCode: String(entry.loaderCode || ''), pit, jobCode: entryJob, material: String(entry.material || ''), tanggal: date.tanggal, planningType: entry.planningType, productivity: Number(entry.fleetProductivity) });
+    }
+  }
+  return plottedCells;
+}
 
 function calculateWeightedFleetDistance({ setupDistanceKm, trucks = [], allocations = [] }) {
   const setupDistance = Number(setupDistanceKm);
@@ -6021,6 +6058,606 @@ class ProductionController {
       const { tanggal, shift_id } = req.query;
       const intelligence = await ProductionAiEngine.analyzeOperationalIntelligence(tanggal, shift_id);
       res.json(intelligence);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  // =========================================================
+  // 13. REVIEW PRODUKSI — agregasi read-only untuk waterfall loss & gain.
+  // Sumber: Fleet Capacity (plotting + produktivitas rencana), PA/UA/EWH (0.4),
+  // Input Data (HM), Breakdown, Standby, dan produksi ritase (Σ ritase × truck factor).
+  // Formula: PPlan = totalEWH x Prod_plan; Dppa = PPlan x (PA_akt-PA_plan)/PA_plan;
+  // Dpua = PPlan x (PA_akt/PA_plan) x (UA_akt-UA_plan)/UA_plan.
+  // =========================================================
+  static async getReviewProduksi(req, res) {
+    try {
+      const isoDate = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+      const tanggalDari = String(req.query.tanggal_dari || '').trim();
+      const tanggalSampai = String(req.query.tanggal_sampai || '').trim();
+      if (!isoDate(tanggalDari) || !isoDate(tanggalSampai)) {
+        return res.status(400).json({ error: 'Periode tanggal tidak valid (YYYY-MM-DD).' });
+      }
+      if (tanggalSampai < tanggalDari) {
+        return res.status(422).json({ error: 'Tanggal akhir tidak boleh sebelum tanggal awal.' });
+      }
+      const pitFilter = String(req.query.pit || '').trim();
+      const jobFilter = String(req.query.job || '').trim();
+      const endExclusive = new Date(`${tanggalSampai}T00:00:00Z`);
+      endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+      const args = [tanggalDari, endExclusive.toISOString().slice(0, 10)];
+
+      const [catalog, fcPlanRow, equipmentRes, deployedJobs, paRow, spoRow, masterJobsRow, fleetRes, prodRes, hmRes, standbyRes, breakdownRes] = await Promise.all([
+        buildFleetPlanCatalogData(pool),
+        pool.query("SELECT data_json FROM productivity_plans WHERE planning_type = 'fleet-capacity' ORDER BY updated_at DESC LIMIT 1"),
+        pool.query('SELECT id, kode_alat, lokasi FROM equipment WHERE deleted_at IS NULL'),
+        getDeployedSpoJobCodes(pool),
+        pool.query("SELECT data_json FROM productivity_plans WHERE planning_type = 'pa-ua-ewh' ORDER BY updated_at DESC LIMIT 1"),
+        pool.query("SELECT data_json FROM productivity_plans WHERE planning_type = 'spo' LIMIT 1"),
+        pool.query('SELECT job_code, job_desc FROM master_job_codes WHERE deleted_at IS NULL'),
+        pool.query(`SELECT fm.id, fm.tanggal::text AS tanggal, fm.excavator_id, fm.job_code, fm.pit_area, fm.material_detail
+          FROM fleet_mappings fm WHERE fm.deleted_at IS NULL AND fm.tanggal >= $1 AND fm.tanggal < $2`, args),
+        pool.query(`SELECT rl.fleet_mapping_id, rl.period_hour, rl.ritase_count, tf.factor_value
+          FROM ritase_logs rl JOIN fleet_mappings fm ON fm.id = rl.fleet_mapping_id
+          JOIN equipment e ON e.id = rl.dump_truck_id
+          LEFT JOIN LATERAL (SELECT factor_value FROM truck_factors WHERE tanggal <= fm.tanggal
+            AND kategori = CASE WHEN fm.material_type = 'Coal' THEN 'Coal' ELSE 'OB' END AND tipe_alat = e.tipe_alat
+            AND UPPER(material) = UPPER(COALESCE(fm.material_detail, '')) ORDER BY tanggal DESC LIMIT 1) tf ON TRUE
+          WHERE rl.deleted_at IS NULL AND fm.deleted_at IS NULL AND fm.tanggal >= $1 AND fm.tanggal < $2`, args),
+        pool.query(`SELECT tanggal::text AS tanggal, equipment_id, job, COALESCE(SUM(total_hm), 0)::float AS value
+          FROM mining_production_logs WHERE deleted_at IS NULL AND tanggal >= $1 AND tanggal < $2
+          GROUP BY tanggal, equipment_id, job`, args),
+        pool.query(`SELECT tanggal::text AS tanggal, equipment_id, COALESCE(SUM(total_standby_hours), 0)::float AS value
+          FROM standby_logs WHERE deleted_at IS NULL AND tanggal >= $1 AND tanggal < $2
+          GROUP BY tanggal, equipment_id`, args),
+        pool.query(`SELECT tanggal::text AS tanggal, equipment_id, COALESCE(SUM(total_breakdown_hours), 0)::float AS value
+          FROM breakdown_logs WHERE deleted_at IS NULL AND tanggal >= $1 AND tanggal < $2
+          GROUP BY tanggal, equipment_id`, args),
+      ]);
+
+      const fcPlan = fcPlanRow.rows[0]?.data_json || {};
+      const periodicSelections = fcPlan.periodicSelections || {};
+      const pitAssignments = fcPlan.pitAssignments || {};
+
+      // SPO daily loss per JOB — replikasi spoDailyLoss (fleetCapacity.core.js).
+      // EWH = 24 x (PA/100) - SPO loss, jadi PPlan = Σ EWH x Fleet Productivity.
+      const masterJobs = masterJobsRow.rows || [];
+      const spoDailyByJob = new Map();
+      for (const table of Object.values(spoRow.rows[0]?.data_json?.tables || {})) {
+        const resolved = resolvePlanningJob(table?.jobCode || table?.job_code || table?.jobDescription, masterJobs);
+        const job = String(resolved?.job_code || '').trim();
+        if (!job) continue;
+        const entries = spoDailyByJob.get(job) || [];
+        for (const [key, raw] of Object.entries(table?.daily || {})) {
+          entries.push({ key: String(key), value: Math.max(0, Number(raw) || 0) });
+        }
+        spoDailyByJob.set(job, entries);
+      }
+      const spoDailyLoss = (job, y, m, d) => {
+        const entries = spoDailyByJob.get(job);
+        if (!entries || !entries.length) return 0;
+        const suffix = `:${y}:${m}:${d}`;
+        let total = 0; let hasCurrentYear = false;
+        for (const entry of entries) {
+          if (entry.key.startsWith('system:') || !entry.key.endsWith(suffix)) continue;
+          hasCurrentYear = true; total += entry.value;
+        }
+        if (!hasCurrentYear) {
+          const legacySuffix = `:${m}:${d}`;
+          for (const entry of entries) {
+            if (!entry.key.startsWith('system:') && entry.key.endsWith(legacySuffix) && entry.key.split(':').length === 3) total += entry.value;
+          }
+        }
+        return Math.min(24, total);
+      };
+
+      const equipmentById = new Map(equipmentRes.rows.map(row => [String(row.id), row]));
+      const pits = [...new Set(equipmentRes.rows
+        .map(row => String(row.lokasi || '').trim()).filter(Boolean))].sort();
+      const jobs = [...new Set((deployedJobs && typeof deployedJobs[Symbol.iterator] === 'function' ? [...deployedJobs] : [])
+        .map(code => String(code || '').trim()).filter(Boolean))].sort();
+
+      const productionByFleet = new Map();
+      for (const row of prodRes.rows) {
+        const factor = Number(row.factor_value);
+        const volume = Number(row.ritase_count || 0) * (factor > 0 ? factor : 0);
+        const key = String(row.fleet_mapping_id);
+        productionByFleet.set(key, (productionByFleet.get(key) || 0) + volume);
+      }
+
+      const sumByEquipmentDate = rows => {
+        const map = new Map();
+        for (const row of rows) {
+          const key = `${row.equipment_id}|${row.tanggal}`;
+          map.set(key, (map.get(key) || 0) + (Number(row.value) || 0));
+        }
+        return map;
+      };
+      const hmMap = sumByEquipmentDate(hmRes.rows);
+      const standbyMap = sumByEquipmentDate(standbyRes.rows);
+      const breakdownMap = sumByEquipmentDate(breakdownRes.rows);
+
+      // HM aktual total per (unit, JOB kanonis) sepanjang periode — sumber langsung
+      // halaman Input Data (mining_production_logs.total_hm). Ejaan job pada log
+      // dikanonikalisasi via master_job_codes; yang tak dikenal mengikuti ejaan
+      // mentah (huruf besar) agar tidak tercampur ke JOB lain.
+      const canonJobReview = raw => {
+        const code = String(raw || '').trim();
+        if (!code) return '';
+        const resolved = resolvePlanningJob(code, masterJobs);
+        return String(resolved?.job_code || code).trim().toUpperCase();
+      };
+      const hmByUnitJob = new Map();
+      for (const row of hmRes.rows) {
+        const key = `${row.equipment_id}|${canonJobReview(row.job)}`;
+        hmByUnitJob.set(key, (hmByUnitJob.get(key) || 0) + (Number(row.value) || 0));
+      }
+
+      // --- Alokasi HM ke tiap material (logika rentang jam ritase) ---
+      // Material dengan rentang jam ritase terpendek mendapat sebesar rentangnya;
+      // material rentang terbesar menyerap sisa HM. Contoh: HM 10 jam, clay jam 7-9
+      // (2 jam) & pasir jam 9-18 -> clay 2 jam, pasir 8 jam.
+      const materialKeyOf = value => String(value || '').trim().toUpperCase();
+      const fleetRows = fleetRes.rows.map(row => ({
+        id: String(row.id), excavatorId: String(row.excavator_id || ''),
+        jobCode: String(row.job_code || '').trim(), pit: String(row.pit_area || '').trim(),
+        material: String(row.material_detail || '').trim(), tanggal: String(row.tanggal || ''),
+      }));
+      const fleetById = new Map(fleetRows.map(fleet => [fleet.id, fleet]));
+      const ritaseSpanByFleet = new Map();
+      for (const row of prodRes.rows) {
+        const hour = Number(row.period_hour);
+        if (!Number.isFinite(hour)) continue;
+        const key = String(row.fleet_mapping_id);
+        const current = ritaseSpanByFleet.get(key);
+        if (!current) ritaseSpanByFleet.set(key, { min: hour, max: hour });
+        else { current.min = Math.min(current.min, hour); current.max = Math.max(current.max, hour); }
+      }
+      const productionByUnitMaterial = new Map();
+      for (const [fleetId, volume] of productionByFleet) {
+        const fleet = fleetById.get(fleetId);
+        if (!fleet) continue;
+        const key = `${fleet.excavatorId}|${materialKeyOf(fleet.material)}`;
+        productionByUnitMaterial.set(key, (productionByUnitMaterial.get(key) || 0) + volume);
+      }
+      const allocatedHmByUnitMaterial = new Map();
+      const fleetsByUnitDay = new Map();
+      for (const fleet of fleetRows) {
+        const key = `${fleet.excavatorId}|${fleet.tanggal}`;
+        if (!fleetsByUnitDay.has(key)) fleetsByUnitDay.set(key, []);
+        fleetsByUnitDay.get(key).push(fleet);
+      }
+      for (const [unitDayKey, dayFleets] of fleetsByUnitDay) {
+        const separator = unitDayKey.indexOf('|');
+        const unitId = unitDayKey.slice(0, separator);
+        const tanggal = unitDayKey.slice(separator + 1);
+        const hmDay = hmMap.get(`${unitId}|${tanggal}`) || 0;
+        if (!(hmDay > 0)) continue;
+        const byMaterial = new Map();
+        for (const fleet of dayFleets) {
+          const material = materialKeyOf(fleet.material);
+          if (!material) continue;
+          const span = ritaseSpanByFleet.get(fleet.id);
+          const hours = span ? Math.max(1, span.max - span.min) : 1;
+          byMaterial.set(material, (byMaterial.get(material) || 0) + hours);
+        }
+        if (!byMaterial.size) continue;
+        const list = [...byMaterial.entries()].map(([material, hours]) => ({ material, hours })).sort((a, b) => a.hours - b.hours);
+        let remaining = hmDay;
+        list.forEach((item, index) => {
+          const alloc = index === list.length - 1 ? Math.max(0, remaining) : Math.min(item.hours, Math.max(0, remaining));
+          remaining -= alloc;
+          const key = `${unitId}|${item.material}`;
+          allocatedHmByUnitMaterial.set(key, (allocatedHmByUnitMaterial.get(key) || 0) + alloc);
+        });
+      }
+
+      const dateKeys = [];
+      const cursor = new Date(`${tanggalDari}T00:00:00Z`);
+      const last = new Date(`${tanggalSampai}T00:00:00Z`);
+      while (cursor.getTime() <= last.getTime()) {
+        dateKeys.push({ tanggal: cursor.toISOString().slice(0, 10), y: cursor.getUTCFullYear(), m: cursor.getUTCMonth() + 1, d: cursor.getUTCDate() });
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+
+      const paData = paRow.rows[0]?.data_json || {};
+      const planValues = metric => (paData.values && paData.values[metric]) || {};
+
+      // Plotting dari Fleet Periodic Setup (helper bersama pareto).
+      const plottedCells = buildReviewPlottedCells(catalog, periodicSelections, pitAssignments, dateKeys);
+
+      const hitungKategori = (jobCode, pit) => {
+        const cells = plottedCells.filter(cell => cell.pit === pit && cell.jobCode === jobCode);
+        const unitIds = new Set(cells.map(cell => cell.equipmentId));
+        const n = unitIds.size;
+        const unit = cells.some(cell => cell.planningType === 'coal') ? 'Ton' : 'BCM';
+        const catalogForJob = catalog.filter(entry => String(entry.jobCode || '').trim() === jobCode
+          && String(equipmentById.get(String(entry.equipmentId))?.lokasi || '').trim() === pit);
+        const prodList = catalogForJob.map(entry => Number(entry.fleetProductivity)).filter(value => Number.isFinite(value) && value > 0);
+        const prodPlan = prodList.length ? prodList.reduce((a, b) => a + b, 0) / prodList.length : null;
+
+        const ewhValues = planValues('EWH'); const paValues = planValues('PA'); const uaValues = planValues('UA');
+        // Fallback key: values PA/UA/EWH bisa tersimpan keyed UUID (baru) atau
+        // kode_alat/loaderCode (lama). Samakan pola paAssignments di
+        // buildFleetPlanCatalogData: coba id dulu, lalu kode_alat.
+        const planValueFor = (valuesByUnit, equipmentId, loaderCode, dayKey) => {
+          const direct = (valuesByUnit[String(equipmentId)] || {})[dayKey];
+          if (direct !== undefined && direct !== null && String(direct) !== '') return direct;
+          const kodeAlat = String(equipmentById.get(String(equipmentId))?.kode_alat || '').trim();
+          if (kodeAlat) {
+            const byKode = (valuesByUnit[kodeAlat] || {})[dayKey];
+            if (byKode !== undefined && byKode !== null && String(byKode) !== '') return byKode;
+          }
+          const loader = String(loaderCode || '').trim();
+          if (loader && loader !== kodeAlat) {
+            const byLoader = (valuesByUnit[loader] || {})[dayKey];
+            if (byLoader !== undefined && byLoader !== null && String(byLoader) !== '') return byLoader;
+          }
+          return undefined;
+        };
+
+        const fleets = fleetRows.filter(fleet => fleet.jobCode === jobCode && fleet.pit === pit);
+        const plottedUnitDate = new Set(cells.map(cell => `${cell.equipmentId}|${cell.tanggal}`));
+        let produksiFleet = 0; let produksiOtherFleet = 0;
+        const produksiByUnit = new Map();
+        const produksiPlottedByUnitMaterial = new Map();
+        const planByUnit = new Map();
+        const paSumByUnit = new Map();
+        const paCntByUnit = new Map();
+        const uaEwhByUnit = new Map();
+        const uaAvailByUnit = new Map();
+        for (const fleet of fleets) {
+          const volume = productionByFleet.get(fleet.id) || 0;
+          produksiByUnit.set(fleet.excavatorId, (produksiByUnit.get(fleet.excavatorId) || 0) + volume);
+          if (plottedUnitDate.has(`${fleet.excavatorId}|${fleet.tanggal}`)) {
+            produksiFleet += volume;
+            const materialGroupKey = `${fleet.excavatorId}|${materialKeyOf(fleet.material)}`;
+            produksiPlottedByUnitMaterial.set(materialGroupKey, (produksiPlottedByUnitMaterial.get(materialGroupKey) || 0) + volume);
+          } else {
+            produksiOtherFleet += volume;
+          }
+        }
+
+        let hm = 0; let standby = 0; let breakdown = 0;
+        for (const cell of cells) {
+          const key = `${cell.equipmentId}|${cell.tanggal}`;
+          hm += hmMap.get(key) || 0;
+          standby += standbyMap.get(key) || 0;
+          breakdown += breakdownMap.get(key) || 0;
+        }
+
+        // Waterfall DIHITUNG PER UNIT lalu dijumlahkan (panduan_waterfall_multi_excavator.md).
+        //   P_Plan,i  = nilai tabel Fleet Capacity = Σ EWH hari terplotting x Prod_plan,i
+        //   ΔP_PA,i   = MOHH_plot,i x (PA_act,i - PA_plan,i) x UA_plan,i x Prod_plan,i
+        //               (MOHH_plot = 24 jam x hari terplotting grup)
+        //   ΔP_UA,i   = MOHH_plot,i x PA_act,i x (UA_act,i - UA_plan,i) x Prod_plan,i
+        //   ΔP_Prod,i = HM_total,i x (Prod_act,i - Prod_plan,i)
+        //               (HM_total = Σ total_hm Input Data per unit+JOB+periode)
+        // Catatan: Plan & ΔPA/ΔUA basis jadwal, ΔProd basis HM aktual =>
+        // rekonsiliasi bersifat aproksimasi (badge toleransi).
+        let totalEwh = 0; let paRatioSum = 0; let paRatioCount = 0;
+        let uaEwhSum = 0; let uaAvailableSum = 0; let uaStoredSum = 0; let uaStoredCount = 0;
+        let pPlan = 0; let dppa = 0; let dpua = 0; let dProd = 0;
+        let pPlanCount = 0; let dppaCount = 0; let dpuaCount = 0; let dProdCount = 0;
+
+        // Grup per (unit x material): satu excavator bisa multi-material dgn target
+        // productivity berbeda — JANGAN dirata-ratakan (panduan multi-excavator).
+        const cellGroups = new Map();
+        for (const cell of cells) {
+          const key = `${cell.equipmentId}|${materialKeyOf(cell.material)}`;
+          if (!cellGroups.has(key)) cellGroups.set(key, { equipmentId: cell.equipmentId, cells: [] });
+          cellGroups.get(key).cells.push(cell);
+        }
+        // PA/UA aktual tetap per unit (HM/Standby/Breakdown memang per unit).
+        const unitActual = new Map();
+        for (const cell of cells) {
+          const id = cell.equipmentId;
+          const agg = unitActual.get(id) || { hm: 0, standby: 0, breakdown: 0 };
+          const key = `${id}|${cell.tanggal}`;
+          agg.hm += hmMap.get(key) || 0;
+          agg.standby += standbyMap.get(key) || 0;
+          agg.breakdown += breakdownMap.get(key) || 0;
+          unitActual.set(id, agg);
+        }
+
+        for (const [groupKey, group] of cellGroups) {
+          const id = group.equipmentId;
+          const groupCells = group.cells;
+          const hmSchedule = 24 * groupCells.length;
+          let ewhPlanGroup = 0; let paSumGroup = 0; let paCntGroup = 0;
+          let prodSumGroup = 0; let prodCntGroup = 0;
+          for (const cell of groupCells) {
+            const date = new Date(`${cell.tanggal}T00:00:00Z`);
+            const y = date.getUTCFullYear(); const m = date.getUTCMonth() + 1; const dd = date.getUTCDate();
+            const dayKey = `${y}:${m}:${dd}`;
+            const pa = Number(planValueFor(paValues, id, cell.loaderCode, dayKey));
+            const storedEwh = Number(planValueFor(ewhValues, id, cell.loaderCode, dayKey));
+            const storedUa = Number(planValueFor(uaValues, id, cell.loaderCode, dayKey));
+            // EWH = MOHH(24) x PA% - SPO daily loss (sama dgn fleetCapacity).
+            let ewh = null;
+            if (Number.isFinite(pa) && pa > 0) ewh = Math.max(0, 24 * (pa / 100) - spoDailyLoss(jobCode, y, m, dd));
+            else if (Number.isFinite(storedEwh) && storedEwh > 0) ewh = storedEwh;
+            if (ewh != null) { ewhPlanGroup += ewh; totalEwh += ewh; }
+            if (Number.isFinite(pa) && pa > 0) { paSumGroup += pa / 100; paCntGroup += 1; paRatioSum += pa / 100; paRatioCount += 1; paSumByUnit.set(id, (paSumByUnit.get(id) || 0) + pa / 100); paCntByUnit.set(id, (paCntByUnit.get(id) || 0) + 1); }
+            if (Number.isFinite(cell.productivity) && cell.productivity > 0) { prodSumGroup += cell.productivity; prodCntGroup += 1; }
+            if (Number.isFinite(storedUa) && storedUa > 0) { uaStoredSum += storedUa / 100; uaStoredCount += 1; }
+          }
+          const paPlanGroup = paCntGroup ? paSumGroup / paCntGroup : null;
+          const prodPlanGroup = prodCntGroup ? prodSumGroup / prodCntGroup : null;
+          // UA plan = EWH / (MOHH x PA) == EWH / (EWH + loss time tabel SPO).
+          const uaPlanGroup = (paPlanGroup != null && hmSchedule > 0 && paPlanGroup > 0) ? ewhPlanGroup / (hmSchedule * paPlanGroup) : null;
+          const actual = unitActual.get(id) || { hm: 0, standby: 0, breakdown: 0 };
+          const paActUnit = (actual.hm + actual.standby + actual.breakdown) > 0 ? (actual.hm + actual.standby) / (actual.hm + actual.standby + actual.breakdown) : null;
+          const uaActUnit = (actual.hm + actual.standby) > 0 ? actual.hm / (actual.hm + actual.standby) : null;
+          const produksiGroup = produksiPlottedByUnitMaterial.get(groupKey) || 0;
+
+          // ΔPA/ΔUA memakai MOHH plotting grup (24 jam x hari terplotting).
+          // ΔProd memakai HM aktual total (unit + JOB + periode, Input Data).
+          const hmTotalUnit = hmByUnitJob.get(`${id}|${canonJobReview(jobCode)}`) || 0;
+          if (paPlanGroup != null && hmSchedule > 0 && paPlanGroup > 0) { uaEwhSum += ewhPlanGroup;            uaAvailableSum += hmSchedule * paPlanGroup; uaEwhByUnit.set(id, (uaEwhByUnit.get(id) || 0) + ewhPlanGroup); uaAvailByUnit.set(id, (uaAvailByUnit.get(id) || 0) + hmSchedule * paPlanGroup); }
+          // Plan = nilai tabel Fleet Capacity (Produksi = Σ EWH hari terplotting
+          // x Fleet Productivity, selaras productionForColumn): tanpa faktor HM aktual.
+          if (Number.isFinite(prodPlanGroup) && prodPlanGroup > 0 && paPlanGroup != null && ewhPlanGroup > 0) {
+            pPlan += ewhPlanGroup * prodPlanGroup; pPlanCount += 1;
+            planByUnit.set(id, (planByUnit.get(id) || 0) + ewhPlanGroup * prodPlanGroup);
+          }
+          if (Number.isFinite(prodPlanGroup) && prodPlanGroup > 0 && paActUnit != null && paPlanGroup != null && uaPlanGroup != null && hmSchedule > 0) {
+            dppa += hmSchedule * (paActUnit - paPlanGroup) * uaPlanGroup * prodPlanGroup; dppaCount += 1;
+          }
+          if (Number.isFinite(prodPlanGroup) && prodPlanGroup > 0 && paActUnit != null && uaActUnit != null && uaPlanGroup != null && hmSchedule > 0) {
+            dpua += hmSchedule * paActUnit * (uaActUnit - uaPlanGroup) * prodPlanGroup; dpuaCount += 1;
+          }
+          if (Number.isFinite(prodPlanGroup) && prodPlanGroup > 0 && hmTotalUnit > 0) {
+            const prodActGroup = produksiGroup / hmTotalUnit;
+            dProd += hmTotalUnit * (prodActGroup - prodPlanGroup); dProdCount += 1;
+          }
+        }
+
+        // Kolom tabel Fleet planned per unit — scope SELURUH tanggal periode
+        // (bukan hari plotting saja), sesuai kriteria Kode Unit + range periode:
+        // - EWH Plan  : tabel EWH hal 0.4 (24xPA% - SPO, fallback simpanan) per hari
+        // - EWH Aktual: Σ total_hm Input Data (hal 1)
+        // - PA Aktual : (HM+STB)/(HM+BD+STB), HM hal 1, BD hal 3, STB hal 4
+        // - UA Aktual : HM/(HM+STB)
+        const rangeByUnit = new Map();
+        for (const id of unitIds) {
+          const kode = String(equipmentById.get(id)?.kode_alat || '');
+          let ewhR = 0; let ewhOk = false;
+          for (const dkey of dateKeys) {
+            const dt = new Date(`${dkey.tanggal}T00:00:00Z`);
+            const y = dt.getUTCFullYear(); const m = dt.getUTCMonth() + 1; const dd = dt.getUTCDate();
+            const dayKey = `${y}:${m}:${dd}`;
+            const pa = Number(planValueFor(paValues, id, kode, dayKey));
+            const storedEwh = Number(planValueFor(ewhValues, id, kode, dayKey));
+            let ewh = null;
+            if (Number.isFinite(pa) && pa > 0) ewh = Math.max(0, 24 * (pa / 100) - spoDailyLoss(jobCode, y, m, dd));
+            else if (Number.isFinite(storedEwh) && storedEwh > 0) ewh = storedEwh;
+            if (ewh != null) { ewhR += ewh; ewhOk = true; }
+          }
+          let hmR = 0; let sR = 0; let bR = 0;
+          for (const dkey of dateKeys) {
+            hmR += hmMap.get(`${id}|${dkey.tanggal}`) || 0;
+            sR += standbyMap.get(`${id}|${dkey.tanggal}`) || 0;
+            bR += breakdownMap.get(`${id}|${dkey.tanggal}`) || 0;
+          }
+          rangeByUnit.set(id, {
+            ewhPlan: ewhOk ? ewhR : null,
+            hm: hmR,
+            mohh: hmR + sR + bR,
+            paAktual: (hmR + sR + bR) > 0 ? (hmR + sR) / (hmR + sR + bR) : null,
+            uaAktual: (hmR + sR) > 0 ? hmR / (hmR + sR) : null,
+          });
+        }
+
+        const unitPlanned = [...unitIds].map(id => {
+          const paCnt = paCntByUnit.get(id) || 0;
+          const uaAvail = uaAvailByUnit.get(id) || 0;
+          const r = rangeByUnit.get(id) || {};
+          return {
+            unit: String(equipmentById.get(id)?.kode_alat || id),
+            ewhPlan: r.ewhPlan ?? 0,
+            hmAktual: r.hm || 0,
+            mohhAktual: r.mohh || 0,
+            plan: planByUnit.has(id) ? planByUnit.get(id) : null,
+            produksi: produksiByUnit.get(id) || 0,
+            paPlan: paCnt ? (paSumByUnit.get(id) || 0) / paCnt : null,
+            paAktual: r.paAktual ?? null,
+            uaPlan: uaAvail > 0 ? (uaEwhByUnit.get(id) || 0) / uaAvail : null,
+            uaAktual: r.uaAktual ?? null,
+          };
+        }).sort((a, b) => a.unit.localeCompare(b.unit));
+        const unitOtherFleet = [...produksiByUnit.keys()]
+          .filter(id => !unitIds.has(id))
+          .map(id => ({ unit: String(equipmentById.get(id)?.kode_alat || id), produksi: produksiByUnit.get(id) || 0 }))
+          .sort((a, b) => a.unit.localeCompare(b.unit));
+
+        return {
+          pit, jobCode, unit, n, prodPlan, totalEwh,
+          pPlan: pPlanCount ? pPlan : null,
+          dppa: dppaCount ? dppa : null,
+          dpua: dpuaCount ? dpua : null,
+          dProd: dProdCount ? dProd : null,
+          paPlan: paRatioCount ? paRatioSum / paRatioCount : null,
+          uaPlan: uaAvailableSum > 0 ? (uaEwhSum / uaAvailableSum) : (uaStoredCount ? uaStoredSum / uaStoredCount : null),
+          hm, standby, breakdown, produksiFleet, produksiOtherFleet,
+          unitPlanned, unitOtherFleet,
+        };
+      };
+
+      const pitsToUse = pitFilter ? pits.filter(value => value === pitFilter) : pits;
+      const jobsToUse = jobFilter ? jobs.filter(value => value === jobFilter) : jobs;
+
+      const hasil = [];
+      for (const jobCode of jobsToUse) {
+        for (const pit of pitsToUse) {
+          const kategori = hitungKategori(jobCode, pit);
+          const hasData = kategori.n > 0 || kategori.produksiFleet > 0 || kategori.produksiOtherFleet > 0
+            || kategori.hm > 0 || kategori.standby > 0 || kategori.breakdown > 0;
+          if (hasData) hasil.push(kategori);
+        }
+      }
+
+      res.json({
+        periode: { dari: tanggalDari, sampai: tanggalSampai },
+        pits,
+        jobs,
+        kategori: hasil,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  // 14. REVIEW PRODUKSI PARETO — agregasi read-only penyebab deviasi waterfall.
+  // Scope unit = unit terplotting Fleet Capacity (plottedCells difilter pit/job).
+  // Atribusi JOB breakdown/standby lewat fleet_mappings; baris tanpa petikan
+  // tetap tampil (JOB '—'). PA <- breakdown_logs, UA <- standby_logs,
+  // Productivity <- ritase_productivity_exceptions (sudah ber-JOB asli).
+  static async getReviewProduksiPareto(req, res) {
+    try {
+      const isoDate = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+      const tanggalDari = String(req.query.tanggal_dari || '').trim();
+      const tanggalSampai = String(req.query.tanggal_sampai || '').trim();
+      if (!isoDate(tanggalDari) || !isoDate(tanggalSampai)) {
+        return res.status(400).json({ error: 'Periode tanggal tidak valid (YYYY-MM-DD).' });
+      }
+      if (tanggalSampai < tanggalDari) {
+        return res.status(422).json({ error: 'Tanggal akhir tidak boleh sebelum tanggal awal.' });
+      }
+      const pitFilter = String(req.query.pit || '').trim();
+      const jobFilter = String(req.query.job || '').trim();
+      const endExclusive = new Date(`${tanggalSampai}T00:00:00Z`);
+      endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+      const args = [tanggalDari, endExclusive.toISOString().slice(0, 10)];
+
+      const [catalog, fcPlanRow, equipmentRes, fleetRes, bdRes, sbRes, exRes] = await Promise.all([
+        buildFleetPlanCatalogData(pool),
+        pool.query("SELECT data_json FROM productivity_plans WHERE planning_type = 'fleet-capacity' ORDER BY updated_at DESC LIMIT 1"),
+        pool.query('SELECT id, kode_alat, kelas_alat, class_unit, tipe_alat FROM equipment WHERE deleted_at IS NULL'),
+        pool.query(`SELECT excavator_id, job_code, tanggal::text AS tanggal FROM fleet_mappings
+          WHERE deleted_at IS NULL AND tanggal >= $1 AND tanggal < $2`, args),
+        pool.query(`SELECT bl.equipment_id, bl.tanggal::text AS tanggal,
+            COALESCE(mbc.kategori, mbc.kode, 'Tanpa kategori') AS kategori,
+            mbc.kode AS kode, COALESCE(bl.total_breakdown_hours, 0)::float AS jam,
+            bl.description
+          FROM breakdown_logs bl LEFT JOIN master_breakdown_codes mbc ON mbc.id = bl.breakdown_code_id
+          WHERE bl.deleted_at IS NULL AND bl.tanggal >= $1 AND bl.tanggal < $2 LIMIT 5000`, args),
+        pool.query(`SELECT sl.equipment_id, sl.tanggal::text AS tanggal,
+            COALESCE(msc.kategori, msc.kode, 'Tanpa kategori') AS kategori,
+            msc.kode AS kode, COALESCE(sl.total_standby_hours, 0)::float AS jam,
+            sl.description
+          FROM standby_logs sl JOIN master_standby_codes msc ON msc.id = sl.standby_code_id
+          WHERE sl.deleted_at IS NULL AND sl.tanggal >= $1 AND sl.tanggal < $2 LIMIT 5000`, args),
+        pool.query(`SELECT pe.excavator_id, pe.job_code, pe.tanggal::text AS tanggal,
+            COALESCE(NULLIF(mpc.kategori, ''), pp.problem_category_snapshot) AS kategori,
+            COALESCE(NULLIF(mpc.kode, ''), pp.problem_code_snapshot) AS kode,
+            COALESCE(NULLIF(mpc.problem, ''), pp.problem_description_snapshot) AS problem
+          FROM ritase_productivity_exceptions pe
+          LEFT JOIN ritase_productivity_exception_problems pp
+            ON pp.exception_id = pe.id AND pp.deleted_at IS NULL
+          LEFT JOIN master_problem_codes mpc ON mpc.id = pp.problem_code_id
+          WHERE pe.deleted_at IS NULL AND pe.tanggal >= $1 AND pe.tanggal < $2 LIMIT 5000`, args),
+      ]);
+
+      const fcPlan = fcPlanRow.rows[0]?.data_json || {};
+      const dateKeys = [];
+      const cursor = new Date(`${tanggalDari}T00:00:00Z`);
+      const last = new Date(`${tanggalSampai}T00:00:00Z`);
+      while (cursor.getTime() <= last.getTime()) {
+        dateKeys.push({ tanggal: cursor.toISOString().slice(0, 10), y: cursor.getUTCFullYear(), m: cursor.getUTCMonth() + 1, d: cursor.getUTCDate() });
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+      const plottedCells = buildReviewPlottedCells(catalog, fcPlan.periodicSelections || {}, fcPlan.pitAssignments || {}, dateKeys);
+      const plottedUnits = new Map();
+      for (const cell of plottedCells) {
+        if (pitFilter && cell.pit !== pitFilter) continue;
+        if (jobFilter && cell.jobCode !== jobFilter) continue;
+        if (!plottedUnits.has(cell.equipmentId)) {
+          plottedUnits.set(cell.equipmentId, { id: cell.equipmentId, pit: cell.pit, job: cell.jobCode });
+        }
+      }
+      const kodeOf = id => String(equipmentRes.rows.find(row => String(row.id) === String(id))?.kode_alat || id);
+      // Class tampilan List Equipment: class_unit dulu, lalu tipe_alat, lalu jenis.
+      const classOf = id => {
+        const row = equipmentRes.rows.find(r => String(r.id) === String(id)) || {};
+        const label = String(row.class_unit || '').trim() || String(row.tipe_alat || '').trim() || String(row.kelas_alat || '').trim();
+        return label || null;
+      };
+      const jobByUnitDate = new Map();
+      for (const row of fleetRes.rows) {
+        const key = `${row.excavator_id}|${row.tanggal}`;
+        if (!jobByUnitDate.has(key)) jobByUnitDate.set(key, String(row.job_code || '').trim());
+      }
+
+      const aggregateJam = (rows, unitOf, dateOf) => {
+        const byCat = new Map();
+        let totalJam = 0; let tanpaJob = 0;
+        for (const row of rows) {
+          const unitId = String(unitOf(row) || '');
+          if (!plottedUnits.has(unitId)) continue;
+          const jam = Number(row.jam) || 0;
+          if (!(jam > 0)) continue;
+          if (!jobByUnitDate.has(`${unitId}|${dateOf(row)}`)) tanpaJob += 1;
+          const cat = String(row.kategori || 'Tanpa kategori').trim() || 'Tanpa kategori';
+          let entry = byCat.get(cat);
+          if (!entry) { entry = { kategori: cat, kode: row.kode || null, jam: 0, kejadian: 0, units: new Map(), contoh: '' }; byCat.set(cat, entry); }
+          if (!entry.kode && row.kode) entry.kode = row.kode;
+          entry.jam += jam; entry.kejadian += 1; totalJam += jam;
+          entry.units.set(unitId, (entry.units.get(unitId) || 0) + jam);
+          const desc = String(row.description || '').trim();
+          if (!entry.contoh && desc) entry.contoh = desc;
+        }
+        const items = [...byCat.values()].map(entry => ({
+          kategori: entry.kategori, kode: entry.kode, jam: entry.jam, kejadian: entry.kejadian,
+          units: [...entry.units.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+            .map(([unitId, jam]) => ({ unit: kodeOf(unitId), jam })),
+          contoh: entry.contoh,
+        })).sort((a, b) => b.jam - a.jam);
+        return { totalJam, tanpaJob, items };
+      };
+
+      const pa = aggregateJam(bdRes.rows, row => row.equipment_id, row => row.tanggal);
+      const ua = aggregateJam(sbRes.rows, row => row.equipment_id, row => row.tanggal);
+
+      // Pareto productivity berbasis EVENT: hitung berapa kali tiap kode problem
+      // muncul pada periode terpilih (terukur langsung, tanpa estimasi volume).
+      const byProblem = new Map();
+      let totalKejadian = 0;
+      for (const row of exRes.rows) {
+        const unitId = String(row.excavator_id || '');
+        if (!plottedUnits.has(unitId)) continue;
+        const rowJob = String(row.job_code || '').trim();
+        if (jobFilter && rowJob && rowJob !== jobFilter) continue;
+        const kode = String(row.kode || '').trim();
+        const problem = String(row.problem || '').trim();
+        const cat = String(row.kategori || '').trim();
+        const label = problem || kode || cat;
+        if (!label) continue;
+        const key = kode ? `kode:${kode}` : `teks:${label}`;
+        let entry = byProblem.get(key);
+        if (!entry) { entry = { problem: label, kode: kode || null, kategori: cat || null, kejadian: 0, units: new Map() }; byProblem.set(key, entry); }
+        if (!entry.kode && kode) entry.kode = kode;
+        if (!entry.kategori && cat) entry.kategori = cat;
+        if (entry.problem !== label && problem && entry.problem === entry.kode) entry.problem = label;
+        entry.kejadian += 1; totalKejadian += 1;
+        entry.units.set(unitId, (entry.units.get(unitId) || 0) + 1);
+      }
+      const productivity = {
+        totalKejadian,
+        items: [...byProblem.values()].map(entry => ({
+          problem: entry.problem, kode: entry.kode, kategori: entry.kategori, kejadian: entry.kejadian,
+          units: [...entry.units.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+            .map(([unitId, kejadian]) => ({ unit: kodeOf(unitId), kejadian })),
+        })).sort((a, b) => b.kejadian - a.kejadian),
+      };
+
+      res.json({
+        periode: { dari: tanggalDari, sampai: tanggalSampai },
+        filters: { pit: pitFilter || null, job: jobFilter || null },
+        units: [...plottedUnits.values()].map(u => ({ id: u.id, unit: kodeOf(u.id), class: classOf(u.id), pit: u.pit, job: u.job }))
+          .sort((a, b) => a.unit.localeCompare(b.unit)),
+        pa, ua, productivity,
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

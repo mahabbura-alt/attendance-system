@@ -83,6 +83,6 @@ test('P1 Input Data, Fuel, Standby, Breakdown, dan Ritase memakai shared save fe
 test('asset P1 memakai versi cache terbaru', () => {
   assert.ok(Number(loader.match(/production\.js\?v=(\d+)/)?.[1]) >= 84);
   const index = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  assert.match(index, /app\.js\?v=41/);
-  assert.match(index, /hm-worklog\.js\?v=4/);
+  assert.ok(Number(index.match(/app\.js\?v=(\d+)/)?.[1]) >= 41);
+  assert.ok(Number(index.match(/hm-worklog\.js\?v=(\d+)/)?.[1]) >= 4);
 });

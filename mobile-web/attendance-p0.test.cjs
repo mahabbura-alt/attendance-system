@@ -120,6 +120,76 @@ test('portal merekonsiliasi absensi yang tersimpan saat respons awal terputus', 
   assert.match(alerts[0], /sudah tercatat di server/);
 });
 
+test('hari ditimpa Rekap Performa menampilkan data admin, bukan jam kamera', async () => {
+  const { context, elements } = portal();
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+  context.fetch = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => [{
+      tanggal_kerja: today,
+      waktu_datang: null,
+      waktu_pulang: null,
+      status_datang: 'alpa',
+      status_pulang: null,
+      is_pending_session: false,
+      kamera_ditimpa: true,
+    }],
+  });
+  await vm.runInContext('cekStatusToday()', context);
+  assert.equal(elements.get('valJamDatang').textContent, '— (ditimpa Rekap)');
+  assert.equal(elements.get('subDatang').textContent, 'Alpa');
+  assert.equal(elements.get('btnTriggerDatang').disabled, true);
+  assert.match(elements.get('btnTriggerDatang').textContent, /MENGIKUTI REKAP/);
+  assert.equal(elements.get('btnTriggerPulang').disabled, true);
+  assert.match(elements.get('btnTriggerPulang').textContent, /MENGIKUTI REKAP/);
+});
+
+test('hari ditimpa Rekap dengan sesi kamera masih terbuka tetap bisa checkout', async () => {
+  const { context, elements } = portal();
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+  context.fetch = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => [{
+      tanggal_kerja: today,
+      waktu_datang: null,
+      waktu_pulang: null,
+      status_datang: 'izin',
+      status_pulang: null,
+      is_pending_session: true,
+      kamera_ditimpa: true,
+    }],
+  });
+  await vm.runInContext('cekStatusToday()', context);
+  assert.equal(elements.get('subDatang').textContent, 'Izin');
+  assert.equal(elements.get('btnTriggerPulang').disabled, false);
+  assert.match(elements.get('btnTriggerPulang').textContent, /ABSEN PULANG/);
+});
+
+test('riwayat portal menampilkan label kategori admin dan jam tersembunyi saat ditimpa', async () => {
+  const { context, elements } = portal();
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+  context.fetch = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => [{
+      tanggal_kerja: today,
+      waktu_datang: null,
+      waktu_pulang: null,
+      status_datang: 'cuti',
+      status_pulang: null,
+      is_pending_session: false,
+      kamera_ditimpa: true,
+    }],
+  });
+  elements.set('tbodyRiwayat', { innerHTML: '' });
+  await vm.runInContext('muatRiwayat()', context);
+  const html = elements.get('tbodyRiwayat').innerHTML;
+  assert.match(html, /Cuti/);
+  assert.doesNotMatch(html, /WIB/);
+});
+
 test('portal mengecilkan dimensi foto tanpa mengubah rasio', () => {
   const { context } = portal();
   assert.equal(

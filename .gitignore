@@ -45,9 +45,21 @@ logs/
 .codex/
 .kilo/
 .agents/
+.roo/
 OMOS-skill/
 outputs/
 tmp/
+tmp_verify/
+tools/
+
+# Local scratch scripts & artifacts
+compare_*.ps1
+diff_*.ps1
+.blackboxrules
+el.id)
+r.text())
+x.id)
+backend/backup_schema_*.json
 
 # Loose local data/brand artifacts (not required by Vercel build)
 *.xlsx
