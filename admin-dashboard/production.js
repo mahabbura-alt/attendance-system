@@ -8611,23 +8611,31 @@ async function muatTruckFactorMaterials(tanggal = '') {
   const obPlan = await obRes.json().catch(() => ({}));
   const coalPlan = await coalRes.json().catch(() => ({}));
   const data = {
-    OB: ekstrakMaterialPlan(obPlan.contentHtml),
-    Coal: ekstrakMaterialPlan(coalPlan.contentHtml)
+    OB: ekstrakMaterialPlan(obPlan.contentHtml, obPlan.planningData),
+    Coal: ekstrakMaterialPlan(coalPlan.contentHtml, coalPlan.planningData)
   };
   truckFactorMaterialsCache = { tanggal, data };
   return data;
 }
 
-function ekstrakMaterialPlan(contentHtml) {
-  if (!contentHtml) return [];
-  const doc = new DOMParser().parseFromString(`<div>${contentHtml}</div>`, 'text/html');
+function ekstrakMaterialPlan(contentHtml, planningData) {
   const set = new Set();
-  doc.querySelectorAll('input[data-plan-factor-field="material"]').forEach(i => {
-    const v = String(i.value || '').trim();
-    if (v) set.add(v.toUpperCase());
-  });
-  doc.querySelectorAll('select[data-plan-productivity-field="material"]').forEach(s => {
-    const v = String(s.value || '').trim();
+  if (contentHtml) {
+    const doc = new DOMParser().parseFromString(`<div>${contentHtml}</div>`, 'text/html');
+    doc.querySelectorAll('input[data-plan-factor-field="material"]').forEach(i => {
+      const v = String(i.value || '').trim();
+      if (v) set.add(v.toUpperCase());
+    });
+    doc.querySelectorAll('select[data-plan-productivity-field="material"]').forEach(s => {
+      const v = String(s.value || '').trim();
+      if (v) set.add(v.toUpperCase());
+    });
+  }
+  // Fallback: plan OB tidak menyimpan material sebagai atribut HTML (format
+  // berbasis fleetCatalog), material hanya ada di planningData.fleetCatalog.
+  const catalog = planningData && Array.isArray(planningData.fleetCatalog) ? planningData.fleetCatalog : [];
+  catalog.forEach(entry => {
+    const v = String(entry?.material || '').trim();
     if (v) set.add(v.toUpperCase());
   });
   return [...set].sort();
@@ -8691,8 +8699,8 @@ async function bukaModalTruckFactor() {
     const coalPlan = await coalRes.json().catch(() => ({}));
     const saved = await facRes.json().catch(() => []);
 
-    const obMaterials = ekstrakMaterialPlan(obPlan.contentHtml);
-    const coalMaterials = ekstrakMaterialPlan(coalPlan.contentHtml);
+    const obMaterials = ekstrakMaterialPlan(obPlan.contentHtml, obPlan.planningData);
+    const coalMaterials = ekstrakMaterialPlan(coalPlan.contentHtml, coalPlan.planningData);
 
     const keyOf = r => `${r.kategori}|${r.tipe_alat}|${r.material}`;
     const effectiveMap = {};
