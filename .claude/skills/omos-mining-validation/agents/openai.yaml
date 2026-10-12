@@ -1,0 +1,4 @@
+interface:
+  display_name: "OMOS Mining Validation"
+  short_description: "Validasi anomali rumus dan satuan tambang"
+  default_prompt: "Use $omos-mining-validation to validate this OMOS mining change before implementation."
