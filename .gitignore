@@ -6,9 +6,11 @@ local.properties
 .agents/
 password supabase.txt
 *.txt
+*.pem
 
 # Dependencies and build products
 node_modules/
+.runtime/
 build/
 app/build/
 .gradle/
