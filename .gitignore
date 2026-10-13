@@ -17,6 +17,7 @@ app/build/
 **/.gradle/
 **/build/
 *.apk
+*.pem
 !admin-dashboard/Absensi PIM.apk
 !admin-dashboard/Absensi_PIM.apk
 !backend/src/public/Absensi_PIM.apk
