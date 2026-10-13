@@ -5,6 +5,21 @@ dan langkah memindahkannya ke direktori proyek lokal `D:\OneDrive\Desktop\OMOS`.
 
 > Sesi cloud **tidak** pernah menyentuh `D:\OneDrive\Desktop\OMOS`. Semua perubahan kode ada di GitHub.
 
+## 0. Aturan wajib untuk agen (baca dulu)
+
+1. **Satu-satunya sumber kode adalah GitHub** `https://github.com/mahabbura-alt/attendance-system`
+   (remote `origin`). Ambil perubahan hanya dengan `git fetch origin` / `git checkout` / `git pull origin <branch>`.
+   Pastikan dulu: `git remote -v` harus menunjuk ke `github.com/mahabbura-alt/attendance-system`.
+2. **Jangan menarik atau memakai apa pun dari Vercel**: jangan `vercel pull`, `vercel env pull`, `vercel deploy`,
+   `vercel link`, jangan mengunduh build/preview Vercel, dan jangan memakai token Vercel (termasuk yang disebut di
+   `OMOS_handoff_2026-09-05.md`). Koneksi Vercel sudah dihapus owner; URL `*.vercel.app` dan komentar `vercel[bot]`
+   di PR bukan sumber kebenaran.
+3. **Production = server Biznet (SSH)**. Jangan deploy ke Vercel. Deploy ke Biznet hanya atas instruksi owner.
+4. Dokumen lama yang menyebut Vercel (`vercel.json`, `api/`, `AGENTS.md`, `OMOS_handoff_2026-09-05.md`) adalah
+   **riwayat**, bukan prosedur aktif.
+5. `backend\.env` lokal adalah satu-satunya sumber konfigurasi database; jangan menyalin, mencetak, atau meng-commit isinya.
+6. Jangan menimpa perubahan lokal yang belum di-commit; amankan dengan `git stash` (lihat bagian 5).
+
 ## 1. Lokasi perubahan
 
 | Item | Nilai |
@@ -91,8 +106,9 @@ npm test
 
 - **Production = server Biznet via SSH**, bukan Vercel. Server tidak auto-deploy dari GitHub:
   setelah PR #1 di-merge ke `main`, perlu `git pull` di server lalu restart backend (prosedur Biznet belum terdokumentasi di repo).
-- Vercel GitHub App **masih terpasang** di repo (bot Vercel membuat preview untuk PR #1). Bila tidak dipakai lagi, cabut di
-  GitHub → Settings → Applications → Vercel, atau hapus proyek Vercel `attendance-system`.
+- Vercel GitHub App **masih terpasang** di repo (bot Vercel otomatis membuat preview untuk PR #1). Preview itu **diabaikan**
+  (lihat aturan 0.2). Owner dapat mencabutnya di GitHub → Settings → Applications → Vercel, atau menghapus proyek
+  Vercel `attendance-system`.
 - Dokumen repo (`vercel.json`, `api/`, `AGENTS.md`, `OMOS_handoff_2026-09-05.md`) masih menyebut Vercel → perlu diperbarui
   ke prosedur Biznet.
 - Sesuai `AGENTS.md`: review visual admin dashboard di browser lokal wajib sebelum deploy frontend.
