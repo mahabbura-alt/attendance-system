@@ -1092,8 +1092,44 @@ async function muatKaryawan() {
 
     initSlicersKaryawanDropdowns();
     renderTabelKaryawan();
+    muatPermintaanResetSandi();
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function muatPermintaanResetSandi() {
+  const panel = document.getElementById('panelResetSandi');
+  const list = document.getElementById('daftarResetSandi');
+  if (!panel || !list) return;
+  try {
+    const daftar = await api('/api/admin/karyawan/reset-requests');
+    const items = Array.isArray(daftar) ? daftar : [];
+    panel.hidden = items.length === 0;
+    document.getElementById('jumlahResetSandi').textContent = items.length;
+    list.innerHTML = items.map((r) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid #fed7aa;border-radius:8px;padding:8px 12px;">
+        <span><b>${escapeHtml(r.nama)}</b> · ${escapeHtml(r.employee_id || '-')} · ${escapeHtml(r.jabatan || '-')} / ${escapeHtml(r.departemen || '-')}
+          <span style="color:#64748b;font-size:12px;"> · diminta ${escapeHtml(new Date(r.requested_at).toLocaleString('id-ID'))}</span></span>
+        <button class="tombol tombol--utama tombol--kecil" data-reset-sandi="${escapeHtml(r.user_id)}" data-nama-karyawan="${escapeHtml(r.nama)}">Buat sandi sementara</button>
+      </div>`).join('');
+    list.querySelectorAll('[data-reset-sandi]').forEach((button) => {
+      button.addEventListener('click', () => resetSandiKaryawan(button.dataset.resetSandi, button.dataset.namaKaryawan));
+    });
+  } catch (err) {
+    panel.hidden = true;
+    console.warn('Gagal memuat permintaan reset sandi:', err.message);
+  }
+}
+
+async function resetSandiKaryawan(id, nama) {
+  if (!confirm(`Buat sandi sementara untuk "${nama}"?\n\nSandi lama tidak berlaku lagi dan karyawan wajib menggantinya setelah login.`)) return;
+  try {
+    const res = await apiJson(`/api/admin/karyawan/${id}/reset-password`, 'POST', {});
+    alert(`Sandi sementara untuk ${nama}:\n\n${res.temp_password}\n\nSampaikan langsung ke karyawan. Sandi ini hanya ditampilkan sekali.`);
+    muatPermintaanResetSandi();
+  } catch (err) {
+    alert('Gagal reset sandi: ' + err.message);
   }
 }
 
@@ -1214,6 +1250,7 @@ function renderTabelKaryawan() {
       <td>
         <button class="tombol tombol--ghost tombol--kecil" data-edit-karyawan="${escapeHtml(k.id)}">Edit Data</button>
         <button class="tombol tombol--ghost tombol--kecil" data-foto-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}">Foto</button>
+        <button class="tombol tombol--ghost tombol--kecil" data-reset-sandi-row="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}">Reset Sandi</button>
         <button class="tombol tombol--ghost tombol--kecil" data-status-karyawan="${escapeHtml(k.id)}" data-aktif="${k.is_active}">${k.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
         <button class="tombol tombol--ghost tombol--kecil" data-hapus-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}" data-email-karyawan="${escapeHtml(k.email)}" style="color:#c62828;border-color:#ef9a9a;">Hapus</button>
       </td>
@@ -1231,6 +1268,9 @@ function renderTabelKaryawan() {
       button.dataset.fotoKaryawan,
       button.dataset.namaKaryawan,
     ));
+  });
+  tbody.querySelectorAll('[data-reset-sandi-row]').forEach((button) => {
+    button.addEventListener('click', () => resetSandiKaryawan(button.dataset.resetSandiRow, button.dataset.namaKaryawan));
   });
   tbody.querySelectorAll('[data-status-karyawan]').forEach((button) => {
     button.addEventListener('click', async () => {

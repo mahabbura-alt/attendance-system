@@ -6,6 +6,7 @@ const {
   ensureEmployeeIdAvailable,
   isEmployeeIdUniqueViolation,
 } = require('../services/employeeIdentity');
+const { generateTemporaryPassword, ensurePasswordResetSchema } = require('../services/passwordReset');
 
 /** GET /api/admin/karyawan — daftar semua karyawan (tanpa password) */
 async function daftarKaryawan(req, res, next) {
@@ -335,4 +336,85 @@ async function daftarAuditLogKaryawan(req, res, next) {
   }
 }
 
-module.exports = { daftarKaryawan, buatKaryawan, uploadFotoReferensi, updateKaryawan, hapusKaryawan, daftarAuditLogKaryawan };
+/** GET /api/admin/karyawan/reset-requests — permintaan reset sandi yang menunggu admin */
+async function daftarPermintaanReset(req, res, next) {
+  try {
+    await ensurePasswordResetSchema(pool);
+    const { rows } = await pool.query(
+      `SELECT r.id, r.user_id, r.source, r.requested_at,
+              u.employee_id, u.nama, u.jabatan, u.departemen
+       FROM password_reset_requests r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.status = 'pending' AND u.is_active = TRUE
+       ORDER BY r.requested_at ASC`
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/admin/karyawan/:id/reset-password — admin membuat sandi sementara.
+ * Sandi sementara hanya dikembalikan sekali di respons ini (tidak disimpan/di-log)
+ * dan karyawan wajib menggantinya setelah login.
+ */
+async function resetPasswordKaryawan(req, res, next) {
+  const client = await pool.connect();
+  try {
+    await ensurePasswordResetSchema(pool);
+    const tempPassword = generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `UPDATE users SET password_hash = $1, must_change_password = TRUE
+       WHERE id = $2 AND role = 'karyawan' AND is_active = TRUE
+       RETURNING id, employee_id, nama`,
+      [passwordHash, req.params.id]
+    );
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Karyawan aktif tidak ditemukan' });
+    }
+    await client.query(
+      `UPDATE password_reset_requests
+       SET status = 'done', handled_by = $2, handled_at = now()
+       WHERE user_id = $1 AND status = 'pending'`,
+      [rows[0].id, req.user?.id || null]
+    );
+    await client.query(
+      `INSERT INTO audit_log (admin_id, absensi_id, alasan, data_sesudah) VALUES ($1, NULL, $2, $3)`,
+      [
+        req.user?.id || null,
+        `${req.user?.nama || 'Admin'} - [DB KARYAWAN] Reset sandi karyawan "${rows[0].nama}", NRP: ${rows[0].employee_id || '-'}`,
+        JSON.stringify({ id: rows[0].id, employee_id: rows[0].employee_id, must_change_password: true }),
+      ]
+    );
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Sandi sementara dibuat. Sampaikan langsung ke karyawan; karyawan wajib menggantinya setelah login.',
+      karyawan: rows[0],
+      temp_password: tempPassword,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client.release();
+  }
+}
+
+
+
+module.exports = {
+  daftarKaryawan,
+  buatKaryawan,
+  uploadFotoReferensi,
+  updateKaryawan,
+  hapusKaryawan,
+  daftarAuditLogKaryawan,
+  daftarPermintaanReset,
+  resetPasswordKaryawan,
+};
