@@ -2,10 +2,6 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.js",
-      "use": "@vercel/node"
-    },
-    {
       "src": "admin-dashboard/**",
       "use": "@vercel/static"
     },
@@ -17,55 +13,30 @@
   "routes": [
     {
       "src": "/Absensi_PIM.apk",
-      "dest": "api/index.js"
+      "dest": "https://omos-mining.com/Absensi_PIM.apk"
     },
     {
       "src": "/Absensi%20PIM.apk",
-      "dest": "api/index.js"
+      "dest": "https://omos-mining.com/Absensi_PIM.apk"
     },
     {
       "src": "/download-apk",
-      "dest": "api/index.js"
+      "dest": "https://omos-mining.com/download-apk"
     },
     {
       "src": "/api/(.*)",
-      "dest": "api/index.js"
+      "dest": "https://omos-mining.com/api/$1"
     },
     {
       "src": "/health",
-      "dest": "api/index.js"
-    },
-    {
-      "src": "/mobile-web/(.*)",
-      "dest": "mobile-web/$1"
-    },
-    {
-      "src": "/mobile/(.*)",
-      "dest": "mobile-web/$1"
-    },
-    {
-      "src": "/mobile",
-      "dest": "mobile-web/index.html"
-    },
-    {
-      "src": "/portal/(.*)",
-      "dest": "mobile-web/$1"
-    },
-    {
-      "src": "/karyawan.html",
-      "dest": "mobile-web/index.html"
-    },
-    {
-      "src": "/karyawan.js",
-      "dest": "mobile-web/karyawan.js"
-    },
-    {
-      "src": "/karyawan",
-      "dest": "mobile-web/index.html"
+      "dest": "https://omos-mining.com/health"
     },
     {
       "src": "/(.*)",
-      "dest": "admin-dashboard/$1"
+      "status": 308,
+      "headers": {
+        "Location": "https://omos-mining.com/$1"
+      }
     }
   ],
   "headers": [

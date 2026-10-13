@@ -12,9 +12,14 @@ node_modules/
 .codex/
 .roo/
 .agents/
+.kilo/
+OMOS-skill/
 Litellm/
 docs/
 outputs/
+ops/
+backend/
+api/
 tools/verify-production-data-ui.cjs
 backend/src/scripts/verify_production_data.js
 tmp/
@@ -22,6 +27,15 @@ tmp/
 *.xlsx
 *.xls
 *.ps1
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.txt
+biznet server.txt
+password supabase.txt
+vercel token log supabase.txt
 backend/backup_schema_*.json
 backend/src/scripts/backup_schema_snapshot.js
 backend/src/scripts/check_db_connection.js
