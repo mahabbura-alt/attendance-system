@@ -576,6 +576,6 @@
 
   return {
     pure: { esc, fmtL, fmtNum, functionLabel, flagLabel, labelSheetHtml, describeVariance },
-    ui: { open, close, openEquipmentId, cetakLabel },
+    ui: { open, close, openEquipmentId, cetakLabel, flagLabel },
   };
 });

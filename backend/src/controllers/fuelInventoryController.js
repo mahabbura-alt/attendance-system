@@ -116,6 +116,24 @@ async function statistikPakai(req, res) {
     product_id: req.query.product_id || null,
   }));
 }
+async function rekonsiliasiPeriode(req, res) {
+  return kirim(res, fuelInventory.getPeriodReconciliation({
+    dari: req.query.dari || null,
+    sampai: req.query.sampai || null,
+    location_id: req.query.location_id || null,
+    product_id: req.query.product_id || null,
+  }));
+}
+async function rincianKonsumsi(req, res) {
+  return kirim(res, fuelInventory.getConsumptionBreakdown({
+    dari: req.query.dari || null,
+    sampai: req.query.sampai || null,
+    location_id: req.query.location_id || null,
+    product_id: req.query.product_id || null,
+    group: req.query.group === 'class' ? 'class' : 'unit',
+    limit: req.query.limit || 10,
+  }));
+}
 async function ekspor(req, res) {
   try {
     const data = await fuelInventory.buildExport({
@@ -144,4 +162,5 @@ module.exports = {
   transfer, validasiTransfer, tolakTransfer, lapisanFifo, alokasi,
   buatOpname, ubahOpname, daftarOpname, detailOpname, kirimOpname, setujuiOpname, tolakOpname,
   ringkasanStok, arusHarian, statistikPakai, ekspor, laporanIntegritas,
+  rekonsiliasiPeriode, rincianKonsumsi,
 };

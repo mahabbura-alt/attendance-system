@@ -60,6 +60,43 @@ Layer pointers:
 
 ## Verified Current Implementation Snapshot
 
+### 2026-10-17 — Redesign Database Fuel: satu workspace 4 alur: VERIFIED_REPO (belum deploy, belum commit)
+- **Keputusan owner:**
+  - Satu workspace dengan alur Ringkasan, Stok masuk, Alokasi & distribusi, Validasi & rekonsiliasi, Tren konsumsi, dan Pengaturan.
+  - Role hanya membatasi aksi; route fuel-inventory tetap admin-only.
+  - Tampilan lama (Hub + klasik) masih bisa dibuka 1 rilis via `?classic=1` atau tautan "Tampilan lama". Hapus `fuelOperationsHub.js` dan `databaseFuel.workspace.js` di rilis berikutnya.
+  - Approved preview: `admin-dashboard/test-fixtures/fuel-workspace-preview.html`.
+- **Backend (read-only, tanpa migrasi):**
+  - `GET /api/admin/production/fuel-inventory/period-reconciliation?dari&sampai&location_id&product_id`: per lokasi×produk `opening, receipt_in, transfer_in, issue_out, transfer_out, adjustment_in/out, other, closing_book` + `last_opname` (approved/adjusted ≤ sampai).
+    - Reversal dinettokan ke tipe aslinya (CTE `mutasi`).
+    - Basis `operational_date`, liter, presisi penuh.
+  - `GET .../consumption-breakdown?group=unit|class&limit`: liter netto `issue_equipment` per unit/`kelas_alat`, plus `share` dan `others_liter`. Tanpa rasio L/HM.
+  - `getLedger` menambah `unit_price` (tertimbang volume, NULL bila ada baris tanpa harga), `equipment_code`, dan `transfer_to_code`.
+  - Validasi `omos-mining-validation`: tidak ada anomali. Rumus = semantik `saldoLokasi`; tidak ada KPI/rasio baru.
+- **Frontend:**
+  - Baru: `admin-dashboard/fuelWorkspace.js` (`window.FuelWorkspace`; fungsi murni diekspor) dan `fuelWorkspace.css` (kelas `fws-*`, token dashboard, IBM Plex, Tabler icons).
+  - Wiring: `production.js` (`bukaDatabaseFuel` memprioritaskan FuelWorkspace), `production.loader.js` (`fuelWorkspace.js?v=1`, `production.js?v=106`, `fuelAccess.ui.js?v=2`), `index.html` (link CSS). `fuelAccess.ui.js` mengekspos `flagLabel`.
+  - Fitur:
+    - Ringkasan: KPI, gauge stok per lokasi (minimum dan melebihi kapasitas), antrean "Perlu tindakan".
+    - Stok masuk: harga rata-rata, draf.
+    - Alokasi: alur distribusi, lokasi, transfer, aturan sumber dalam kalimat dengan dropdown (bukan UUID).
+    - Rekonsiliasi: validasi APK lewat drawer + galeri bukti, persetujuan opname (alasan wajib bila alert), tabel rekonsiliasi periode + CSV, belum ber-sumber (terapkan aturan atau tautkan manual), shift investigasi, integritas.
+    - Tren: grafik masuk vs pengisian, konsumsi per kelas atau top 10 unit, selisih opname.
+    - Pengaturan: produk, lokasi, export.
+    - Drawer detail transaksi: posting, batalkan draf, pembatalan (reversal) dengan alasan, FIFO, jejak waktu.
+    - Buku transaksi sebagai drawer audit.
+  - Semua tulis memakai `OMOSActionFeedback.run`. Alasan lewat modal (tanpa `alert`/`prompt`). Idempotency key per form.
+- **Tes:**
+  - `backend/test/fuel-period-reconciliation.test.js`: 3 tes murni + 1 integrasi Postgres nyata bila `TEST_DATABASE_URL` diset. Lulus di DB sekali pakai (postgres:17, skema 048–051 + 105 + stub) di server Biznet; container sudah dihapus.
+  - Fuel backend 61 lulus (1 skip integrasi lokal).
+  - `admin-dashboard/fuel-workspace.test.js` 11 lulus.
+  - 5 tes dashboard gagal sejak sebelumnya (pin versi lama `production.js?v=103`, `app.js?v=47`, ppw-hauler), tidak terkait.
+- **Verifikasi browser:** fixture `admin-dashboard/test-fixtures/fuel-workspace-live.html` memuat modul asli dengan API tiruan. Diperiksa:
+  - 1440px dan 375px; tanpa scroll horizontal.
+  - Semua tab dan console tanpa error.
+  - Alur terima (validasi, galat 422, posting), validasi transfer APK, persetujuan opname, pembatalan, aturan sumber.
+  - Belum diuji terhadap API Biznet nyata.
+
 ### 2026-10-17 — Hotfix Fuel 105 di produksi Biznet: VERIFIED_DEPLOYED (diizinkan owner)
 - Backup terverifikasi: `/opt/omos/backups/manual/20261017T091154Z-pre-fuel-105.dump` (+`.sha256`).
 - Migrasi `105_fuel_tx_updated_at.sql` dijalankan via `ops/biznet/run-fuel-105-hotfix.sh`. Preflight menunjukkan kolom = 0, verifikasi sesudahnya = 1.

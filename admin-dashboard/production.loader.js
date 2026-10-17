@@ -20,8 +20,8 @@
     'rainfall.core.js?v=3',
     'ritaseNonProd.core.js?v=1',
     'fuelEvidence.ui.js?v=2',
-    'fuelAccess.ui.js?v=1',
-    'production.js?v=105',
+    'fuelAccess.ui.js?v=2',
+    'production.js?v=106',
     'periodicService.js?v=14',
     'productionData.js?v=13',
     'reviewProduksi.core.js?v=3',
@@ -38,6 +38,7 @@
     'mtdReport.js?v=2',
     'surveyReport.js?v=8',
     'fuelOperationsHub.js?v=1',
+    'fuelWorkspace.js?v=1',
   ];
   const librarySources = {
     xlsx: 'vendor/xlsx.full.min.js?v=2',

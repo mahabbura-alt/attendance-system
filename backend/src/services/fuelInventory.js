@@ -297,17 +297,25 @@ async function getLedger({ dari = null, sampai = null, location_id = null, produ
   const hasil = await pool.query(
     `WITH transaksi AS (
        SELECT t.*, p.product_code, p.product_name,
-              sl.location_code AS source_code, dl.location_code AS destination_code,
+              sl.location_code AS source_code, dl.location_code AS destination_code, eq.kode_alat AS equipment_code,
+              (SELECT l2.location_code FROM fuel_inventory_transactions t2
+                 JOIN fuel_storage_locations l2 ON l2.id = t2.destination_location_id
+               WHERE t.transfer_group_id IS NOT NULL AND t2.transfer_group_id = t.transfer_group_id
+                 AND t2.transaction_type = 'transfer_in' LIMIT 1) AS transfer_to_code,
               CASE WHEN BOOL_AND(l.direction = 'in') THEN t.destination_location_id
                    WHEN BOOL_AND(l.direction = 'out') THEN t.source_location_id END AS ledger_location_id,
               COALESCE(SUM(l.quantity_liter), 0) AS quantity_liter,
+              -- Harga per liter tertimbang volume; NULL bila ada baris tanpa harga (biaya belum lengkap).
+              CASE WHEN COUNT(l.id) > 0 AND COUNT(l.unit_price) = COUNT(l.id)
+                   THEN SUM(l.quantity_liter * l.unit_price) / NULLIF(SUM(l.quantity_liter), 0) END AS unit_price,
               COALESCE(SUM(CASE WHEN l.direction = 'in' THEN l.quantity_liter ELSE -l.quantity_liter END), 0) AS signed_quantity
        FROM fuel_inventory_transactions t
        LEFT JOIN fuel_products p ON p.id = t.product_id
        LEFT JOIN fuel_storage_locations sl ON sl.id = t.source_location_id
        LEFT JOIN fuel_storage_locations dl ON dl.id = t.destination_location_id
+       LEFT JOIN equipment eq ON eq.id = t.equipment_id
        LEFT JOIN fuel_inventory_lines l ON l.transaction_id = t.id
-       GROUP BY t.id, p.product_code, p.product_name, sl.location_code, dl.location_code
+       GROUP BY t.id, p.product_code, p.product_name, sl.location_code, dl.location_code, eq.kode_alat
      ), balance AS (
        SELECT transaksi.*,
               COALESCE(SUM(CASE WHEN status IN ('posted','reversed') THEN signed_quantity ELSE 0 END)
@@ -1284,6 +1292,144 @@ async function getUsageStats({ dari = null, sampai = null, location_id = null, p
   };
 }
 
+const TANGGAL_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function validasiRentang(dari, sampai) {
+  if (!TANGGAL_RE.test(String(dari || '')) || !TANGGAL_RE.test(String(sampai || ''))) {
+    throw err('Rentang tanggal (dari/sampai YYYY-MM-DD) wajib diisi.');
+  }
+  if (String(dari) > String(sampai)) throw err('Tanggal dari tidak boleh setelah sampai.', 422);
+}
+
+/*
+ * Mutasi bertanda per lokasi: baris 'in' dihitung di lokasi tujuan (+), 'out' di lokasi sumber (−).
+ * Reversal dikategorikan ke tipe transaksi aslinya sehingga kategori menjadi netto
+ * (issue yang direversal mengurangi issue, bukan menambah "masuk").
+ */
+const MUTASI_CTE = `
+  mutasi AS (
+    SELECT CASE WHEN li.direction = 'in' THEN t.destination_location_id ELSE t.source_location_id END AS location_id,
+           t.product_id, t.operational_date, t.equipment_id,
+           CASE WHEN t.transaction_type = 'reversal' THEN o.transaction_type ELSE t.transaction_type END AS tipe,
+           CASE WHEN li.direction = 'in' THEN li.quantity_liter ELSE -li.quantity_liter END AS delta
+    FROM fuel_inventory_lines li
+    JOIN fuel_inventory_transactions t ON t.id = li.transaction_id
+    LEFT JOIN fuel_inventory_transactions o ON o.id = t.reversal_of_transaction_id
+    WHERE t.status IN ('posted', 'reversed')
+  )`;
+
+/** Fungsi murni: susun baris rekonsiliasi dari agregat delta per tipe (liter, presisi penuh). */
+function susunRekonsiliasi(row) {
+  const n = v => Number(v || 0);
+  const opening = n(row.opening);
+  const receipt_in = n(row.d_receipt);
+  const transfer_in = n(row.d_transfer_in);
+  const issue_out = -n(row.d_issue);
+  const transfer_out = -n(row.d_transfer_out);
+  const adjustment_in = n(row.d_adj_in);
+  const adjustment_out = -n(row.d_adj_out);
+  const other = n(row.d_other);
+  const closing_book = opening + receipt_in + transfer_in - issue_out - transfer_out + adjustment_in - adjustment_out + other;
+  const opname = row.opname_id ? {
+    id: row.opname_id,
+    operational_date: row.opname_date,
+    book_quantity: n(row.opname_book),
+    physical_quantity: n(row.opname_physical),
+    variance_quantity: n(row.opname_variance),
+    variance_percent: row.opname_variance_pct == null ? null : Number(row.opname_variance_pct),
+    variance_alert: Boolean(row.opname_alert),
+    status: row.opname_status,
+  } : null;
+  return {
+    location_id: row.location_id, location_code: row.location_code, location_name: row.location_name,
+    storage_type: row.storage_type, capacity_liter: row.capacity_liter == null ? null : Number(row.capacity_liter),
+    product_id: row.product_id, product_code: row.product_code,
+    opening, receipt_in, transfer_in, issue_out, transfer_out, adjustment_in, adjustment_out, other, closing_book,
+    last_opname: opname,
+  };
+}
+
+/**
+ * Rekonsiliasi periode per lokasi×produk:
+ * Saldo Awal + Penerimaan + Transfer Masuk − Pengisian Unit − Transfer Keluar + Penyesuaian ± Lainnya = Saldo Buku,
+ * dibandingkan opname fisik terakhir (approved/adjusted) s.d. tanggal akhir. Basis operational_date, liter.
+ */
+async function getPeriodReconciliation({ dari = null, sampai = null, location_id = null, product_id = null } = {}) {
+  validasiRentang(dari, sampai);
+  const hasil = await pool.query(
+    `/* fuel_period_reconciliation */
+     WITH ${MUTASI_CTE},
+     agg AS (
+       SELECT location_id, product_id,
+         SUM(CASE WHEN operational_date < $1::date THEN delta ELSE 0 END) AS opening,
+         SUM(CASE WHEN operational_date >= $1::date AND tipe = 'receipt' THEN delta ELSE 0 END) AS d_receipt,
+         SUM(CASE WHEN operational_date >= $1::date AND tipe = 'transfer_in' THEN delta ELSE 0 END) AS d_transfer_in,
+         SUM(CASE WHEN operational_date >= $1::date AND tipe = 'issue_equipment' THEN delta ELSE 0 END) AS d_issue,
+         SUM(CASE WHEN operational_date >= $1::date AND tipe = 'transfer_out' THEN delta ELSE 0 END) AS d_transfer_out,
+         SUM(CASE WHEN operational_date >= $1::date AND tipe = 'opname_adjustment_in' THEN delta ELSE 0 END) AS d_adj_in,
+         SUM(CASE WHEN operational_date >= $1::date AND tipe = 'opname_adjustment_out' THEN delta ELSE 0 END) AS d_adj_out,
+         SUM(CASE WHEN operational_date >= $1::date AND tipe NOT IN ('receipt','transfer_in','issue_equipment',
+           'transfer_out','opname_adjustment_in','opname_adjustment_out') THEN delta ELSE 0 END) AS d_other
+       FROM mutasi
+       WHERE operational_date <= $2::date AND location_id IS NOT NULL
+         AND ($3::uuid IS NULL OR location_id = $3::uuid)
+         AND ($4::uuid IS NULL OR product_id = $4::uuid)
+       GROUP BY location_id, product_id
+     )
+     SELECT a.*, sl.location_code, sl.location_name, sl.storage_type, sl.capacity_liter, p.product_code,
+            op.id AS opname_id, op.operational_date::text AS opname_date, op.book_quantity_snapshot AS opname_book,
+            op.physical_quantity AS opname_physical, op.variance_quantity AS opname_variance,
+            op.variance_percent AS opname_variance_pct, op.variance_alert AS opname_alert, op.status AS opname_status
+     FROM agg a
+     LEFT JOIN fuel_storage_locations sl ON sl.id = a.location_id
+     LEFT JOIN fuel_products p ON p.id = a.product_id
+     LEFT JOIN LATERAL (
+       SELECT * FROM fuel_stock_opnames so
+       WHERE so.location_id = a.location_id AND so.product_id = a.product_id
+         AND so.status IN ('approved', 'adjusted') AND so.operational_date <= $2::date
+       ORDER BY so.operational_date DESC, so.counted_at DESC LIMIT 1
+     ) op ON TRUE
+     ORDER BY sl.location_code, p.product_code`,
+    [dari, sampai, location_id, product_id]);
+  const rows = hasil.rows.map(susunRekonsiliasi);
+  const total = rows.reduce((acc, r) => {
+    for (const k of ['opening', 'receipt_in', 'transfer_in', 'issue_out', 'transfer_out', 'adjustment_in', 'adjustment_out', 'other', 'closing_book']) acc[k] += r[k];
+    return acc;
+  }, { opening: 0, receipt_in: 0, transfer_in: 0, issue_out: 0, transfer_out: 0, adjustment_in: 0, adjustment_out: 0, other: 0, closing_book: 0 });
+  return { dari, sampai, rows, total, alert_pct: OPNAME_ALERT_PCT, basis: 'operational_date', unit: 'liter', formula_version: FUEL_FORMULA_VERSION };
+}
+
+/** Konsumsi (liter netto issue_equipment) per unit atau kelas alat; tanpa rasio L/HM. */
+async function getConsumptionBreakdown({ dari = null, sampai = null, location_id = null, product_id = null, group = 'unit', limit = 10 } = {}) {
+  validasiRentang(dari, sampai);
+  const byClass = group === 'class';
+  const batas = Math.max(1, Math.min(200, Number(limit) || 10));
+  const hasil = await pool.query(
+    `/* fuel_consumption_breakdown */
+     WITH ${MUTASI_CTE}
+     SELECT ${byClass ? `COALESCE(NULLIF(TRIM(e.kelas_alat), ''), 'Tanpa kelas') AS key, COALESCE(NULLIF(TRIM(e.kelas_alat), ''), 'Tanpa kelas') AS label, NULL::text AS kelas,
+            COUNT(DISTINCT m.equipment_id) AS unit_count`
+    : `m.equipment_id::text AS key, COALESCE(e.kode_alat, 'Unit tidak dikenal') AS label, e.kelas_alat AS kelas, 1 AS unit_count`},
+            -SUM(m.delta) AS liter
+     FROM mutasi m
+     LEFT JOIN equipment e ON e.id = m.equipment_id
+     WHERE m.tipe = 'issue_equipment'
+       AND m.operational_date >= $1::date AND m.operational_date <= $2::date
+       AND ($3::uuid IS NULL OR m.location_id = $3::uuid)
+       AND ($4::uuid IS NULL OR m.product_id = $4::uuid)
+     GROUP BY ${byClass ? '1, 2' : 'm.equipment_id, e.kode_alat, e.kelas_alat'}
+     HAVING ABS(SUM(m.delta)) > 1e-9
+     ORDER BY liter DESC`,
+    [dari, sampai, location_id, product_id]);
+  const semua = hasil.rows.map(r => ({ key: r.key, label: r.label, kelas: r.kelas || null,
+    unit_count: Number(r.unit_count || 0), liter: Number(r.liter || 0) }));
+  const total = semua.reduce((s, r) => s + r.liter, 0);
+  const items = semua.slice(0, batas).map(r => ({ ...r, share: total > 0 ? r.liter / total : 0 }));
+  const others = semua.slice(batas).reduce((s, r) => s + r.liter, 0);
+  return { dari, sampai, group: byClass ? 'class' : 'unit', items, others_liter: others, total_liter: total,
+    unit: 'liter', formula_version: FUEL_FORMULA_VERSION };
+}
+
 function csvSel(daftar) {
   return daftar.map(v => {
     const s = v == null ? '' : String(v);
@@ -1424,4 +1570,5 @@ module.exports = {
   createOpname, updateOpnameDraft, submitOpname, approveOpname, rejectOpname,
   listOpnames, getOpname,
   getStockSummary, getFlowSeries, getUsageStats, buildExport, getIntegrityReport,
+  getPeriodReconciliation, getConsumptionBreakdown, susunRekonsiliasi,
 };

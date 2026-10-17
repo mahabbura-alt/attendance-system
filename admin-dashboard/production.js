@@ -4625,6 +4625,15 @@ function bukaDatabaseFuel() {
   if (cards) cards.hidden = true;
   const ws = document.getElementById('databaseFuelWorkspace');
   if (ws) ws.hidden = false;
+  // Workspace 4 alur (Stok masuk, Alokasi, Rekonsiliasi, Tren). ?classic=1 membuka tampilan lama selama 1 rilis.
+  try {
+    if (window.FuelWorkspace && typeof window.FuelWorkspace.open === 'function' && window.FuelWorkspace.available()) {
+      void window.FuelWorkspace.open();
+      return;
+    }
+  } catch (error) {
+    console.error('[FuelWorkspace] fallback ke tampilan lama:', error);
+  }
   try {
     if (window.FuelOperationsHub && typeof window.FuelOperationsHub.open === 'function'
       && window.FuelOperationsHub.available()) {

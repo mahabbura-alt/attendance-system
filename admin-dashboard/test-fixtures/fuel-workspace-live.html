@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Database Fuel workspace (fixture)</title>
+  <!-- Fixture verifikasi: memuat fuelWorkspace.js asli dengan API tiruan in-memory. Tidak memanggil server. -->
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.42.0/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../fuelWorkspace.css" />
+  <style>body{padding:20px 28px;background:var(--kertas)} @media(max-width:760px){body{padding:14px 16px}}</style>
+</head>
+<body>
+  <div id="databaseFuelWorkspace"></div>
+  <script>
+  (function () {
+    const today = new Date();
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const hari = n => { const d = new Date(today); d.setDate(d.getDate() - n); return iso(d); };
+    const P = { id: 'p1', product_code: 'BIOSOLAR-B40', product_name: 'Biosolar B40', density_kg_l: 0.84 };
+    const L = [
+      { id: 'l1', location_code: 'FT-BEI', location_name: 'Fuel tank utama', storage_type: 'tank', capacity_liter: 120000, minimum_stock_liter: 30000 },
+      { id: 'l2', location_code: 'DP-PIT2', location_name: 'Depot pit 2', storage_type: 'depot', capacity_liter: 80000, minimum_stock_liter: 20000 },
+      { id: 'l3', location_code: 'FTR-01', location_name: 'Fuel truck 01', storage_type: 'fuel_truck', capacity_liter: 16000, minimum_stock_liter: 4000 },
+      { id: 'l4', location_code: 'FTR-02', location_name: 'Fuel truck 02', storage_type: 'fuel_truck', capacity_liter: 16000, minimum_stock_liter: 4000 },
+    ];
+    const kode = id => (L.find(l => l.id === id) || {}).location_code || null;
+    let seq = 410;
+    const tx = [];
+    const add = (o) => { const t = { id: `t${tx.length + 1}`, transaction_number: `FIN-${o.operational_date.replace(/-/g, '')}-${String(++seq).padStart(4, '0')}`, product_id: 'p1', product_code: P.product_code, product_name: P.product_name, created_at: `${o.operational_date}T0${tx.length % 9}:2${tx.length % 6}:00+07:00`, source_type: 'manual', status: 'posted', ...o };
+      t.source_code = kode(t.source_location_id); t.destination_code = kode(t.destination_location_id); tx.unshift(t); return t; };
+    for (let i = 14; i >= 0; i -= 2) add({ transaction_type: 'receipt', operational_date: hari(i), destination_location_id: i % 4 ? 'l1' : 'l2', quantity_liter: 16000, unit_price: i === 6 ? null : 14050, document_number: `DO-88${200 - i}`, supplier_reference: 'PT Patra Niaga', source_type: i < 4 ? 'mobile_offline' : 'manual' });
+    for (let i = 13; i >= 0; i -= 3) add({ transaction_type: 'transfer_out', operational_date: hari(i), source_location_id: 'l1', transfer_to_code: i % 2 ? 'FTR-01' : 'FTR-02', quantity_liter: 12000, transfer_group_id: `g${i}`, reason: `TRF-04${i}`, source_type: 'mobile_offline' });
+    const units = [['HD-012', 'Dump Truck'], ['HD-031', 'Dump Truck'], ['PC2000-03', 'Excavator'], ['D375-02', 'Bulldozer']];
+    for (let i = 14; i >= 0; i--) units.forEach(([u], k) => add({ transaction_type: 'issue_equipment', operational_date: hari(i), source_location_id: k === 2 ? 'l2' : (k % 2 ? 'l4' : 'l3'), equipment_code: u, quantity_liter: 520 + ((i * 37 + k * 91) % 260), source_type: 'input_fuel' }));
+    const draf = add({ transaction_type: 'receipt', operational_date: hari(0), destination_location_id: 'l1', quantity_liter: 16000, unit_price: 14050, document_number: 'DO-88213', supplier_reference: 'PT Patra Niaga', source_type: 'mobile_offline', status: 'draft' });
+
+    const saldo = () => {
+      const m = {};
+      for (const t of tx) {
+        if (!['posted', 'reversed'].includes(t.status) && t.transaction_type !== 'reversal') continue;
+        const q = Number(t.quantity_liter);
+        if (['receipt', 'transfer_in', 'opening_balance', 'opname_adjustment_in'].includes(t.transaction_type)) m[t.destination_location_id] = (m[t.destination_location_id] || 0) + q;
+        else { m[t.source_location_id] = (m[t.source_location_id] || 0) - q; if (t.transaction_type === 'transfer_out') { const to = L.find(l => l.location_code === t.transfer_to_code); if (to) m[to.id] = (m[to.id] || 0) + q; } }
+      }
+      return m;
+    };
+    const base = { l1: 60000, l2: 30000, l3: 4000, l4: 6000 };
+    const stok = () => { const s = saldo(); return L.map(l => ({ location_id: l.id, location_code: l.location_code, location_name: l.location_name, product_id: 'p1', product_code: P.product_code, balance_liter: Math.max(0, (base[l.id] || 0) + (s[l.id] || 0)), fifo_value_idr: Math.max(0, (base[l.id] || 0) + (s[l.id] || 0)) * 14050, unknown_cost_layers: l.id === 'l1' ? 1 : 0 })); };
+    const opnames = [
+      { id: 'o1', location_id: 'l3', product_id: 'p1', operational_date: hari(0), physical_quantity: 3400, book_quantity_snapshot: 3520, variance_quantity: -120, variance_percent: -3.41, variance_alert: true, status: 'submitted', measurement_method: 'dipstick' },
+      { id: 'o2', location_id: 'l1', product_id: 'p1', operational_date: hari(1), physical_quantity: 86150, book_quantity_snapshot: 86400, variance_quantity: -250, variance_percent: -0.29, variance_alert: false, status: 'adjusted', measurement_method: 'sounding' },
+      ...[3, 5, 8, 11].map((d, i) => ({ id: `ox${i}`, location_id: 'l2', product_id: 'p1', operational_date: hari(d), physical_quantity: 40000, book_quantity_snapshot: 40200, variance_quantity: -200 + i * 90, variance_percent: [-0.5, 0.6, -2.6, -0.3][i], variance_alert: i === 2, status: 'adjusted' })),
+    ];
+    const rekonRows = () => { const s = stok(); return L.map(l => { const r = { location_id: l.id, location_code: l.location_code, location_name: l.location_name, storage_type: l.storage_type, product_id: 'p1', product_code: P.product_code, opening: base[l.id], receipt_in: 0, transfer_in: 0, issue_out: 0, transfer_out: 0, adjustment_in: 0, adjustment_out: l.id === 'l1' ? 250 : 0, other: 0 };
+      for (const t of tx) { if (t.status !== 'posted') continue; const q = Number(t.quantity_liter);
+        if (t.transaction_type === 'receipt' && t.destination_location_id === l.id) r.receipt_in += q;
+        if (t.transaction_type === 'issue_equipment' && t.source_location_id === l.id) r.issue_out += q;
+        if (t.transaction_type === 'transfer_out' && t.source_location_id === l.id) r.transfer_out += q;
+        if (t.transaction_type === 'transfer_out' && t.transfer_to_code === l.location_code) r.transfer_in += q; }
+      r.closing_book = r.opening + r.receipt_in + r.transfer_in - r.issue_out - r.transfer_out - r.adjustment_out;
+      const o = opnames.find(x => x.location_id === l.id && x.status !== 'submitted');
+      r.last_opname = o ? { id: o.id, operational_date: o.operational_date, book_quantity: o.book_quantity_snapshot, physical_quantity: o.physical_quantity, variance_quantity: o.variance_quantity, variance_percent: o.variance_percent, variance_alert: o.variance_alert, status: o.status } : null;
+      return r; }); };
+    let unlinked = [
+      { id: 'f1', tanggal: hari(0), fuel_filled: 640, kode_alat: 'HD-012', dapatDipetakan: true },
+      { id: 'f2', tanggal: hari(0), fuel_filled: 420, kode_alat: 'D375-02', dapatDipetakan: false, alasanMapping: 'tidak ada mapping cocok' },
+      { id: 'f3', tanggal: hari(1), fuel_filled: 60, kode_alat: 'LV-07', dapatDipetakan: false, alasanMapping: 'tidak ada mapping cocok' },
+    ];
+    let pending = [
+      { kind: 'receipt', id: draf.id, transaction_number: draf.transaction_number, document_number: 'DO-88213', supplier_reference: 'PT Patra Niaga', destination_code: 'FT-BEI', quantity_liter: 16000, attachment_count: 3, created_by_nama: 'Rudi Hartono', device_code: 'DV-H8ZCY3', created_at: `${hari(0)}T14:22:00+07:00`, product_code: P.product_code, mobile_flags: [] },
+      { kind: 'transfer', id: 'tx-p2', transfer_group_id: 'gp2', transaction_number: 'FIN-X', reason: 'TRF-0413', source_code: 'FT-BEI', transfer_to_code: 'FTR-02', quantity_liter: 10000, attachment_count: 2, created_by_nama: 'Sapto Wibowo', device_code: 'DV-K2M9QX', created_at: `${hari(0)}T10:07:00+07:00`, product_code: P.product_code, mobile_flags: ['duplicate_hash'] },
+    ];
+    const mappings = [
+      { id: 'm1', truck_equipment_id: 'e9', shift_id: 's1', location_id: 'l3', location_code: 'FTR-01', product_code: P.product_code, priority: 10, is_active: true },
+      { id: 'm2', truck_equipment_id: 'e8', location_id: 'l4', location_code: 'FTR-02', product_code: P.product_code, priority: 20, is_active: true },
+      { id: 'm3', truck_equipment_id: 'e3', location_id: 'l2', location_code: 'DP-PIT2', product_code: P.product_code, priority: 50, is_active: true },
+    ];
+    const master = { equipment: [{ id: 'e9', kode_alat: 'FTR-01' }, { id: 'e8', kode_alat: 'FTR-02' }, { id: 'e3', kode_alat: 'PC2000-03', kelas_alat: 'Excavator' }, { id: 'e1', kode_alat: 'HD-012', kelas_alat: 'Dump Truck' }], shifts: [{ id: 's1', nama_shift: 'Siang' }, { id: 's2', nama_shift: 'Malam' }], operators: [{ id: 'u1', nama: 'Andi Saputra' }] };
+
+    const ok = data => new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const bad = (msg, st = 400) => new Response(JSON.stringify({ error: msg }), { status: st, headers: { 'Content-Type': 'application/json' } });
+    const lambat = () => new Promise(r => setTimeout(r, 180));
+    window.__fwsCalls = [];
+    window.fetch = async (url, opts = {}) => {
+      await lambat();
+      const u = new URL(url, location.href);
+      const p = u.pathname.replace('/api/admin/production/fuel-inventory', '');
+      const qs = Object.fromEntries(u.searchParams);
+      const body = opts.body ? JSON.parse(opts.body) : null;
+      const m = (opts.method || 'GET').toUpperCase();
+      window.__fwsCalls.push(`${m} ${u.pathname}${u.search}`);
+      if (u.pathname === '/api/admin/production/master') return ok(master);
+      if (u.pathname === '/api/admin/fuel-access/pending-validations') return ok(pending);
+      if (u.pathname === '/api/admin/fuel-access/shift-sessions') return ok([{ id: 'ss1', location_code: 'FTR-01', operational_date: hari(1), variance_liter: 100, close_reason: 'Selisih flow meter' }]);
+      if (u.pathname.startsWith('/api/fuel-evidence')) return ok([]);
+      const dalam = t => (!qs.dari || t.operational_date >= qs.dari) && (!qs.sampai || t.operational_date <= qs.sampai) && (!qs.type || t.transaction_type === qs.type) && (!qs.location_id || t.source_location_id === qs.location_id || t.destination_location_id === qs.location_id);
+      if (m === 'GET') {
+        if (p === '/products') return ok([P]);
+        if (p === '/locations') return ok(L);
+        if (p === '/stock-summary') return ok(stok().filter(r => !qs.location_id || r.location_id === qs.location_id));
+        if (p === '/transactions') { const all = tx.filter(dalam).filter(t => !qs.search || `${t.transaction_number} ${t.document_number}`.includes(qs.search)); const off = Number(qs.offset || 0); return ok(all.slice(off, off + Number(qs.limit || 200)).map(t => ({ ...t, running_balance: 40000 + (t.id.length * 113) }))); }
+        if (p === '/usage-stats') { const iss = tx.filter(t => t.transaction_type === 'issue_equipment' && t.status === 'posted' && dalam({ ...t, transaction_type: undefined })); const total = iss.reduce((s, t) => s + t.quantity_liter, 0); const days = Math.round((Date.parse(qs.sampai) - Date.parse(qs.dari)) / 864e5) + 1; return ok({ total_issue_liter: total, day_count: days, adu_liter_per_day: total / days, basis: 'calendar', formula_version: 'v1' }); }
+        if (p === '/flow-series') { const by = {}; tx.filter(t => t.status === 'posted' && (!qs.dari || t.operational_date >= qs.dari)).forEach(t => { const r = by[t.operational_date] ||= { tanggal: t.operational_date, masuk: 0, keluar: 0, issue: 0, transfer_in: 0, transfer_out: 0 }; if (t.transaction_type === 'receipt') r.masuk += t.quantity_liter; else { r.keluar += t.quantity_liter; if (t.transaction_type === 'issue_equipment') r.issue += t.quantity_liter; } }); return ok(Object.values(by).sort((a, b) => a.tanggal.localeCompare(b.tanggal))); }
+        if (p === '/reconciliation') return ok({ unlinkedLogs: unlinked, orphanIssues: [], mismatched: [] });
+        if (p === '/opnames') return ok(opnames.filter(o => !qs.status || o.status === qs.status));
+        if (p === '/integrity-report') return ok({ ok: true, ledger_fifo: [], transfers: [], adjustments: [] });
+        if (p === '/mappings') return ok(mappings);
+        if (p === '/period-reconciliation') { const rows = rekonRows().filter(r => !qs.location_id || r.location_id === qs.location_id); const total = {}; ['opening', 'receipt_in', 'transfer_in', 'issue_out', 'transfer_out', 'adjustment_in', 'adjustment_out', 'other', 'closing_book'].forEach(k => { total[k] = rows.reduce((s, r) => s + r[k], 0); }); return ok({ dari: qs.dari, sampai: qs.sampai, rows, total, alert_pct: 2, basis: 'operational_date', unit: 'liter', formula_version: 'v1' }); }
+        if (p === '/consumption-breakdown') { const agg = {}; tx.filter(t => t.transaction_type === 'issue_equipment' && t.status === 'posted' && (!qs.dari || t.operational_date >= qs.dari)).forEach(t => { const kls = units.find(x => x[0] === t.equipment_code)[1]; const key = qs.group === 'class' ? kls : t.equipment_code; const r = agg[key] ||= { key, label: key, kelas: qs.group === 'class' ? null : kls, unit_count: 0, liter: 0, u: new Set() }; r.liter += t.quantity_liter; r.u.add(t.equipment_code); }); const items = Object.values(agg).map(r => ({ ...r, unit_count: r.u.size })).sort((a, b) => b.liter - a.liter); const total = items.reduce((s, r) => s + r.liter, 0); return ok({ items: items.map(i => ({ ...i, share: i.liter / total })), others_liter: 0, total_liter: total, group: qs.group }); }
+        if (p === '/allocations') return ok([]);
+        if (p === '/export') return new Response('# csv\nkolom\n', { status: 200 });
+      }
+      if (m === 'POST') {
+        if (p === '/transactions') { if (body.lines[0].quantity_liter > 50000) return bad('Quantity melebihi kapasitas lokasi.', 422); const t = add({ ...body, quantity_liter: body.lines[0].quantity_liter, unit_price: body.lines[0].unit_price, status: 'draft' }); return ok(t); }
+        let mm = /^\/transactions\/([^/]+)\/(post|void|reverse)$/.exec(p);
+        if (mm) { const t = tx.find(x => x.id === mm[1]); if (!t) return bad('Transaksi tidak ditemukan.', 404); t.status = mm[2] === 'post' ? 'posted' : mm[2] === 'void' ? 'void' : 'reversed'; pending = pending.filter(x => x.id !== t.id); return ok(t); }
+        mm = /^\/transfers\/([^/]+)\/(post|void)$/.exec(p);
+        if (mm) { pending = pending.filter(x => x.transfer_group_id !== mm[1]); return ok({ status: mm[2] === 'post' ? 'posted' : 'void' }); }
+        if (p === '/transfers') { const t = add({ transaction_type: 'transfer_out', operational_date: body.operational_date, source_location_id: body.from_location_id, transfer_to_code: kode(body.to_location_id), quantity_liter: body.quantity_liter, transfer_group_id: `g${seq}`, reason: body.reason }); return ok({ transfer_group_id: t.transfer_group_id, status: 'posted', transactions: [t.id] }); }
+        if (p === '/opnames') return ok({ id: 'onew', ...body });
+        if (p === '/opnames/onew/submit') { const o = { id: 'onew', location_id: 'l4', product_id: 'p1', operational_date: hari(0), physical_quantity: 11900, book_quantity_snapshot: 12000, variance_quantity: -100, variance_percent: -0.83, variance_alert: false, status: 'submitted' }; opnames.unshift(o); return ok(o); }
+        mm = /^\/opnames\/([^/]+)\/(approve|reject)$/.exec(p);
+        if (mm) { const o = opnames.find(x => x.id === mm[1]); o.status = mm[2] === 'approve' ? 'adjusted' : 'rejected'; return ok(o); }
+        if (p === '/reconciliation/sync') { const n = unlinked.filter(r => r.dapatDipetakan).length; unlinked = unlinked.filter(r => !r.dapatDipetakan); return ok({ total: 3, created: n, synced: 0, skipped: 2, errors: [] }); }
+        if (p === '/issues/link') { unlinked = unlinked.filter(r => r.id !== body.fuel_log_id); return ok({ id: 'linked' }); }
+        if (p === '/mappings') { mappings.push({ id: `m${mappings.length + 1}`, ...body, location_code: kode(body.location_id), product_code: P.product_code, is_active: true }); return ok({}); }
+        if (p === '/products' || p === '/locations') return ok({});
+      }
+      return bad(`Stub belum menangani ${m} ${u.pathname}`, 404);
+    };
+    window.getProdApiUrl = path => path;
+    window.getProdAuthHeaders = () => ({ Authorization: 'Bearer fixture' });
+    window.OMOSLoadLibrary = key => new Promise((resolve, reject) => {
+      if (key !== 'chart') return reject(new Error('tidak dikenal'));
+      if (window.Chart) return resolve(window.Chart);
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+      s.onload = () => resolve(window.Chart);
+      s.onerror = () => reject(new Error('offline'));
+      document.head.appendChild(s);
+    });
+    window.tutupDatabaseFuel = () => { document.title = 'kembali ke Input Fuel'; };
+  })();
+  </script>
+  <script src="../ui-action-feedback.js"></script>
+  <script src="../fuelWorkspace.js"></script>
+  <script>window.FuelWorkspace.open();</script>
+</body>
+</html>

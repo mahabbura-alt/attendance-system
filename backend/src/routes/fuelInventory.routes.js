@@ -47,6 +47,8 @@ router.post('/opnames/:id/reject', FuelInventoryController.tolakOpname);
 router.get('/stock-summary', FuelInventoryController.ringkasanStok);
 router.get('/flow-series', FuelInventoryController.arusHarian);
 router.get('/usage-stats', FuelInventoryController.statistikPakai);
+router.get('/period-reconciliation', FuelInventoryController.rekonsiliasiPeriode);
+router.get('/consumption-breakdown', FuelInventoryController.rincianKonsumsi);
 router.get('/export', FuelInventoryController.ekspor);
 router.get('/integrity-report', FuelInventoryController.laporanIntegritas);
 
