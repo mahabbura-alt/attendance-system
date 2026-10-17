@@ -1,0 +1,15 @@
+{
+  "version_code": 1,
+  "version_name": "1.0.0",
+  "minimum_supported_version": 1,
+  "mandatory": false,
+  "apk_path": "/api/app/omos-fuel.apk",
+  "sha256": "eb2528435d122bd4a1b81b41d1aa0a2049a7b3d336773d7bcc397d340e343c0d",
+  "release_notes": [
+    "Rilis pertama OMOS Fuel: isi unit lewat pindai QR (atau pilih manual dengan alasan), HM dan KM.",
+    "Terima fuel dari transportir dan transfer antar-lokasi dengan foto bukti; divalidasi admin sebelum stok berubah.",
+    "Buka dan tutup shift fuel truck dengan totalizer; selisih di atas ambang ditandai investigasi.",
+    "Bekerja offline: transaksi dan foto antre di HP lalu terkirim otomatis saat ada sinyal.",
+    "Login dengan Employee ID dan PIN 6 digit dari admin Fuel; perangkat wajib disetujui admin."
+  ]
+}

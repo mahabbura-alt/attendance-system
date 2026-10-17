@@ -60,6 +60,15 @@ Layer pointers:
 
 ## Verified Current Implementation Snapshot
 
+### 2026-10-17 — APK OMOS Fuel 1.0.0 dirilis publik: VERIFIED_DEPLOYED
+- Link unduh: `https://omos-mining.com/api/app/omos-fuel.apk`. Manifest `/api/fuel/mobile/app-version` = `available:true`, 1.0.0, versionCode 1, tidak wajib update.
+- APK release dibangun dengan `API_BASE_URL=https://omos-mining.com/` dan ditandatangani keystore baru `%USERPROFILE%\.omos-keys\omos-fuel-release.jks` (alias `omos-fuel`, sertifikat SHA-256 `c7f96b70…eaa75a25`; sandi di `omos-fuel-keystore.properties`, tidak di repo).
+  - APK sha256 `eb252843…340e343c0d`, 35,4 MB. `apksigner verify` OK.
+  - Unduhan publik sha256 cocok.
+- Deploy overlay `/opt/omos/releases/20261017-fuel-apk-100` (image `omos-app:20261017-fuel-apk-100`): hanya `backend/src/public/OMOS_Fuel.apk` + `fuel-release.json`. Container sebelumnya: `omos-app-prev-20261017-fuel-apk-100`.
+- APK debug berbeda kunci: penguji harus uninstall build debug sebelum memasang rilis ini.
+- Belum dipasang dan diuji di HP fisik terhadap produksi.
+
 ### 2026-10-17 — Redesign Database Fuel: satu workspace 4 alur: VERIFIED_DEPLOYED (commit `bfd219a`)
 - **Deploy Biznet:**
   - Release overlay `/opt/omos/releases/20261017-fuel-workspace` (image `omos-app:20261017-fuel-workspace`) dari release fuel-hotfix-105, plus 3 file backend (`fuelInventory.js`, controller, routes) dan 6 file dashboard (`fuelWorkspace.js/.css`, `fuelAccess.ui.js`, `index.html`, `production.js`, `production.loader.js`). Diff terhadap live sebelumnya = perubahan ini saja. Container sebelumnya: `omos-app-prev-20261017-fuel-workspace`. Tanpa migrasi.
