@@ -55,7 +55,7 @@ $env:TEMP="C:\gtmp"; $env:TMP="C:\gtmp"; $env:JAVA_TOOL_OPTIONS="-Djdk.net.unixd
 1. Keystore rilis (dibuat 17 Okt 2026, terpisah dari Safety, alias `omos-fuel`): `%USERPROFILE%\.omos-keys\omos-fuel-release.jks`. Variabel `OMOS_FUEL_*` ada di `omos-fuel-keystore.properties` di folder yang sama. Sidik jari sertifikat SHA-256: `c7f96b70…eaa75a25`.
    - Simpan cadangan kedua file di tempat aman. Tanpa keystore ini, update tidak bisa dipasang di atas versi terpasang.
    - Build dari Git Bash:
-     `while IFS='=' read -r k v; do v="${v%$''}"; [ -n "$k" ] && export "$k=$v"; done < "$USERPROFILE/.omos-keys/omos-fuel-keystore.properties"`
+     `while IFS='=' read -r k v; do v="${v%$'\r'}"; [ -n "$k" ] && export "$k=$v"; done < "$USERPROFILE/.omos-keys/omos-fuel-keystore.properties"`
      lalu `./gradlew.bat :app:assembleRelease -PAPI_BASE_URL=https://omos-mining.com/`.
    - Naikkan `versionCode`/`versionName` di `app/build.gradle.kts` untuk setiap rilis.
 2. Salin APK ke `backend/src/public/OMOS_Fuel.apk`. File diunduh di `https://omos-mining.com/api/app/omos-fuel.apk`.
