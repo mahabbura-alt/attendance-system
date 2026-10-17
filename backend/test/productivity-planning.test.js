@@ -150,7 +150,7 @@ test('database Hauler menghitung loading time dari kapasitas per material dan Co
   assert.equal(incomplete.fleetProductivity, 0);
 });
 
-test('v6 memisahkan Loader per material dan Setting Fleet per JOB untuk katalog Ritase', async () => {
+test('v8 menerbitkan Loader Productivity per JOB tanpa dependensi Setting Fleet', async () => {
   const loaderId = '00000000-0000-4000-8000-000000000021';
   const truckId = '00000000-0000-4000-8000-000000000022';
   const db = { query: async () => ({ rows: [
@@ -171,25 +171,17 @@ test('v6 memisahkan Loader per material dan Setting Fleet per JOB untuk katalog 
     ] };
   const saved = await controller.validateAndCalculatePlanningData(db, 'ob', payload, '2026-09-17');
   assert.equal(saved.scenarios.length, 1);
-  assert.equal(saved.fleetCatalog.length, 2);
+  assert.equal(saved.loaderCatalog.length, 2);
   assert.ok(saved.scenarios[0].loaderProductivity > 0);
   assert.notEqual(saved.scenarios[0].loaderProductivity, 999999);
-  assert.ok(saved.fleetCatalog[0].fleetProductivity > saved.fleetCatalog[1].fleetProductivity);
-  assert.equal(saved.fleetCatalog[0].fleetProductivity,
-    Math.min(saved.fleetCatalog[0].loaderProductivity, saved.fleetCatalog[0].truckProductivity));
-  assert.equal(saved.fleetCatalog[0].planRef, 'ob:setting-ob');
+  assert.equal(saved.loaderCatalog[0].fleetProductivity, saved.scenarios[0].loaderProductivity);
+  assert.equal(saved.loaderCatalog[1].fleetProductivity, saved.scenarios[0].loaderProductivity);
+  assert.equal(saved.loaderCatalog[0].targetSource, 'loader_productivity');
+  assert.equal(saved.fleetCatalog, undefined);
+  assert.equal(saved.fleetSetups, undefined);
   await assert.rejects(controller.validateAndCalculatePlanningData(db, 'ob', {
     ...payload, scenarios: [...payload.scenarios, { ...payload.scenarios[0], id: 'loader-duplicate' }]
   }, '2026-09-17'), /sudah ada/);
-  await assert.rejects(controller.validateAndCalculatePlanningData(db, 'ob', {
-    ...payload, fleetSetups: [...payload.fleetSetups, { ...payload.fleetSetups[0], id: 'setting-duplicate' }]
-  }, '2026-09-17'), /sudah ada/);
-  await assert.rejects(controller.validateAndCalculatePlanningData(db, 'ob', {
-    ...payload, fleetSetups: [payload.fleetSetups[0], { ...payload.fleetSetups[1], planRef: 'ob:setting-ob' }]
-  }, '2026-09-17'), /referensi Setting Fleet duplikat/);
-  await assert.rejects(controller.validateAndCalculatePlanningData(db, 'ob', {
-    ...payload, fleetSetups: [{ ...payload.fleetSetups[0], dumpTruckIds: 'invalid' }]
-  }, '2026-09-17'), /Daftar Dump Truck Setting Fleet tidak valid/);
 });
 
 test('v7 menambah header jarak dan mengunci satuan Capacity sesuai jenis planning', async () => {
@@ -205,20 +197,30 @@ test('v7 menambah header jarak dan mengunci satuan Capacity sesuai jenis plannin
       cycleTimeLoading: 25, workEffLoader: 0.72 }],
     haulerRows: [{ loaderId, truckId, material: 'COAL', capacity: 14.3, capacityUom: 'Ton',
       loadedSpeed: 15, emptySpeed: 30, spotDumpTime: 2, workEfficiency: 0.765 }],
-    distanceHeadersMeters: [500, 600, 2100],
+    distanceHeadersMeters: [100, 500, 600, 2100],
     fleetSetups: [{ id: 'coal-fleet', loaderScenarioId: 'coal-loader', jobCode: 'CG',
       dumpTruckIds: [truckId], benchmarkDistanceMeters: 2100 }] };
   const saved = await controller.validateAndCalculatePlanningData(db, 'coal', base, '2026-09-17');
-  assert.equal(saved.version, 7);
-  assert.equal(saved.fleetCatalog[0].productivityUnit, 'Ton/Hr');
-  assert.equal(saved.fleetCatalog[0].fleetProductivity > 0, true);
+  assert.equal(saved.version, 8);
+  assert.equal(saved.loaderCatalog[0].productivityUnit, 'Ton/Hr');
+  assert.equal(saved.loaderCatalog[0].fleetProductivity > 0, true);
   await assert.rejects(controller.validateAndCalculatePlanningData(db, 'coal', {
     ...base, haulerRows: [{ ...base.haulerRows[0], capacityUom: 'BCM' }]
-  }, '2026-09-17'), /belum valid/);
+  }, '2026-09-17'), /belum valid: coal wajib capacityUom 'ton'/);
   await assert.rejects(controller.validateAndCalculatePlanningData(db, 'coal', {
     ...base, distanceHeadersMeters: [500, 550, 2100]
   }, '2026-09-17'), /Header jarak/);
-  await assert.rejects(controller.validateAndCalculatePlanningData(db, 'coal', {
+  const noSimulationDistance = await controller.validateAndCalculatePlanningData(db, 'coal', {
     ...base, distanceHeadersMeters: [500, 600]
-  }, '2026-09-17'), /harus tersedia sebagai header/);
+  }, '2026-09-17');
+  assert.deepEqual(noSimulationDistance.distanceHeadersMeters, [500, 600],
+    'simulasi tidak boleh mengunci header jarak pada plan periode');
+  const shortDistance = await controller.validateAndCalculatePlanningData(db, 'coal', {
+    ...base, distanceHeadersMeters: [100, 500, 600]
+  }, '2026-09-17');
+  assert.deepEqual(shortDistance.distanceHeadersMeters, [100, 500, 600],
+    'jarak 100 meter valid untuk fleet dengan jarak aktual 0,1 km');
+  await assert.rejects(controller.validateAndCalculatePlanningData(db, 'coal', {
+    ...base, distanceHeadersMeters: [50, 500]
+  }, '2026-09-17'), /Header jarak/);
 });

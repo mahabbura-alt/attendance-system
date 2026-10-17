@@ -23,6 +23,17 @@ Implementasi 9 September 2026. Referensi tampilan: `D:/OneDrive/Desktop/data pro
 7. Hujan: `rainfall_logs` per area/tanggal operasional/shift/JOB. Intensity mm satu desimal; duplikat interval persis sama dihitung sekali, nilai pengukuran bertentangan ditandai. Interval durasi overlap digabung; jam setelah tengah malam dipetakan memakai operational_start shift. Tidak ada total curah hujan ALL lintas JOB yang berpotensi menggandakan kejadian.
 8. Keterangan menampilkan remark Input Data dan masalah kelengkapan. Nol tersimpan dibedakan dari data tidak tersedia (`—`). Total material dengan unit campuran tidak dipaksakan menjadi satu angka.
 
+9. **Sumber data produksi per JOB** (halaman 7. Data Produksi): Kolom induk JOB (CG·Coal Getting, FOT·FOT, OB·Overburden Removal) menunjukkan gear ⚙ yang memilih sumber data:
+   - **Input Ritase** (default) — nilai produksi dari agregasi Input Ritase sistem.
+   - **Manual** — admin ketik nilai produksi per tanggal/shift/material; nilai tersebut menggantikan ritase pada rekap bulanan (TOTAL bulan dan fuel ratio). Data manual disimpan dalam tabel `production_manual_sources` + `production_manual_overrides` dan tidak merusak histori ritase.
+   - Pilih Manual, ubah kolom produksi, lalu klik **Simpan** pada toolbar. Tombol
+     default buram/nonaktif dan otomatis aktif ketika nilai benar-benar berbeda.
+     Status menampilkan `Data belum disimpan · N perubahan`, kemudian kembali
+     menjadi `Tersimpan` setelah server mengonfirmasi penyimpanan.
+   - Save mengirim snapshot override lengkap hanya untuk kombinasi area+JOB yang
+     berubah. Karena itu perubahan satu sel FOT tidak menghapus nilai manual pada
+     tanggal, shift, material, atau baris FOT lain dalam periode yang sama.
+
 ## Alokasi fuel
 
 - Acuan `mining_production_logs`: tanggal operasional, shift_id, equipment_id; kemudian cocokkan kode JOB dan area dengan laporan.

@@ -52,23 +52,30 @@ suspend fun ambilLokasiSaatIni(context: Context): LokasiResult {
     }
 }
 
+@SuppressLint("MissingPermission")
 private fun cobaLastLocation(
     client: FusedLocationProviderClient,
     cont: kotlinx.coroutines.CancellableContinuation<LokasiResult>
 ) {
     if (!cont.isActive) return
-    client.lastLocation.addOnSuccessListener { lastLoc ->
-        if (!cont.isActive) return@addOnSuccessListener
-        if (lastLoc != null && lastLocationMasihValid(lastLoc)) {
-            processLocation(lastLoc, cont)
-        } else {
-            cont.resume(LokasiResult.Gagal(
-                "Sinyal GPS lemah / belum ada koordinat akurat.\n\n" +
-                "Berdirilah di area terbuka, pastikan GPS aktif, dan tunggu beberapa detik lalu coba lagi."
-            ))
+    try {
+        client.lastLocation.addOnSuccessListener { lastLoc ->
+            if (!cont.isActive) return@addOnSuccessListener
+            if (lastLoc != null && lastLocationMasihValid(lastLoc)) {
+                processLocation(lastLoc, cont)
+            } else {
+                cont.resume(LokasiResult.Gagal(
+                    "Sinyal GPS lemah / belum ada koordinat akurat.\n\n" +
+                    "Berdirilah di area terbuka, pastikan GPS aktif, dan tunggu beberapa detik lalu coba lagi."
+                ))
+            }
+        }.addOnFailureListener {
+            if (cont.isActive) cont.resume(LokasiResult.Gagal("Gagal membaca sinyal lokasi GPS."))
         }
-    }.addOnFailureListener {
-        if (cont.isActive) cont.resume(LokasiResult.Gagal("Gagal membaca sinyal lokasi GPS."))
+    } catch (_: SecurityException) {
+        if (cont.isActive) {
+            cont.resume(LokasiResult.Gagal("Izin lokasi belum diberikan. Aktifkan izin GPS lalu coba lagi."))
+        }
     }
 }
 

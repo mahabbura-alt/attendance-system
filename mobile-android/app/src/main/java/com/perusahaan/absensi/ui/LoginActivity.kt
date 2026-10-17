@@ -13,6 +13,7 @@ import com.perusahaan.absensi.R
 import com.perusahaan.absensi.data.SessionManager
 import com.perusahaan.absensi.network.RetrofitClient
 import com.perusahaan.absensi.network.dto.LoginRequest
+import com.perusahaan.absensi.update.UpdateManager
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -60,6 +61,11 @@ class LoginActivity : AppCompatActivity() {
             startActivity(Intent(this, LupaPasswordActivity::class.java))
         }
 
+    }
+
+    override fun onResume() {
+        super.onResume()
+        UpdateManager.checkForUpdate(this)
     }
 
     private fun prosesLogin() {

@@ -22,8 +22,8 @@ test('fleet creation sends the selected plan reference and exact material', () =
 test('Input Ritase source is cache-versioned after fleet identity changes', () => {
   const loader = fs.readFileSync(path.join(__dirname, 'production.loader.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  assert.match(loader, /production\.js\?v=86/);
-  assert.match(index, /production\.loader\.js\?v=20/);
+  assert.match(loader, /production\.js\?v=103/);
+  assert.match(index, /production\.loader\.js\?v=54/);
 });
 
 test('edit fleet sends its identity so backend can update the selected table', () => {
@@ -33,8 +33,8 @@ test('edit fleet sends its identity so backend can update the selected table', (
   assert.match(editSource, /bukaModalInputFleet\(fleet\)/);
 });
 
-test('Ritase card shows read-only planned Fleet Productivity', () => {
-  assert.match(source, /Plan Fleet Productivity:/);
+test('Ritase card shows read-only planned Loader Productivity', () => {
+  assert.match(source, /Plan Loader Productivity:/);
   assert.match(source, /fleet\.plan_productivity_unit/);
   assert.match(source, /Plan tidak ditemukan/);
 });

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Data Produksi Performance Preview</title>
+  <link rel="stylesheet" href="../style.css?v=57">
+  <link rel="stylesheet" href="../productionData.css?v=10">
+  <style>body{margin:0;background:#f4f6f8;color:#0f172a;font-family:Arial,sans-serif}main{max-width:1600px;margin:auto;padding:24px}</style>
+</head>
+<body>
+  <main><section id="productionDataRoot"></section></main>
+  <script>
+    window.__previewErrors = [];
+    window.addEventListener('error', event => window.__previewErrors.push(event.message));
+    window.getProdApiUrl = path => path;
+    window.getProdAuthHeaders = () => ({ Authorization: 'Bearer preview' });
+    window.OMOSActionFeedback = {
+      status(node, state, message) { node.textContent = message; node.dataset.state = state; },
+      async run(button, action) { button.disabled = true; try { return await action(); } finally { button.disabled = false; } },
+    };
+    const cell = (material, production, fuel, ratio, distance) => ({
+      materials: { [material]: production }, production, distanceKm: distance, fuel, fuelRatio: ratio,
+      rainMm: 12.5, rainMinutes: 90, slipperyMinutes: 45, notes: [], sources: [],
+    });
+    const values = (ob, cg, fot) => ({ OB: cell('CLAY', ob, 620, 0.31, 2.1), CG: cell('SEAM 3', cg, 480, 0.42, 1.4), FOT: cell('FOT', fot, 0, null, 0) });
+    const makeTable = area => ({ area, rows: [
+      { date: '2026-09-24', shiftId: 'day', shift: 'Shift Siang', values: values(1980, 1140, 240), all: { fuel: 1100, fuelRatio: 0.35 } },
+      { date: '2026-09-24', shiftId: 'night', shift: 'Shift Malam', values: values(1760, 980, 210), all: { fuel: 1100, fuelRatio: 0.39 } },
+    ], totals: values(3740, 2120, 450), totalAll: { fuel: 2200, fuelRatio: 0.37 }, summary: {
+      jobs: [{jobCode:'OB',production:3740,unit:'BCM'},{jobCode:'CG',production:2120,unit:'ton'},{jobCode:'FOT',production:450,unit:'ton'}],
+      fuel:2200,fuelRatio:0.37,distanceKm:1.82,qualityIssueCount:0,qualityIssues:[]
+    } });
+    const report = {
+      generatedAt: '2026-09-25T02:30:00.000Z', period: { year: 2026, month: 9, start: '2026-09-01', end: '2026-10-01' },
+      areas: ['BEI', 'DKC'], shifts: [{ id: 'day', nama_shift: 'Shift Siang' }, { id: 'night', nama_shift: 'Shift Malam' }],
+      jobs: [
+        { jobCode: 'OB', jobDescription: 'Overburden Removal', unit: 'BCM', materials: [{ name: 'CLAY', unit: 'BCM' }] },
+        { jobCode: 'CG', jobDescription: 'Coal Getting', unit: 'ton', materials: [{ name: 'SEAM 3', unit: 'ton' }] },
+        { jobCode: 'FOT', jobDescription: 'FOT', unit: 'ton', materials: [{ name: 'FOT', unit: 'ton' }] },
+      ],
+      tables: [makeTable('BEI'), makeTable('DKC')], manualSources: [{ area: 'BEI', jobCode: 'FOT', source: 'manual' }],
+      manualOverrides: [
+        { area: 'BEI', jobCode: 'FOT', tanggal: '2026-09-24', shiftId: 'day', material: 'FOT', value: 240 },
+        { area: 'BEI', jobCode: 'FOT', tanggal: '2026-09-24', shiftId: 'day', material: 'TOTAL', value: 240 },
+        { area: 'BEI', jobCode: 'FOT', tanggal: '2026-09-24', shiftId: 'night', material: 'FOT', value: 210 },
+        { area: 'BEI', jobCode: 'FOT', tanggal: '2026-09-24', shiftId: 'night', material: 'TOTAL', value: 210 },
+      ],
+      queue: [], allocated: [
+        { id:'fuel-ob',tanggal:'2026-09-24',shiftId:'day',equipmentId:'dt1',unit:'DT30 6-88',liters:2000,mode:'automatic',allocations:[{area:'BEI',jobCode:'OB',liters:2000}] },
+        { id:'fuel-cg',tanggal:'2026-09-24',shiftId:'day',equipmentId:'dt2',unit:'DT30 6-89',liters:1400,mode:'manual',allocations:[{area:'BEI',jobCode:'CG',liters:1400}] },
+        { id:'fuel-split',tanggal:'2026-09-24',shiftId:'night',equipmentId:'dt3',unit:'DT30 6-90',liters:1000,mode:'manual',allocations:[{area:'BEI',jobCode:'OB',liters:400},{area:'BEI',jobCode:'FOT',liters:600}] }
+      ], densityCandidates: [], fuelSummary: { total: 4400, allocated: 4400, pending: 0 },
+      fuelQuality: { reconciled: true, allocationPercent: 100, reconciliationDifference: 0, oldestPendingDate: null,
+        oldestPendingDays: 0, activeRuleCount: 8, modeCounts: { automatic: 12, rule: 2, manual: 0 },
+        topUnmappedUnits: [], reasonCounts: {} },
+    };
+    const applyManualOverrides = overrides => {
+      report.manualOverrides = overrides;
+      for (const override of overrides) {
+        const row = report.tables.find(table => table.area === override.area)?.rows.find(item => item.date === override.tanggal && item.shiftId === override.shiftId);
+        if (!row) continue;
+        if (override.material === 'TOTAL') row.values[override.jobCode].production = override.value;
+        else row.values[override.jobCode].materials[override.material] = override.value;
+      }
+    };
+    const persistedOverrides = JSON.parse(sessionStorage.getItem('pd-preview-manual-overrides') || 'null');
+    if (Array.isArray(persistedOverrides)) applyManualOverrides(persistedOverrides);
+    window.fetch = async (_url, options = {}) => {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      if (String(options.method || 'GET').toUpperCase() === 'PUT') {
+        const body = JSON.parse(options.body); window.__lastSave = body;
+        const rows = body.overrides.map(override => ({ ...override, area: body.area, jobCode: body.jobCode }));
+        applyManualOverrides(rows); sessionStorage.setItem('pd-preview-manual-overrides', JSON.stringify(rows));
+        return { ok: true, json: async () => ({ saved: true, source: body.source, overrides: rows.length }) };
+      }
+      return { ok: true, json: async () => report };
+    };
+  </script>
+  <script src="../productionData.js?v=13"></script>
+  <script>window.ProductionData.init();</script>
+</body>
+</html>

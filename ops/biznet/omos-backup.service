@@ -1,0 +1,8 @@
+[Unit]
+Description=Backup OMOS local PostgreSQL and object storage
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/omos/current/ops/biznet/backup-local-data.sh

@@ -1,0 +1,17 @@
+{
+  "version_code": 6,
+  "version_name": "3.0.1",
+  "minimum_supported_version": 4,
+  "mandatory": false,
+  "apk_path": "/Absensi_PIM.apk",
+  "sha256": "0127ED07B19255F5A407FACAE3EE06D4483C55FECE40D00093FA1E92D5ED6C6E",
+  "release_notes": [
+    "Timestamp Riwayat Absensi sekarang selalu dikonversi dan ditampilkan dalam WIB.",
+    "Koneksi langsung ke gateway Biznet.",
+    "Kalibrasi GPS dengan koordinat dan akurasi terbaik.",
+    "Slicer range periode pada Riwayat Absensi dan Rekap HM.",
+    "Pembaruan aplikasi terverifikasi dari server OMOS.",
+    "Persetujuan update satu kali dengan download otomatis di latar belakang.",
+    "Seluruh fitur Absensi PIM V2.2 tetap tersedia."
+  ]
+}

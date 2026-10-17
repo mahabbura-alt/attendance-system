@@ -60,6 +60,28 @@ router.patch('/roster/daily/batch', overrideRosterDailyBatch);
 router.get('/roster/export', exportRoster);
 router.post('/roster/import', rosterUpload.single('excel'), importRoster);
 
+// Database Cuti Karyawan
+const cutiController = require('../controllers/cutiController');
+router.get('/cuti/dashboard', cutiController.dashboard);
+router.get('/cuti/detail', cutiController.detail);
+router.get('/cuti/policies', cutiController.daftarKebijakan);
+router.get('/cuti/policy-scopes', cutiController.daftarLingkupKebijakan);
+router.post('/cuti/policies', cutiController.buatKebijakan);
+router.patch('/cuti/policies/:id', cutiController.ubahStatusKebijakan);
+router.delete('/cuti/policies/:id', cutiController.hapusKebijakan);
+router.post('/cuti/requests', cutiController.buatPengajuan);
+router.get('/cuti/cycle-options', cutiController.opsiSiklus);
+router.post('/cuti/cycle-applications', cutiController.buatPengajuanSiklus);
+router.put('/cuti/cycle-applications/:id', cutiController.ubahPengajuanSiklus);
+router.delete('/cuti/cycle-applications/:id', cutiController.hapusPengajuanSiklus);
+router.post('/cuti/requests/:id/transition', cutiController.transisiPengajuan);
+router.patch('/cuti/realisations/:id', cutiController.koreksiRealisasi);
+router.post('/cuti/realisations/:id/cancel', cutiController.batalRealisasi);
+router.get('/cuti/calendar', cutiController.kalender);
+router.get('/cuti/reconciliation', cutiController.daftarRekonsiliasi);
+router.post('/cuti/reconciliation/run', cutiController.jalankanRekonsiliasi);
+router.get('/cuti/export', cutiController.exportCsv);
+
 // Registrasi Pending (approve / tolak pendaftar baru)
 router.get('/registrasi-pending', daftarRegistrasiPending);
 router.patch('/registrasi-pending/:id', prosesRegistrasi);

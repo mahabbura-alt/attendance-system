@@ -45,6 +45,17 @@ data class ResetSandiRequest(
 
 data class PesanResponse(val message: String)
 
+@Keep
+data class AppVersionDto(
+    @SerializedName("version_code") val versionCode: Int,
+    @SerializedName("version_name") val versionName: String,
+    @SerializedName("minimum_supported_version") val minimumSupportedVersion: Int,
+    @SerializedName("mandatory") val mandatory: Boolean,
+    @SerializedName("apk_url") val apkUrl: String,
+    @SerializedName("sha256") val sha256: String,
+    @SerializedName("release_notes") val releaseNotes: List<String> = emptyList()
+)
+
 // ── Opsi Pendaftaran & Shift ───────────────────────────────────────────────
 
 data class OpsiPendaftaranDto(

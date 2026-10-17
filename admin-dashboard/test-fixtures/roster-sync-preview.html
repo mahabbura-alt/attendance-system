@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Roster Synchronization Preview</title>
+  <link rel="stylesheet" href="../style.css?v=65">
+  <style>
+    body{margin:0;padding:24px;background:#f5f4ef;color:#0f172a;font-family:Arial,sans-serif}
+    main{max-width:1280px;margin:auto}.preview-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0;padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:9px}.preview-toolbar input,.preview-toolbar select{padding:8px;border:1px solid #cbd5e1;border-radius:7px}.roster-group__body{display:block!important}
+  </style>
+</head>
+<body>
+<main>
+  <h2>Roster Karyawan</h2>
+  <p>Jadwal otomatis dari karyawan aktif, dikelompokkan berdasarkan jabatan.</p>
+  <div class="preview-toolbar"><input type="date" value="2026-10-01"><input type="date" value="2026-10-07"><select><option>Jabatan: Semua</option></select><input type="search" placeholder="Cari nama / ID karyawan"><button class="tombol tombol--utama">Terapkan Periode</button></div>
+  <div class="roster-sync-summary roster-sync-summary--warning"><strong>2 dari 5 karyawan belum sinkron</strong><span>14 sel jadwal belum terbentuk. Buka jabatan bertanda merah lalu pilih Setup &amp; Sinkronkan.</span></div>
+  <br>
+  <section class="roster-group">
+    <div class="roster-group__head"><button class="roster-group__toggle"><span>▼</span><strong>Driver DT</strong><small>3 karyawan</small><span class="roster-sync-badge is-ok">3 sinkron</span></button><div class="roster-group__actions"><button class="tombol tombol--utama" disabled>Simpan Perubahan</button><button class="tombol tombol--ghost">Ubah Template</button></div></div>
+    <div class="roster-group__body"><div class="roster-table-wrap"><table class="tabel roster-table"><thead><tr><th class="roster-sticky roster-sticky--employee">Karyawan</th><th>01 Okt</th><th>02 Okt</th><th>03 Okt</th><th>04 Okt</th><th>05 Okt</th><th>06 Okt</th><th>07 Okt</th></tr></thead><tbody>
+      <tr><td class="roster-sticky roster-sticky--employee"><strong>Alex</strong><small>EMP-021</small></td>
+      <td class="roster-day-cell"><select class="roster-day-select roster-badge--s"><option>S · Shift Siang</option><option>M · Shift Malam</option></select><small class="roster-cell-source">Otomatis</small></td>
+      <td class="roster-day-cell"><select class="roster-day-select roster-badge--s"><option>S · Shift Siang</option></select><small class="roster-cell-source">Otomatis</small></td>
+      <td class="roster-day-cell"><select class="roster-day-select roster-badge--m"><option>M · Shift Malam</option><option>S · Shift Siang</option></select><small class="roster-cell-source roster-cell-source--manual">Manual</small></td>
+      <td class="roster-day-cell"><select class="roster-day-select roster-badge--m"><option>M · Shift Malam</option></select><small class="roster-cell-source">Otomatis</small></td>
+      <td class="roster-day-cell"><select class="roster-day-select roster-badge--cp" disabled><option>CP · Cuti Periodik</option></select><small class="roster-cell-source roster-cell-source--leave">Database Cuti</small></td>
+      <td class="roster-day-cell"><select class="roster-day-select roster-badge--cp" disabled><option>CP · Cuti Periodik</option></select><small class="roster-cell-source roster-cell-source--leave">Database Cuti</small></td>
+      <td class="roster-day-cell"><select class="roster-day-select roster-badge--off"><option>OFF · Istirahat</option></select><small class="roster-cell-source">Otomatis</small></td></tr>
+    </tbody></table></div></div>
+  </section>
+  <section class="roster-group roster-group--collapsed"><div class="roster-group__head"><button class="roster-group__toggle"><span>▶</span><strong>Operator</strong><small>2 karyawan</small><span class="roster-sync-badge is-warning">2 belum sinkron</span></button><div class="roster-group__actions"><button class="tombol tombol--utama" disabled>Simpan Perubahan</button><button class="tombol tombol--ghost">Setup &amp; Sinkronkan</button></div></div></section>
+</main>
+</body>
+</html>

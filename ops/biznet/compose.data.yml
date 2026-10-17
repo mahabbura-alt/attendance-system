@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: omos-postgres-staging
+    restart: unless-stopped
+    env_file:
+      - /opt/omos/secrets/data.env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-omos_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-omos}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - max_connections=80
+      - -c
+      - log_timezone=Asia/Jakarta
+      - -c
+      - timezone=Asia/Jakarta
+    volumes:
+      - omos_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 1g
+    cpus: 1.0
+    networks:
+      - omos_data
+
+volumes:
+  omos_postgres_data:
+
+networks:
+  omos_data:
+    internal: true

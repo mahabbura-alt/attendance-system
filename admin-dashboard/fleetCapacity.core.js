@@ -78,21 +78,32 @@
   }
 
   function parsePlans(payload, type) {
-    const structured = Array.isArray(payload?.planningData?.fleetCatalog) ? payload.planningData.fleetCatalog : [];
+    const planningData = payload?.planningData || {};
+    const structured = Array.isArray(planningData.loaderCatalog) && planningData.loaderCatalog.length
+      ? planningData.loaderCatalog
+      : Array.isArray(planningData.scenarios)
+        ? planningData.scenarios.flatMap((scenario, index) => {
+          const jobs = Array.isArray(scenario.jobCodes) && scenario.jobCodes.length ? scenario.jobCodes : [scenario.jobCode || ''];
+          return jobs.map(jobCode => ({ ...scenario, tableId: scenario.id || `${type}-${index + 1}`, jobCode,
+            fleetProductivity: scenario.loaderProductivity, targetSource: 'loader_productivity' }));
+        }) : Array.isArray(planningData.fleetCatalog)
+          ? planningData.fleetCatalog.filter(entry => Number(entry.loaderProductivity) > 0)
+            .map(entry => ({ ...entry, fleetProductivity: entry.loaderProductivity, targetSource: 'legacy_loader_productivity' }))
+          : [];
     if (structured.length) return structured.map((entry, index) => ({
       id: entry.tableId || `${type}-${index}-${entry.loaderCode}`,
       type,
       values: entry,
       loaderCode: entry.loaderCode,
-      dumpTruckCode: entry.dumpTruckCode || entry.dumpTruckCodes?.[0] || '',
-      dumpTruckIds: Array.isArray(entry.dumpTruckIds) ? entry.dumpTruckIds.map(String) : [],
-      requiredTrucks: Array.isArray(entry.dumpTruckIds) ? entry.dumpTruckIds.length : Math.max(0, Math.round(Number(entry.numberOfTruck) || 0)),
+      dumpTruckCode: '',
+      dumpTruckIds: [],
+      requiredTrucks: 0,
       jobCode: entry.jobCode || '',
       computed: {
         loaderProductivity: Number(entry.loaderProductivity),
-        truckProductivity: Number(entry.truckProductivity),
-        fleetProductivity: Number(entry.fleetProductivity),
-        truckResults: Array.isArray(entry.truckResults) ? entry.truckResults : []
+        truckProductivity: null,
+        fleetProductivity: Number(entry.loaderProductivity ?? entry.fleetProductivity),
+        truckResults: []
       },
     })).filter(plan => plan.loaderCode);
     const parser = new DOMParser();
@@ -226,29 +237,17 @@
 
   function capacityResult(plan) {
     const loaderRate = Number(plan.computed.loaderProductivity);
-    const truckRate = Number(plan.computed.truckProductivity);
     const loaderEwh = annualEwh(plan.loaderUnit, plan.job);
-    const assignedTrucks = automaticAssignments[plan.id] || [];
-    const truckEwhValues = assignedTrucks.map(unit => annualEwh(unit, plan.job));
 
     if (!plan.job || !plan.loaderUnit || !Number.isFinite(loaderRate) || loaderRate <= 0
-      || !Number.isFinite(truckRate) || truckRate <= 0 || loaderEwh === null
-      || !assignedTrucks.length || truckEwhValues.some(value => value === null)) {
+      || loaderEwh === null) {
       return { target: null, bottleneck: 'DATA' };
     }
 
     const loaderCapacity = loaderRate * loaderEwh;
-    const perTruckRates = new Map((plan.computed.truckResults || []).map(result => [String(result.id), Number(result.productivity)]));
-    const haulerCapacity = assignedTrucks.reduce((sum, unit, index) => {
-      const rate = perTruckRates.get(unitKey(unit));
-      return sum + (Number.isFinite(rate) && rate > 0 ? rate : (truckRate / Math.max(1, assignedTrucks.length))) * truckEwhValues[index];
-    }, 0);
-    const tolerance = Math.max(loaderCapacity, haulerCapacity) * 0.03;
     return {
-      target: Math.min(loaderCapacity, haulerCapacity),
-      bottleneck: Math.abs(loaderCapacity - haulerCapacity) <= tolerance
-        ? 'BALANCED'
-        : loaderCapacity < haulerCapacity ? 'LOADER' : 'HAULER',
+      target: loaderCapacity,
+      bottleneck: 'LOADER',
     };
   }
 
@@ -535,7 +534,7 @@
             <td style="position:sticky;left:0;z-index:45;width:150px;min-width:150px;padding:4px;border:1px solid #e2e8f0;background:#fff;"><select data-periodic-fleet="${escapeHtml(plan.id)}" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:5px;background:#fff;font-weight:700;">${planOptions.replace(`value="${escapeHtml(plan.id)}"`, `value="${escapeHtml(plan.id)}" selected`)}</select></td>
             <td style="position:sticky;left:150px;z-index:44;width:95px;min-width:95px;padding:6px;border:1px solid #e2e8f0;background:#fff;font-weight:700;">${escapeHtml(plan.loaderUnit?.class_unit || '—')}</td>
             <td style="position:sticky;left:245px;z-index:43;width:120px;min-width:120px;padding:6px;border:1px solid #e2e8f0;background:#fff;font-weight:700;overflow-wrap:anywhere;">${escapeHtml(plan.values.material || '—')}</td>
-            <td title="Fleet Productivity" style="position:sticky;left:365px;z-index:42;width:125px;min-width:125px;padding:6px;border:1px solid #e2e8f0;background:#fff;text-align:right;font-weight:800;white-space:nowrap;">${Number.isFinite(Number(plan.computed.fleetProductivity)) ? `${formatNumber(plan.computed.fleetProductivity)} ${plan.type === 'coal' ? 'Ton/Hr' : 'BCM/Hr'}` : '—'}</td>
+            <td title="Loader Productivity" style="position:sticky;left:365px;z-index:42;width:125px;min-width:125px;padding:6px;border:1px solid #e2e8f0;background:#fff;text-align:right;font-weight:800;white-space:nowrap;">${Number.isFinite(Number(plan.computed.fleetProductivity)) ? `${formatNumber(plan.computed.fleetProductivity)} ${plan.type === 'coal' ? 'Ton/Hr' : 'BCM/Hr'}` : '—'}</td>
             ${columns.map(column => { const check = checkboxState(plan.id, column); return `<td class="fc-period-cell fc-period-cell--${column.type} ${check.checked ? 'is-active' : ''} ${check.indeterminate ? 'is-partial' : ''}" data-fc-column="${periodColumnKey(column)}">${periodicCheckbox(plan.id, column)}</td>`; }).join('')}
           </tr>`).join('') || `<tr><td colspan="${columns.length + 4}" style="padding:18px;text-align:center;color:#64748b;">Belum ada fleet yang disimpan pada OB atau Coal Productivity Planning.</td></tr>`}</tbody>
         </table>
@@ -612,7 +611,7 @@
       .filter(({ month, day }) => !pitLocation || pit[periodicKey(month, day)] === pitLocation);
     if (!activeDays.length) return { value: null, reason: 'Fleet tidak dijadwalkan running pada periode ini' };
     const productivity = Number(plan.computed.fleetProductivity);
-    if (!Number.isFinite(productivity) || productivity <= 0) return { value: null, reason: 'Fleet Productivity belum tersedia' };
+    if (!Number.isFinite(productivity) || productivity <= 0) return { value: null, reason: 'Loader Productivity belum tersedia' };
     const ewhValues = [];
     for (const { month, day } of activeDays) {
       const ewh = dailyEwh(plan.loaderUnit, plan.job, state.activeYear, month, day);
@@ -662,7 +661,7 @@
 
     return `<section class="fc-card fc-production-card fc-production-card--${type}">
       <div class="fc-card-heading">
-        <div><h3>Production Planning ${title} — ${escapeHtml(state.selectedPitLocation)}</h3><div>Produksi = EWH Excavator × Fleet Productivity. Hanya periode aktif pada area ini yang dihitung.</div></div>
+        <div><h3>Production Planning ${title} — ${escapeHtml(state.selectedPitLocation)}</h3><div>Produksi = EWH Excavator × Loader Productivity. Hanya periode aktif pada area ini yang dihitung.</div></div>
         <span class="fc-unit-badge">${unit} • Read only</span>
       </div>
       ${contextBar([{ label: 'Area aktif', value: state.selectedPitLocation }, { label: 'Tahun', value: state.activeYear }, { label: `Fleet ${title}`, value: rows.length }, { label: 'Satuan', value: unit }])}
@@ -674,9 +673,9 @@
             <td class="fc-sticky-cell" style="left:0;width:150px;min-width:150px;"><select data-production-fleet="${escapeHtml(plan.id)}" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:5px;background:#fff;font-weight:700;">${planOptions.replace(`value="${escapeHtml(plan.id)}"`, `value="${escapeHtml(plan.id)}" selected`)}</select></td>
             <td class="fc-sticky-cell" style="left:150px;width:95px;min-width:95px;font-weight:700;">${escapeHtml(plan.loaderUnit?.class_unit || '—')}</td>
             <td class="fc-sticky-cell" style="left:245px;width:120px;min-width:120px;font-weight:700;overflow-wrap:anywhere;">${escapeHtml(plan.values.material || '—')}</td>
-            <td class="fc-sticky-cell" title="Fleet Productivity" style="left:365px;width:125px;min-width:125px;text-align:right;font-weight:800;white-space:nowrap;">${Number.isFinite(Number(plan.computed.fleetProductivity)) ? formatNumber(plan.computed.fleetProductivity) : '—'}</td>
+            <td class="fc-sticky-cell" title="Loader Productivity" style="left:365px;width:125px;min-width:125px;text-align:right;font-weight:800;white-space:nowrap;">${Number.isFinite(Number(plan.computed.fleetProductivity)) ? formatNumber(plan.computed.fleetProductivity) : '—'}</td>
             <td class="fc-sticky-cell fc-unit-cell" style="left:490px;width:70px;min-width:70px;">${rateUnit}</td>
-            ${columns.map(column => { const result = results.get(`${plan.id}|${periodColumnKey(column)}`); return `<td class="fc-period-cell fc-period-cell--${column.type} fc-production-value ${heatClass(result.value, column)}" data-fc-column="${periodColumnKey(column)}" title="${escapeHtml(result.reason || `EWH × Fleet Productivity (${unit})`)}">${result.value === null ? '—' : formatNumber(result.value)}</td>`; }).join('')}
+            ${columns.map(column => { const result = results.get(`${plan.id}|${periodColumnKey(column)}`); return `<td class="fc-period-cell fc-period-cell--${column.type} fc-production-value ${heatClass(result.value, column)}" data-fc-column="${periodColumnKey(column)}" title="${escapeHtml(result.reason || `EWH × Loader Productivity (${unit})`)}">${result.value === null ? '—' : formatNumber(result.value)}</td>`; }).join('')}
           </tr>`).join('') || `<tr><td colspan="${columns.length + 5}" class="fc-empty-state">Belum ada fleet ${title} yang dialokasikan ke ${escapeHtml(state.selectedPitLocation)} pada tahun ${state.activeYear}.</td></tr>`}
           ${rows.length ? `<tr class="fc-total-row"><td colspan="4" class="fc-total-label">Total Production ${title} — ${escapeHtml(state.selectedPitLocation)}</td><td class="fc-total-unit">${unit}</td>${columns.map(column => { const total = totalForColumn(column); return `<td data-fc-column="${periodColumnKey(column)}">${total === null ? '—' : formatNumber(total)}</td>`; }).join('')}</tr>` : ''}</tbody>
         </table>

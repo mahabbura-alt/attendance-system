@@ -47,7 +47,7 @@ test('alokasi jarak tidak boleh melebihi ritase tersimpan pada truck dan jam yan
     setupDistanceKm: 2.1,
     trucks: [{ dump_truck_id: 'dt-1', factor_value: 11, hours: { 8: 5 } }],
     allocations: [{ dump_truck_id: 'dt-1', period_hour: 8, ritase_count: 6, distance_km: 0.2 }]
-  }), /melebihi ritase tersimpan/);
+  }), /melebihi ritase produktif/);
 });
 
 test('alokasi tidak dapat ditempatkan pada jam tanpa ritase tersimpan', () => {
@@ -55,7 +55,7 @@ test('alokasi tidak dapat ditempatkan pada jam tanpa ritase tersimpan', () => {
     setupDistanceKm: 2.1,
     trucks: [{ dump_truck_id: 'dt-1', factor_value: 11, hours: { 8: 0 } }],
     allocations: [{ dump_truck_id: 'dt-1', period_hour: 8, ritase_count: 1, distance_km: 0.2 }]
-  }), /melebihi ritase tersimpan/);
+  }), /melebihi ritase produktif/);
 });
 
 test('API dan migration menyimpan sumber nilai, satuan, formula version, serta soft delete', () => {
@@ -65,7 +65,7 @@ test('API dan migration menyimpan sumber nilai, satuan, formula version, serta s
 
   assert.match(routes, /ritase\/distance-allocations/);
   assert.match(controller, /input_distance, input_unit, distance_km/);
-  assert.match(controller, /weighted-final-distance-v1/);
+  assert.match(controller, /weighted-final-distance-v2-productive/);
   assert.match(migration, /deleted_at TIMESTAMPTZ/);
   assert.match(migration, /CHECK \(input_unit IN \('m', 'km'\)\)/);
 });

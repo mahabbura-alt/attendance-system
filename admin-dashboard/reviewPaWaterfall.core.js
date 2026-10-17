@@ -49,7 +49,26 @@
     };
   }
 
-  const api = { buildPaWaterfall };
+  function reconcilePaContributions(result, authoritativeDelta, enabled) {
+    if (!result) return null;
+    const rows = result.rows.filter(row => row.jam != null).map(row => ({ ...row }));
+    const rawTotal = rows.reduce((sum, row) => sum + (finite(num(row.delta)) ? num(row.delta) : 0), 0);
+    const delta = num(authoritativeDelta);
+    if (!enabled || !finite(delta)) {
+      return { rows, rawTotal, adjustment: 0, total: rawTotal, difference: finite(delta) ? rawTotal - delta : null };
+    }
+    const adjustment = delta - rawTotal;
+    if (Math.abs(adjustment) > 1e-9) {
+      rows.push({
+        segmen: adjustment >= 0 ? 'Gain vs Plan / Penyesuaian Scope' : 'Loss vs Plan / Penyesuaian Scope',
+        jam: null, delta: adjustment, share: null, unit: null, isAdjustment: true,
+      });
+    }
+    const total = rows.reduce((sum, row) => sum + (finite(num(row.delta)) ? num(row.delta) : 0), 0);
+    return { rows, rawTotal, adjustment, total, difference: total - delta };
+  }
+
+  const api = { buildPaWaterfall, reconcilePaContributions };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ReviewPaWaterfallCore = api;

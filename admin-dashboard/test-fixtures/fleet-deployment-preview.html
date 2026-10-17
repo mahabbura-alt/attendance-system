@@ -1,0 +1,36 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fleet Deployment Planner Preview</title><link rel="icon" href="data:,"><link rel="stylesheet" href="../style.css?v=53"><link rel="stylesheet" href="../fleetDeployment.css?v=3">
+<style>body{margin:0;background:#f6f4ef}.preview{max-width:1450px;margin:0 auto;padding:28px}</style></head><body><main class="preview"><div id="fleetDeploymentRoot" class="fdp-shell"></div><div id="fleetUnitMappingView" class="fdp-unit-mapping" hidden><div class="um-actions"><div class="um-actions__filters"><input id="unitMappingSearch" type="search" placeholder="Cari kode unit, class, atau model…"><select id="unitMappingQueueFilter"><option value="all">Semua Antrian</option><option value="dump-truck">Dump Truck</option></select></div><div class="um-actions__buttons"><span id="unitMappingStatus" data-tone="pending">Memuat…</span><button id="unitMappingUndo" disabled>↶ Undo</button><button id="unitMappingRedo" disabled>↷ Redo</button><button id="unitMappingCopyPrevious">⧉ Copy Periode Sebelumnya</button><button id="unitMappingAutoAllocate" class="is-primary">⚡ Auto Allocate DT</button></div></div><div class="um-workspace"><div id="unitMappingQueue"></div><div id="unitMappingKpis" class="um-kpi-grid"></div></div></div></main>
+<script>window.getProdApiUrl=p=>p;window.getProdAuthHeaders=()=>({});
+const rows=[
+ {id:'1',name:'Fleet OB BEI - North Cut',loader_codes:'EX30 350-14',date_start:'2026-09-23T00:00:00.000Z',date_end:'2026-10-06T00:00:00.000Z',pit_area_snapshot:'BEI',job_code_snapshot:'OB',material_snapshot:'CLAY',planning_type:'ob',productivity_unit:'BCM/Hr',status:'published',revision:2,fleet_count:3,day_count:14,planned_production:48320,warning_count:0,conflict_count:0,min_target_productivity:150.73,max_target_productivity:150.73},
+ {id:'2',name:'Coal Getting DKC',loader_codes:'EX30 350-15',date_start:'2026-09-25',date_end:'2026-10-12',pit_area_snapshot:'DKC',job_code_snapshot:'CG',material_snapshot:'COAL',planning_type:'coal',productivity_unit:'Ton/Hr',status:'draft',revision:1,fleet_count:2,day_count:18,planned_production:18750,warning_count:2,conflict_count:1,min_target_productivity:180.2,max_target_productivity:180.2},
+ {id:'3',name:'Fleet OB BEI - South',loader_codes:'PC400-12',date_start:'2026-10-02',date_end:'2026-10-18',pit_area_snapshot:'BEI',job_code_snapshot:'OB',material_snapshot:'TOP SOIL',planning_type:'ob',productivity_unit:'BCM/Hr',status:'validated',revision:1,fleet_count:2,day_count:17,planned_production:27940,warning_count:0,conflict_count:0,min_target_productivity:110.5,max_target_productivity:110.5}
+];
+const catalog=[
+ {planRef:'ob:ex30-14-clay',tableId:'ex30-14-clay',loaderCode:'EX30 350-14',equipmentId:'a',planningType:'ob',material:'CLAY',jobCode:'OB',jobDescription:'Overburden Removal',fleetProductivity:150.73,productivityUnit:'BCM/Hr'},
+ {planRef:'ob:ex30-15-clay',tableId:'ex30-15-clay',loaderCode:'EX30 350-15',equipmentId:'b',planningType:'ob',material:'CLAY',jobCode:'OB',jobDescription:'Overburden Removal',fleetProductivity:140.77,productivityUnit:'BCM/Hr'},
+ {planRef:'coal:ex30-14-seam3',tableId:'ex30-14-seam3',loaderCode:'EX30 350-14',equipmentId:'ex1',planningType:'coal',material:'SEAM 3',jobCode:'CG',jobDescription:'Coal Getting',fleetProductivity:177.45,productivityUnit:'Ton/Hr'}
+];
+const equipment=[
+ {id:'ex1',kode_alat:'EX30 350-14',kelas_alat:'Excavator',tipe_alat:'HITACHI ZX350H',class_unit:'EX 30 T',lokasi:'BEI'},
+ {id:'ex2',kode_alat:'EX30 2-26',kelas_alat:'Excavator',tipe_alat:'CAT 329D2',class_unit:'EX 30 T',lokasi:'BEI'},
+ {id:'dt1',kode_alat:'DT30 126',kelas_alat:'Dump Truck',tipe_alat:'SANY 430',class_unit:'DT 30 T',lokasi:'BEI'},
+ {id:'dt2',kode_alat:'DT30 128',kelas_alat:'Dump Truck',tipe_alat:'SANY 430',class_unit:'DT 30 T',lokasi:'BEI'},
+ {id:'dz1',kode_alat:'BD20 1-28',kelas_alat:'Dozer',tipe_alat:'CAT D8',class_unit:'DZ 20 T',lokasi:'BEI',capacity_value:180,capacity_uom:'BCM/Hr'}
+];
+const mappingDays={};const mappingPits={};for(let day=1;day<=30;day++){mappingDays[`2026:9:${day}`]=true;mappingPits[`2026:9:${day}`]='BEI';}
+const mappingPlan={tableId:'ob-map-1',loaderCode:'EX30 350-14',equipmentId:'ex1',planningType:'ob',material:'CLAY',jobCode:'OB',dumpTruckIds:['dt2'],dumpTruckClasses:['dt 30 t'],numberOfTruck:2,fleetProductivity:150.73,productivityUnit:'BCM/Hr'};
+window.fetch=async (url,options={})=>{const value=String(url);let payload={rows};
+ if(value.includes('/fleet-deployments/options'))payload={pits:[{code:'BEI',name:'Banko East Inside'},{code:'DKC',name:'Damar Kencana'}],catalog,jobs:[{jobCode:'OB',jobDescription:'Overburden Removal'},{jobCode:'CG',jobDescription:'Coal Getting'}],periodEnd:'2029-12-31'};
+ else if(value.includes('/fleet-deployments/preview')){const request=JSON.parse(options.body||'{}');const missing=(request.assignments||[]).includes('equipment:ex2');payload={dayCount:7,rowCount:7,completeRows:missing?0:7,totals:missing?{}:{Ton:29820},warnings:missing?['7 baris tidak memiliki Fleet Productivity yang valid.']:[],conflicts:[],canPublish:!missing};}
+ else if(value.includes('/fleet-deployments'))payload={rows};
+ else if(value.endsWith('/master'))payload={equipment};
+ else if(value.includes('/productivity-plans/spo'))payload={planningData:{tables:{ob:{startYear:2026,endYear:2026,weeklyModel:'week-of-year',weekStartDay:1}}}};
+ else if(value.includes('/productivity-plans/pa-ua-ewh'))payload={planningData:{assignments:{PA:{ex1:'OB'}}}};
+ else if(value.includes('/productivity-plans/ob'))payload={planningData:{fleetCatalog:value.includes('effectiveFrom=2026-09-30')?[mappingPlan]:[]}};
+ else if(value.includes('/productivity-plans/coal'))payload={planningData:{fleetCatalog:[]}};
+ else if(value.includes('/productivity-plans/fleet-capacity'))payload={planningData:{periodicSelections:{'ob-map-1':mappingDays},pitAssignments:{'fleet:ex30 350-14':mappingPits}}};
+ else if(value.includes('/productivity-plans/unit-mapping'))payload={planningData:{assignments:{},dozerFleetAssignments:{}}};
+ return {ok:true,status:200,json:async()=>payload};};</script>
+<script src="../ui-action-feedback.js?v=3"></script><script src="../fleetDeployment.core.js?v=3"></script><script src="../unitMapping.core.js?v=16"></script><script src="../fleetDeployment.js?v=6"></script><script>window.FleetCapacityPlanning.init();</script></body></html>

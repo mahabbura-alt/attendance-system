@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Preview Update Status Unit</title>
+  <link rel="stylesheet" href="../style.css?v=61" />
+  <style>body{margin:0;padding:24px;background:#f7f6f3;font-family:Arial,sans-serif}.preview-shell{max-width:1500px;margin:auto}.tombol{padding:8px 11px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;cursor:pointer}.tombol--kecil{padding:6px 8px}.tombol--utama{color:#fff;background:#0f766e;border-color:#0f766e}#modalOverlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.52)}#modalOverlay[hidden]{display:none}#modalKonten{max-height:92vh;overflow:auto;padding:18px;background:#fff;border-radius:14px;box-shadow:0 22px 70px rgba(15,23,42,.3)}</style>
+</head>
+<body>
+<main class="preview-shell">
+  <section class="breakdown-table-section breakdown-unit-status-board" aria-labelledby="breakdownUnitStatusTitle">
+    <header><div><h3 id="breakdownUnitStatusTitle">🚦 Update Status Unit</h3><p>Status realtime berdasarkan Breakdown aktif pada populasi List Equipment.</p></div><div class="breakdown-unit-status-meta"><span id="breakdownUnitStatusUpdated">Belum dimuat</span><button class="tombol tombol--kecil" onclick="muatBreakdownUnitStatus()">↻ Refresh</button></div></header>
+    <div class="breakdown-unit-status-body">
+      <div class="breakdown-type-indicator-panel"><strong>Populasi berdasarkan jenis unit</strong><div id="breakdownTypeIndicators" class="breakdown-type-indicators"></div></div>
+      <div class="breakdown-unit-status-toolbar">
+        <div class="breakdown-unit-summary"><button data-unit-status-summary="" onclick="setBreakdownUnitStatusFilter('')"><small>Semua</small><b id="breakdownUnitTotal">0</b></button><button data-unit-status-summary="Ready" onclick="setBreakdownUnitStatusFilter('Ready')"><small>Ready</small><b id="breakdownUnitReady">0</b></button><button data-unit-status-summary="BD" onclick="setBreakdownUnitStatusFilter('BD')"><small>BD</small><b id="breakdownUnitBd">0</b></button></div>
+        <label class="breakdown-unit-search"><span>⌕</span><input id="breakdownUnitStatusSearch" type="search" placeholder="Cari kode unit..." oninput="renderBreakdownUnitStatus()" /></label>
+        <select id="breakdownUnitStatusFilter" onchange="renderBreakdownUnitStatus()"><option value="">Semua Status</option><option value="Ready">Ready</option><option value="BD">BD</option></select>
+        <select id="breakdownUnitTypeFilter" onchange="renderBreakdownUnitStatus()"><option value="">Semua Jenis Unit</option></select>
+        <div class="breakdown-unit-view-toggle"><button data-unit-view="compact" onclick="setBreakdownUnitStatusView('compact')">Ringkas</button><button data-unit-view="detail" onclick="setBreakdownUnitStatusView('detail')">Detail</button></div>
+        <button id="breakdownUnitQualityButton" class="tombol tombol--kecil breakdown-unit-quality-button" onclick="bukaBreakdownUnitDataQuality()">Data Quality <span>0</span></button>
+      </div>
+      <div id="breakdownUnitStatusGroups" class="breakdown-unit-status-groups"></div>
+    </div>
+  </section>
+</main>
+<div id="modalOverlay" hidden><div id="modalKonten"></div></div>
+<script>
+window.state={token:'preview'};window.getApiBaseUrl=()=>'';window.OMOSActionFeedback={run:async(_b,task)=>task(),submitter:()=>null};
+const snapshot={generatedAt:'2026-09-27T07:32:10.000Z',summary:{total:13,ready:9,breakdown:4},reconciliation:{status:'needs_attention',issueCount:1,issues:[{code:'STATUS_MASTER_MISMATCH',unitCode:'EX30 350-14',message:'Status List Equipment Ready tidak sama dengan status turunan BD.'}]},groups:[
+{equipmentType:'Excavator',total:5,ready:3,breakdown:2,units:[
+{equipmentId:'11111111-1111-4111-8111-111111111111',unitCode:'EX30 350-14',equipmentType:'Excavator',equipmentClass:'EX 30 T',model:'HITACHI ZX350H',location:'BEI',status:'BD',activeIncident:{id:'bd1',currentStatus:'waiting_part',startTime:'2026-09-26T01:10:00Z',elapsedHours:30.2,durationLevel:'critical',breakdownCode:'B12',breakdownCategory:'Hydraulic',picName:'Andi Saputra'},dataQuality:[{message:'Status master tidak konsisten'}]},
+{equipmentId:'22222222-2222-4222-8222-222222222222',unitCode:'EX20 2-18',equipmentType:'Excavator',equipmentClass:'EX 20 T',model:'CAT 320',location:'BEI',status:'BD',activeIncident:{id:'bd2',currentStatus:'mechanic_progress',startTime:'2026-09-27T00:00:00Z',elapsedHours:13.4,durationLevel:'warning',breakdownCode:'B07',breakdownCategory:'Engine',picName:'Budi Santoso'},dataQuality:[]},
+{equipmentId:'33333333-3333-4333-8333-333333333333',unitCode:'EX30 350-15',equipmentType:'Excavator',equipmentClass:'EX 30 T',model:'HITACHI ZX350H',location:'DKC',status:'Ready',activeIncident:null,dataQuality:[]}]},
+{equipmentType:'Dump Truck',total:8,ready:6,breakdown:2,units:[{equipmentId:'44444444-4444-4444-8444-444444444444',unitCode:'DT30 130 (6-92)',equipmentType:'Dump Truck',equipmentClass:'DT 30 T',model:'SANY 430',location:'BEI',status:'BD',activeIncident:{id:'bd3',currentStatus:'mechanic_progress',startTime:'2026-09-26T12:35:00Z',elapsedHours:18.9,durationLevel:'warning',breakdownCode:'B03',breakdownCategory:'Electrical',picName:'Eko Prasetyo'},dataQuality:[]},{equipmentId:'55555555-5555-4555-8555-555555555555',unitCode:'DT30 127 (6-89)',equipmentType:'Dump Truck',equipmentClass:'DT 30 T',model:'SANY 430',location:'BEI',status:'Ready',activeIncident:null,dataQuality:[]}]}]};
+window.fetch=async url=>({ok:true,status:200,json:async()=>String(url).includes('/history')?{equipment:{kode_alat:'EX30 350-14',kelas_alat:'Excavator',class_unit:'EX 30 T'},incidents:[{id:'bd1',status:'open',current_status:'waiting_part',start_time:'2026-09-26T01:10:00Z',total_breakdown_hours:30.2,kode_breakdown:'B12',kategori_breakdown:'Hydraulic',description:'Hose boom bocor',pic_name:'Andi Saputra',status_history:[{status:'mechanic_progress',started_at:'2026-09-26T01:10:00Z',ended_at:'2026-09-26T04:00:00Z',changed_by_name:'Dispatcher'},{status:'waiting_part',started_at:'2026-09-26T04:00:00Z',ended_at:null,note:'Menunggu seal kit',changed_by_name:'Andi Saputra'}]}]}:String(url).includes('/api/admin/karyawan')?[{id:'p1',nama:'Andi Saputra',departemen:'Maintenance',is_active:true}]:snapshot});
+</script>
+<script src="../production.js?v=99"></script>
+<script>masterProdData={pits:[],loadingPoints:[],disposals:[],equipment:[{id:'33333333-3333-4333-8333-333333333333',kode_alat:'EX30 350-15',kelas_alat:'Excavator'}],standbyCodes:[],breakdownCodes:[{id:'bc1',kode:'B01',kategori:'Engine'}],shifts:[{id:'s1',nama_shift:'Shift Siang'}],jobCodes:[],operators:[],personnel:[{id:'p1',nama:'Andi Saputra',departemen:'Maintenance'}],productionSupervisors:[]};muatBreakdownUnitStatus();</script>
+</body></html>

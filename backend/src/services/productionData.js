@@ -1,5 +1,8 @@
 'use strict';
 
+const { productiveRitase } = require('./ritaseProductivity');
+const { normalizeMaterialType } = require('./spoPlanning');
+
 const crypto = require('node:crypto');
 const key = value => String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
 const groupKey = (...parts) => JSON.stringify(parts.map(key));
@@ -108,6 +111,17 @@ function blankCell() {
 }
 
 function finishCell(cell) {
+  if (cell.manual) {
+    // Sumber manual: ritase bukan sumber lagi. Nilai manual menggantikan; sel
+    // tanpa nilai manual (manualFilled=false) tampil "—". Fuel tetap dari
+    // alokasi fuel sehingga fuel ratio memakai bcm manual.
+    const filled = cell.manualFilled;
+    return { ...cell, production: filled ? cell.production : null, bcm: filled ? cell.bcm : null,
+      distanceKm: cell.distanceIncomplete || !(cell.distanceWeight > 0) ? null : cell.weightedDistance / cell.distanceWeight,
+      fuelRatio: filled && cell.hasFuel && cell.bcm != null && cell.bcm > 0 ? cell.fuel / cell.bcm : null,
+      fuel: cell.hasFuel ? cell.fuel : null,
+      notes: [filled ? 'Produksi manual' : 'Produksi manual belum lengkap', ...cell.notes.filter(n => !/^Produksi manual/i.test(n))] };
+  }
   return { ...cell, production: !cell.hasProduction || cell.incomplete ? null : cell.production,
     bcm: !cell.hasProduction || cell.incomplete || cell.densityIncomplete ? null : cell.bcm,
     distanceKm: cell.distanceIncomplete || !(cell.distanceWeight > 0) ? null : cell.weightedDistance / cell.distanceWeight,
@@ -117,18 +131,32 @@ function finishCell(cell) {
 
 function aggregateFuel(values) {
   const cells = Object.values(values);
-  const relevant = cells.filter(cell => cell.hasFuel || cell.hasProduction);
+  const productionCells = cells.filter(cell => cell.hasProduction);
   const fuel = cells.some(cell => cell.hasFuel) ? cells.reduce((sum, cell) => sum + (cell.fuel || 0), 0) : null;
-  const complete = relevant.length > 0 && relevant.every(cell => cell.bcm !== null && cell.fuel !== null);
-  const bcm = relevant.reduce((sum, cell) => sum + (cell.bcm || 0), 0);
+  // Fuel Ratio ALL adalah rasio agregat, bukan rata-rata rasio per JOB:
+  // seluruh fuel teralokasi (L) / seluruh produksi valid yang dinormalisasi ke BCM.
+  // JOB tanpa transaksi fuel berkontribusi 0 L, tetapi produksinya tetap masuk
+  // denominator. Density/produksi yang belum lengkap tetap memblokir rasio agar
+  // sistem tidak menampilkan KPI semu.
+  const complete = fuel !== null && productionCells.length > 0
+    && productionCells.every(cell => cell.bcm !== null && !cell.incomplete && !cell.densityIncomplete);
+  const bcm = productionCells.reduce((sum, cell) => sum + (cell.bcm || 0), 0);
   return { fuel, fuelRatio: complete && bcm > 0 ? fuel / bcm : null };
 }
 
 function buildReport(data, calculateDistance) {
-  const jobsMap = new Map(data.jobs.map(j => [key(j.jobCode), { ...j, materials: [] }]));
-  const addJob = code => { if (code && !jobsMap.has(key(code))) jobsMap.set(key(code), { jobCode: code, jobDescription: 'Historis', materials: [] }); };
-  data.fleets.forEach(f => addJob(f.job_code)); data.rain.forEach(r => addJob(r.job_code));
-  data.manual.forEach(m => (m.allocations || []).forEach(a => addJob(a.jobCode)));
+  const productionJobCodes = new Set((data.jobs || []).map(job => key(job.jobCode)));
+  const isProductionJob = value => productionJobCodes.has(key(value));
+  data = { ...data,
+    catalog: (data.catalog || []).filter(row => isProductionJob(row.jobCode)),
+    fleets: (data.fleets || []).filter(row => isProductionJob(row.job_code)),
+    rain: (data.rain || []).filter(row => isProductionJob(row.job_code)),
+    workLogs: (data.workLogs || []).filter(row => isProductionJob(row.job)),
+    manual: (data.manual || []).map(row => ({ ...row,
+      allocations: (row.allocations || []).filter(part => isProductionJob(part.jobCode)) })),
+  };
+  const jobsMap = new Map(data.jobs.map(j => [key(j.jobCode), { ...j,
+    materialType: normalizeMaterialType(j.materialType, j.jobCode, j.productionMode || 'prod'), materials: [] }]));
   const areas = [...new Map([...data.areas, ...data.fleets.map(f => f.pit_area), ...data.rain.map(r => r.area_name),
     ...data.manual.flatMap(m => (m.allocations || []).map(a => a.area))]
     .filter(Boolean).map(a => [key(a), a])).values()].sort();
@@ -141,11 +169,12 @@ function buildReport(data, calculateDistance) {
   };
   for (const plan of data.catalog) {
     const job = jobsMap.get(key(plan.jobCode));
-    addMaterial(job, plan.material, plan.planningType === 'coal' ? 'ton' : 'BCM');
+    if (!job || key(plan.planningType) !== job.materialType) continue;
+    addMaterial(job, plan.material, job.materialType === 'coal' ? 'ton' : 'BCM');
   }
   for (const fleet of data.fleets) {
     const job = jobsMap.get(key(fleet.job_code));
-    addMaterial(job, fleet.material_detail || 'Material belum diatur', fleet.material_type === 'Coal' ? 'ton' : 'BCM');
+    addMaterial(job, fleet.material_detail || 'Material belum diatur', job?.materialType === 'coal' ? 'ton' : 'BCM');
   }
   jobs.forEach(j => { j.unit = new Set(j.materials.map(m => m.unit)).size > 1 ? 'mixed' : j.materials[0]?.unit || 'BCM'; });
   const cells = new Map();
@@ -161,23 +190,33 @@ function buildReport(data, calculateDistance) {
   const densityCandidates = [];
   for (const fleet of data.fleets) {
     const cell = getCell(fleet.pit_area, fleet.tanggal, fleet.shift_id, fleet.job_code);
+    const job = jobsMap.get(key(fleet.job_code));
+    const planningType = job?.materialType;
     const rows = hourMap.get(fleet.id) || [];
     if (!rows.length) continue;
     const trucks = new Map(); let volume = 0; let valid = true;
     for (const row of rows) {
-      if (Number(row.ritase_count) > 0 && !positive(row.factor_value)) valid = false;
-      volume += Number(row.ritase_count) * (positive(row.factor_value) ? Number(row.factor_value) : 0);
-      if (!trucks.has(row.dump_truck_id)) trucks.set(row.dump_truck_id, { dump_truck_id: row.dump_truck_id, factor_value: row.factor_value, hours: {} });
+      const productive = productiveRitase(row.ritase_count, row.nonprod_ritase_count || 0);
+      if (productive > 0 && !positive(row.factor_value)) valid = false;
+      volume += productive * (positive(row.factor_value) ? Number(row.factor_value) : 0);
+      if (!trucks.has(row.dump_truck_id)) trucks.set(row.dump_truck_id, {
+        dump_truck_id: row.dump_truck_id, factor_value: row.factor_value, hours: {}, nonprod_hours: {}
+      });
       trucks.get(row.dump_truck_id).hours[row.period_hour] = Number(row.ritase_count);
+      trucks.get(row.dump_truck_id).nonprod_hours[row.period_hour] = Number(row.nonprod_ritase_count) || 0;
     }
     const matches = data.catalog.filter(p => (!p.catalogDate || String(p.catalogDate) === String(fleet.tanggal))
       && p.equipmentId === fleet.excavator_id && key(p.jobCode) === key(fleet.job_code)
       && key(p.material) === key(fleet.material_detail)
-      && p.planningType === (fleet.material_type === 'Coal' ? 'coal' : 'ob'));
+      && key(p.planningType) === planningType);
     const snap = snapshots.get(groupKey(fleet.id, identity(fleet)));
     const plan = matches.length === 1 ? matches[0] : null;
     const density = snap?.density ?? plan?.density;
-    const coal = fleet.material_type === 'Coal';
+    const coal = planningType === 'coal';
+    if (planningType !== 'ob' && planningType !== 'coal') {
+      valid = false;
+      cell.notes.push('Jenis Material JOB belum ditentukan di SPO');
+    }
     if (coal && !snap && positive(density)) densityCandidates.push({ fleetId: fleet.id, identityKey: identity(fleet), density: Number(density), planRef: plan.planRef, planUpdatedAt: plan.updatedAt });
     cell.hasProduction = true;
     cell.incomplete ||= !valid;
@@ -191,7 +230,6 @@ function buildReport(data, calculateDistance) {
     if (material?.unit === 'mixed') cell.notes.push('Material memiliki satuan campuran; periksa JOB/planning');
     if (!valid) cell.notes.push('Truck factor belum lengkap');
     if (coal && !positive(density)) cell.notes.push('Density belum tersedia / planning ambigu');
-    else if (coal && !snap) cell.notes.push('Density acuan saat ini; belum dikunci');
     let distance;
     try { distance = calculateDistance({ setupDistanceKm: fleet.jarak_km, trucks: [...trucks.values()], allocations: allocationMap.get(fleet.id) || [] }); }
     catch (error) { distance = { complete: false, error: error.message }; }
@@ -249,6 +287,63 @@ function buildReport(data, calculateDistance) {
     cell.rainMm = events.size && !incomplete ? [...events.values()].reduce((a, b) => a + b, 0) : null;
     if (incomplete) cell.notes.push('Pengukuran hujan belum lengkap / bertentangan');
   }
+  // Sumber data manual per area+JOB: nilai produksi diketik admin menggantikan
+  // agregasi Input Ritase pada rekap bulanan (TOTAL bulan dan fuel ratio).
+  const manualSources = new Map((data.manualSources || []).map(m => [groupKey(m.area, m.job_code), m]));
+  const manualOverride = new Map((data.manualOverrides || []).map(o =>
+    [groupKey(o.area, o.job_code, o.tanggal, o.shift_id, o.material), Number(o.value)]));
+  // Persisted manual values are independent production sources, even when
+  // no fleet, fuel or rainfall record has created a cell for this shift.
+  for (const row of data.manualOverrides || []) {
+    if (manualSources.get(groupKey(row.area, row.job_code))?.source === 'manual') {
+      getCell(row.area, row.tanggal, row.shift_id, row.job_code);
+    }
+  }
+  for (const area of areas) {
+    for (const job of jobs) {
+      const source = manualSources.get(groupKey(area, job.jobCode));
+      if (!source || source.source !== 'manual') continue;
+      const coal = job.unit === 'ton';
+      for (let day = 1; day <= data.period.days; day++) {
+        const date = `${data.period.start.slice(0, 8)}${String(day).padStart(2, '0')}`;
+        for (const shift of data.shifts) {
+          // Cells include independent manual entries as well as operational data.
+          const cell = cells.get(groupKey(area, date, shift.id, job.jobCode));
+          if (!cell) continue;
+          // Sumber manual: ritase bukan sumber lagi. Nilai manual menggantikan;
+          // sel tanpa nilai manual (manualFilled=false) tampil "—".
+          cell.manual = true;
+          cell.production = 0; cell.bcm = 0;
+          const byMaterial = {}; let hasAny = false;
+          for (const material of job.materials) {
+            const v = manualOverride.get(groupKey(area, job.jobCode, date, shift.id, material.name));
+            if (v == null) continue;
+            hasAny = true; byMaterial[material.name] = v;
+            cell.production += v;
+            if (coal) {
+              const density = (cell.sources.find(s => key(s.material) === key(material.name)) || {}).density;
+              if (positive(density)) cell.bcm += v / Number(density);
+            } else cell.bcm += v;
+          }
+          const totalOverride = manualOverride.get(groupKey(area, job.jobCode, date, shift.id, 'TOTAL'));
+          // TOTAL lama hanya fallback untuk data sebelum total menjadi kolom
+          // turunan. Jika rincian material tersedia, jumlah material berwenang.
+          if (!hasAny && totalOverride != null) {
+            hasAny = true; cell.production = totalOverride;
+            if (coal) {
+              const density = (cell.sources.find(s => s.density != null) || {}).density;
+              cell.bcm = positive(density) ? totalOverride / Number(density) : null;
+            } else cell.bcm = totalOverride;
+          }
+          cell.manualFilled = hasAny;
+          cell.hasProduction = true;
+          // Sumber manual: hanya nilai yang diketik admin yang tampil; material
+          // tanpa nilai manual tampil "—" (tidak memakai nilai ritase).
+          cell.materials = byMaterial;
+        }
+      }
+    }
+  }
   const areaTables = areas.map(area => {
     const totals = Object.fromEntries(jobs.map(j => [j.jobCode, blankCell()]));
     const rows = [];
@@ -261,6 +356,7 @@ function buildReport(data, calculateDistance) {
           values[job.jobCode] = finishCell(cell);
           for (const field of ['production', 'bcm', 'fuel', 'weightedDistance', 'distanceWeight']) total[field] += cell[field];
           for (const field of ['hasProduction', 'hasFuel', 'incomplete', 'densityIncomplete', 'distanceIncomplete']) total[field] ||= cell[field];
+          if (cell.manual) { total.manual = true; total.manualFilled ||= cell.manualFilled; }
           for (const field of ['rainMm', 'rainMinutes', 'slipperyMinutes']) if (cell[field] != null) total[field] = (total[field] || 0) + cell[field];
           for (const [material, amount] of Object.entries(cell.materials)) total.materials[material] = amount === null || total.materials[material] === null ? null : (total.materials[material] || 0) + amount;
         }
@@ -268,7 +364,22 @@ function buildReport(data, calculateDistance) {
       }
     }
     const finishedTotals = Object.fromEntries(Object.entries(totals).map(([job, value]) => [job, finishCell(value)]));
-    return { area, rows, totals: finishedTotals, totalAll: aggregateFuel(finishedTotals) };
+    const totalAll = aggregateFuel(finishedTotals);
+    const totalCells = Object.values(finishedTotals);
+    const distanceWeight = totalCells.reduce((sum, cell) => sum + (cell.distanceWeight || 0), 0);
+    const distanceIncomplete = totalCells.some(cell => cell.hasProduction && cell.distanceIncomplete);
+    const qualityIssues = [...new Set(totalCells.flatMap(cell => cell.notes || []))];
+    const summary = {
+      jobs: jobs.map(job => ({ jobCode: job.jobCode, unit: job.unit,
+        production: job.unit === 'mixed' ? null : finishedTotals[job.jobCode]?.production ?? null })),
+      fuel: totalAll.fuel,
+      fuelRatio: totalAll.fuelRatio,
+      distanceKm: distanceIncomplete || !(distanceWeight > 0) ? null
+        : totalCells.reduce((sum, cell) => sum + (cell.weightedDistance || 0), 0) / distanceWeight,
+      qualityIssueCount: qualityIssues.length,
+      qualityIssues,
+    };
+    return { area, rows, totals: finishedTotals, totalAll, summary };
   });
   const pendingFuel = totalFuel - allocatedFuel;
   const reasonCounts = queue.reduce((counts, item) => { const code = item.reasonCode || 'other'; counts[code] = (counts[code] || 0) + 1; return counts; }, {});
@@ -290,6 +401,13 @@ function buildReport(data, calculateDistance) {
     ruleUnits: (data.ruleUnits || []).map(unit => ({ id: unit.id, unit: unit.kode_alat })),
     fuelSummary: { total: totalFuel, allocated: allocatedFuel, pending: totalFuel - allocatedFuel }, densityCandidates,
     allocationRules,
+    manualSources: (data.manualSources || []).map(m => ({ area: m.area,
+      jobCode: m.jobCode || m.job_code, source: m.source })),
+    manualOverrides: (data.manualOverrides || []).map(row => ({
+      area: row.area, jobCode: row.jobCode || row.job_code,
+      tanggal: row.tanggal, shiftId: row.shiftId || row.shift_id,
+      material: row.material, value: Number(row.value)
+    })),
     fuelQuality: { allocationPercent: totalFuel > 0 ? allocatedFuel / totalFuel * 100 : 100, oldestPendingDate, oldestPendingDays,
       reasonCounts, modeCounts, reconciliationDifference, reconciled: Math.abs(reconciliationDifference) < 0.000001,
       activeRuleCount: [...latestRules.values()].filter(rule => rule.active).length,

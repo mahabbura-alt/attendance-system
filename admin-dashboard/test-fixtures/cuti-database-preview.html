@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OMOS Database Cuti Preview</title>
+  <link rel="stylesheet" href="../cuti.css?v=10" />
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f6f4ef;color:#0f172a;font:14px Inter,Arial,sans-serif}.shell{max-width:1450px;margin:auto;padding:24px}.title{display:flex;justify-content:space-between;align-items:end;margin-bottom:14px}.title h1{margin:0;font-size:25px}.title p{margin:5px 0 0;color:#64748b}.tombol{border:0;border-radius:8px;padding:9px 13px;font-weight:800;cursor:pointer}.tombol--utama{background:#0f766e;color:#fff}.tombol--ghost{background:#eef2f7;color:#334155}.input-filter,input,select{border:1px solid #cbd5e1;border-radius:8px;padding:9px;background:#fff}.tabel__kosong{padding:30px;text-align:center;color:#64748b}.modal__aksi{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.modal__pesan{color:#b91c1c}.preview-nav{display:flex;gap:6px;margin-bottom:12px}.preview-nav button{padding:10px 14px;border:1px solid #cbd5e1;background:#fff;border-radius:9px}.preview-nav button.is-active{background:#0f766e;color:#fff}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="title"><div><h1>Database Cuti Karyawan</h1><p>Hak, realisasi, proyeksi, dan rekonsiliasi roster CP.</p></div></div>
+    <output id="previewRuntimeStatus" style="display:block;margin-bottom:10px;color:#166534;font-size:12px">Runtime preview: aman</output>
+    <nav class="preview-nav"><button data-cuti-view="jadwal">Jadwal Roster</button><button data-cuti-view="cuti">Database Cuti</button><button data-cuti-view="kebijakan">Setup Kebijakan</button></nav>
+    <section id="rosterScheduleView"></section>
+    <section id="cutiView" hidden><div class="cuti-dynamic"></div></section>
+    <section id="cutiPolicyView" hidden></section>
+  </main>
+  <script>
+    window.__previewErrors=[];
+    const previewRuntimeStatus=()=>document.getElementById('previewRuntimeStatus');
+    const reportPreviewError=message=>{window.__previewErrors.push(String(message));const status=previewRuntimeStatus();if(status){status.textContent=`Runtime error: ${message}`;status.style.color='#b91c1c';}};
+    window.addEventListener('error',event=>reportPreviewError(event.message));
+    window.addEventListener('unhandledrejection',event=>reportPreviewError(event.reason?.message||event.reason));
+    const originalConsoleError=console.error.bind(console);
+    console.error=(...args)=>{reportPreviewError(args.map(value=>String(value)).join(' '));originalConsoleError(...args);};
+    window.previewParams=new URLSearchParams(location.search);
+    window.state={token:'preview'};
+    window.getApiBaseUrl=()=>'';
+    window.api=async path=>{
+      if(window.previewParams.get('fail')==='1' && path.startsWith('/api/admin/cuti/dashboard')) throw new Error('Skema Database Cuti belum tersedia pada database lokal.');
+      if(path.startsWith('/api/admin/cuti/policy-scopes')) return {rows:[{department:'HSE',positions:[{position:'SPV HSE',employees:[{id:'u3',employee_id:'EMP-003',nama:'Zulfutra'}]}]},{department:'Produksi',positions:[{position:'Driver DT',employees:[{id:'u1',employee_id:'EMP-001',nama:'Alex Pratama'},{id:'u2',employee_id:'EMP-002',nama:'Budi Santoso'}]},{position:'Operator Excavator',employees:[]}]}]};
+      if(path.startsWith('/api/admin/cuti/policies')) return {rows:[{id:'policy-1',department:'Produksi',position:'Driver DT',target_user_id:null,target_user_name:null,leave_type:'CP',work_days:56,leave_days:14,annual_days:12,effective_from:'2026-01-01',version_no:1,is_active:true}]};
+      if(path.startsWith('/api/admin/cuti/cycle-options')) {const isBudi=path.includes('u2');return {employee:{id:isBudi?'u2':'u1',nama:isBudi?'Budi Santoso':'Alex Pratama'},cycles:[1,2,3,4,5].map((n)=>({owning_year:2026,cycle_no:n,projected_start:['2026-02-26','2026-05-07','2026-07-16','2026-09-24','2026-12-03'][n-1],projected_end:['2026-03-11','2026-05-20','2026-07-29','2026-10-07','2026-12-16'][n-1],cp_days:14,occupied:isBudi?n===1:n<3}))};}
+      if(path.startsWith('/api/admin/cuti/dashboard')) return {year:2026,rows:[
+        {id:'u1',employee_id:'EMP-001',nama:'Alex Pratama',departemen:'Produksi',jabatan:'Driver DT',policy_version_id:'policy-1',policy_work_days:56,policy_leave_days:14,hak_periode:5,aktual:2,sisa:3,annual_entitlement_days:12,carry_forward_days:0,annual_adjustment_days:0,sisa_tahunan:6,next_leave_start:'2026-11-21',status:'AMAN',cycle_projections:[1,2,3,4,5].map((n)=>({cycle_no:n,projected_start:['2026-02-26','2026-05-07','2026-07-16','2026-09-24','2026-12-03'][n-1],projected_end:['2026-03-11','2026-05-20','2026-07-29','2026-10-07','2026-12-16'][n-1]})),leave_events:[
+          {request_id:'q1',cycle_no:1,leave_type:'CP',request_status:'REALIZED',planned_start:'2026-03-14',planned_end:'2026-03-28',realisation_id:'r1',actual_start:'2026-03-18',actual_end:'2026-04-01',actual_days:15,period_count:0,variance_days:1,counting_status:'VARIANCE',realisation_status:'REALIZED'},
+          {request_id:'q2',cycle_no:1,leave_type:'CK',request_status:'REALIZED',planned_start:'2026-03-18',planned_end:'2026-03-20',realisation_id:'r2',actual_start:'2026-03-18',actual_end:'2026-03-20',actual_days:3,period_count:0,variance_days:0,counting_status:'EXCLUDED',realisation_status:'REALIZED',reason:'Cuti melahirkan'},
+          {request_id:'q3',cycle_no:1,leave_type:'CT',request_status:'REALIZED',planned_start:'2026-03-21',planned_end:'2026-03-23',realisation_id:'r3',actual_start:'2026-03-21',actual_end:'2026-03-23',actual_days:3,period_count:0,variance_days:0,counting_status:'EXCLUDED',realisation_status:'REALIZED'},
+          {request_id:'q4',cycle_no:2,leave_type:'CP',request_status:'APPROVED',planned_start:'2026-06-02',planned_end:'2026-06-16'}]},
+        {id:'u2',employee_id:'EMP-002',nama:'Budi Santoso',departemen:'Produksi',jabatan:'Driver DT',policy_version_id:'policy-1',policy_work_days:56,policy_leave_days:14,hak_periode:5,aktual:1,sisa:4,annual_entitlement_days:12,carry_forward_days:0,annual_adjustment_days:0,sisa_tahunan:12,next_leave_start:'2026-12-03',status:'JATUH_TEMPO',cycle_projections:[1,2,3,4,5].map((n)=>({cycle_no:n,projected_start:['2026-02-26','2026-05-07','2026-07-16','2026-09-24','2026-12-03'][n-1],projected_end:['2026-03-11','2026-05-20','2026-07-29','2026-10-07','2026-12-16'][n-1]})),leave_events:[{request_id:'q5',cycle_no:1,leave_type:'CP',request_status:'REALIZED',planned_start:'2026-05-01',planned_end:'2026-05-14',realisation_id:'r5',actual_start:'2026-05-01',actual_end:'2026-05-14',actual_days:14,period_count:1,variance_days:0,counting_status:'COUNTED',realisation_status:'REALIZED'}]}
+      ]};
+      if(path.startsWith('/api/admin/cuti/reconciliation')) return {rows:[]};
+      return {rows:[]};
+    };
+    window.alert=message=>console.info('preview alert',message);
+    window.bukaModal=html=>{const modal=document.createElement('div');modal.id='modalPreview';modal.style='position:fixed;inset:0;background:#0f172a88;display:grid;place-items:center;padding:20px;z-index:9';modal.innerHTML=`<div style="background:white;border-radius:14px;padding:22px;max-width:760px;width:100%;max-height:92vh;overflow:auto">${html}</div>`;document.body.appendChild(modal)};
+    window.tutupModal=()=>document.getElementById('modalPreview')?.remove();
+  </script>
+  <script src="../cuti.js?v=10"></script>
+  <script>window.addEventListener('load',()=>{const p=window.previewParams;window.OMOSCuti.setView(p.get('policy')==='1'?'kebijakan':'cuti');if(p.get('mode')==='card')setTimeout(()=>document.querySelector('[data-cuti-mode="card"]')?.click(),100);if(p.get('policy')==='1'&&p.get('fail')!=='1'&&p.get('auto')!=='0')setTimeout(()=>document.querySelector('[data-cuti-policy-baru]')?.click(),150)});</script>
+</body>
+</html>

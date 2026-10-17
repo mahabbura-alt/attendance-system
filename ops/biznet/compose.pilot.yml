@@ -1,0 +1,49 @@
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: ops/biznet/Dockerfile.app
+    image: omos-app:${OMOS_IMAGE_TAG:-pilot}
+    container_name: omos-app
+    restart: unless-stopped
+    env_file:
+      - /opt/omos/secrets/app.env
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Jakarta
+      PORT: "3000"
+      DB_POOL_MAX: "5"
+      STORAGE_LOCAL_ROOT: /data/storage
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.50"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - /opt/omos/storage:/data/storage
+      - /opt/omos/storage-manifests:/data/storage-manifests
+    networks:
+      - default
+      - omos_data
+
+networks:
+  omos_data:
+    external: true
+    name: biznet_omos_data

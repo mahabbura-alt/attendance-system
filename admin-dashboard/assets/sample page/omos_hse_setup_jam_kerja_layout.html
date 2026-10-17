@@ -1,0 +1,1096 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMOS · Jam kerja karyawan HSE</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root {
+  --page: #e9ecf0;
+  --surface-1: #f4f5f7;
+  --surface-2: #ffffff;
+  --border: rgba(15, 23, 42, .14);
+  --border-strong: rgba(15, 23, 42, .28);
+  --text: #1a1f29;
+  --text-secondary: #515a6a;
+  --text-muted: #6f7888;
+  --accent: #1d5fd1;
+  --accent-bg: #e6efff;
+  --accent-fill: #3b82f6;
+  --success: #12713a;
+  --success-bg: #e3f4ea;
+  --success-fill: #2fa664;
+  --warning: #8a5a00;
+  --warning-bg: #fff2d6;
+  --warning-fill: #e0a100;
+  --danger: #a8261f;
+  --danger-bg: #fde8e6;
+  --danger-fill: #d64541;
+  --neutral-bg: #eceff3;
+  --shadow-pop: 0 8px 28px rgba(15, 23, 42, .18);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0f1217; --surface-1: #171b22; --surface-2: #1f242d;
+    --border: rgba(255,255,255,.12); --border-strong: rgba(255,255,255,.26);
+    --text: #e8ebf0; --text-secondary: #aab2c0; --text-muted: #8a93a3;
+    --accent: #7fb0ff; --accent-bg: #1c2b46; --accent-fill: #4a8df0;
+    --success: #6fd49b; --success-bg: #14301f; --success-fill: #3bb673;
+    --warning: #f1c24f; --warning-bg: #3a2d10; --warning-fill: #e0a100;
+    --danger: #ff8d86; --danger-bg: #3d1a18; --danger-fill: #e0524d;
+    --neutral-bg: #2a303b; --shadow-pop: 0 8px 28px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0f1217; --surface-1: #171b22; --surface-2: #1f242d;
+  --border: rgba(255,255,255,.12); --border-strong: rgba(255,255,255,.26);
+  --text: #e8ebf0; --text-secondary: #aab2c0; --text-muted: #8a93a3;
+  --accent: #7fb0ff; --accent-bg: #1c2b46; --accent-fill: #4a8df0;
+  --success: #6fd49b; --success-bg: #14301f; --success-fill: #3bb673;
+  --warning: #f1c24f; --warning-bg: #3a2d10; --warning-fill: #e0a100;
+  --danger: #ff8d86; --danger-bg: #3d1a18; --danger-fill: #e0524d;
+  --neutral-bg: #2a303b; --shadow-pop: 0 8px 28px rgba(0,0,0,.5);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--page);
+  color: var(--text);
+  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+h1, h2, h3, p { margin: 0; }
+i.ti { font-size: 15px; line-height: 1; vertical-align: -2px; }
+
+.app { max-width: 1200px; margin: 20px auto; padding: 0 16px; }
+.shell {
+  background: var(--surface-1);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 152px minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* ---------- Sidebar ---------- */
+.side {
+  background: var(--surface-2);
+  border: .5px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 6px;
+  font-size: 12px;
+  align-self: start;
+}
+.side .grp { padding: 10px 8px 4px; font-size: 11px; color: var(--text-muted); }
+.side .grp:first-child { padding-top: 4px; }
+.side a {
+  display: flex; gap: 6px; align-items: flex-start;
+  padding: 6px 8px; border-radius: 6px;
+  color: var(--text-secondary); text-decoration: none;
+}
+.side a:hover { background: var(--surface-1); }
+.side a.on { background: var(--accent-bg); color: var(--accent); font-weight: 500; }
+.side a i { margin-top: 1px; flex: none; }
+
+/* ---------- Header ---------- */
+.main { min-width: 0; }
+.crumbs { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.crumbs b { font-weight: 500; color: var(--text-secondary); }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.head h1 { font-size: 16px; font-weight: 500; }
+.head p { font-size: 12px; color: var(--text-secondary); }
+.head .acts { display: flex; gap: 6px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 8px;
+  border: .5px solid var(--border-strong);
+  background: var(--surface-2); cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.btn:hover { background: var(--surface-1); }
+.btn:focus-visible, .icon-btn:focus-visible, .seg button:focus-visible, .tab:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent-fill); outline-offset: 1px;
+}
+.btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; font-weight: 500; }
+.btn.primary:hover { filter: brightness(.94); }
+.btn.sm { padding: 4px 9px; }
+.icon-btn {
+  width: 28px; height: 28px; border-radius: 6px; border: .5px solid transparent;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.icon-btn:hover { background: var(--surface-1); border-color: var(--border); color: var(--text); }
+
+/* ---------- Pill tabs + segmented ---------- */
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.tab {
+  padding: 6px 13px; border-radius: 999px; font-size: 12px;
+  border: .5px solid var(--border); background: var(--surface-2); color: var(--text-secondary); cursor: pointer;
+}
+.tab.on { background: var(--accent-bg); border-color: transparent; color: var(--accent); font-weight: 500; }
+.seg {
+  display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px;
+  background: var(--neutral-bg); margin-bottom: 12px; max-width: 100%; overflow-x: auto;
+}
+.seg button {
+  border: 0; background: transparent; padding: 6px 13px; border-radius: 7px;
+  font-size: 12px; color: var(--text-secondary); cursor: pointer; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.seg button.on { background: var(--surface-2); color: var(--text); font-weight: 500; box-shadow: 0 0 0 .5px var(--border); }
+.seg .count { font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--surface-1); color: var(--text-muted); }
+.seg .count.warn { background: var(--warning-bg); color: var(--warning); }
+
+/* ---------- Cards, KPI ---------- */
+.card { background: var(--surface-2); border: .5px solid var(--border); border-radius: 8px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.kpi { padding: 9px 11px; text-align: left; font: inherit; color: inherit; cursor: default; }
+button.kpi { cursor: pointer; }
+button.kpi:hover { border-color: var(--border-strong); }
+.kpi .l { font-size: 11px; color: var(--text-secondary); }
+.kpi .v { font-size: 18px; font-weight: 500; margin-top: 1px; }
+.kpi .s { font-size: 11px; color: var(--text-muted); }
+.kpi.warn .v { color: var(--warning); }
+.kpi.warn .s { color: var(--warning); }
+
+.notice {
+  display: flex; gap: 10px; align-items: center; justify-content: space-between;
+  padding: 9px 12px; border-radius: 8px; margin-bottom: 10px; font-size: 12px;
+  background: var(--warning-bg); color: var(--warning); border: .5px solid transparent;
+}
+.notice .t { display: flex; gap: 8px; align-items: center; }
+.notice .btn { background: transparent; border-color: currentColor; color: inherit; }
+
+/* ---------- Toolbar ---------- */
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px; border-bottom: .5px solid var(--border); }
+.field-search { position: relative; flex: 1 1 180px; min-width: 150px; }
+.field-search i { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+.field-search input { padding-left: 29px; }
+input[type=text], input[type=number], input[type=date], select, textarea {
+  width: 100%; padding: 6px 9px; border-radius: 8px;
+  border: .5px solid var(--border-strong); background: var(--surface-2); font-size: 12px;
+}
+textarea { resize: vertical; min-height: 56px; }
+.toolbar select { width: auto; min-width: 120px; }
+select:disabled, input:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ---------- Table ---------- */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 760px; }
+th { text-align: left; font-weight: 500; color: var(--text-secondary); padding: 8px 10px; border-bottom: .5px solid var(--border); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: .5px solid var(--border); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--surface-1); }
+td .sub { display: block; font-size: 11px; color: var(--text-muted); }
+td .code { font-weight: 500; }
+td.act { white-space: nowrap; text-align: right; }
+.tfoot { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-top: .5px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.empty { padding: 28px 12px; text-align: center; color: var(--text-muted); }
+.empty i { font-size: 22px; display: block; margin-bottom: 6px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 6px; font-size: 11px; white-space: nowrap;
+  background: var(--neutral-bg); color: var(--text-secondary);
+}
+.chip.accent { background: var(--accent-bg); color: var(--accent); }
+.chip.success { background: var(--success-bg); color: var(--success); }
+.chip.warning { background: var(--warning-bg); color: var(--warning); }
+.chip.danger { background: var(--danger-bg); color: var(--danger); }
+.chip.muted { background: transparent; color: var(--text-muted); box-shadow: inset 0 0 0 .5px var(--border-strong); }
+
+.person { display: flex; align-items: center; gap: 9px; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; flex: none; }
+.person .n { font-weight: 500; }
+.ver { display: inline-flex; gap: 4px; align-items: center; color: var(--text-secondary); }
+.ver i { color: var(--text-muted); }
+
+/* ---------- Modal ---------- */
+.overlay {
+  position: fixed; inset: 0; background: rgba(10, 14, 20, .5);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 36px 14px; overflow-y: auto; z-index: 50;
+}
+.modal {
+  width: 100%; max-width: 560px; background: var(--surface-2);
+  border-radius: 12px; border: .5px solid var(--border); box-shadow: var(--shadow-pop);
+}
+.modal.wide { max-width: 640px; }
+.m-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 14px 16px 10px; }
+.m-head h2 { font-size: 15px; font-weight: 500; }
+.m-head p { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.m-body { padding: 4px 16px 6px; display: grid; gap: 12px; }
+.m-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 14px; border-top: .5px solid var(--border); margin-top: 8px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fld label.lb { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.fld label.lb em { color: var(--danger); font-style: normal; }
+.hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.group-title { font-size: 11px; color: var(--text-muted); text-transform: none; margin-bottom: 6px; }
+
+.radios { display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px; background: var(--neutral-bg); width: 100%; }
+.radios label { flex: 1; text-align: center; cursor: pointer; }
+.radios input { position: absolute; opacity: 0; pointer-events: none; }
+.radios span { display: block; padding: 6px 10px; border-radius: 7px; font-size: 12px; color: var(--text-secondary); }
+.radios input:checked + span { background: var(--surface-2); color: var(--text); font-weight: 500; box-shadow: 0 0 0 .5px var(--border); }
+.radios input:focus-visible + span { outline: 2px solid var(--accent-fill); }
+
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; cursor: pointer; }
+.check input { margin-top: 2px; }
+.check .d { display: block; font-size: 11px; color: var(--text-muted); }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.switch .d { display: block; font-size: 11px; color: var(--text-muted); }
+.switch input { appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--border-strong); position: relative; cursor: pointer; flex: none; transition: background .15s; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked { background: var(--accent-fill); }
+.switch input:checked::after { transform: translateX(14px); }
+
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper input { text-align: center; width: 70px; }
+
+.preview { padding: 10px 12px; border-radius: 8px; background: var(--accent-bg); color: var(--accent); font-size: 12px; display: flex; gap: 8px; align-items: flex-start; }
+.preview.warn { background: var(--warning-bg); color: var(--warning); }
+.preview i { margin-top: 1px; }
+.privacy { display: flex; gap: 8px; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+.cl { display: grid; gap: 6px; }
+.cl-item { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 8px; align-items: center; }
+.cl-item .n { font-size: 11px; color: var(--text-muted); text-align: center; }
+.cl-item .tg { display: flex; gap: 5px; align-items: center; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+
+/* ---------- Drawer ---------- */
+.drawer-wrap { position: fixed; inset: 0; background: rgba(10, 14, 20, .4); z-index: 60; display: flex; justify-content: flex-end; }
+.drawer { width: 100%; max-width: 400px; height: 100%; background: var(--surface-2); border-left: .5px solid var(--border); box-shadow: var(--shadow-pop); display: flex; flex-direction: column; }
+.d-head { padding: 14px 16px; border-bottom: .5px solid var(--border); display: flex; justify-content: space-between; gap: 10px; }
+.d-head h2 { font-size: 15px; font-weight: 500; }
+.d-body { padding: 14px 16px; overflow-y: auto; display: grid; gap: 14px; align-content: start; }
+.sum { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sum div { padding: 8px 10px; background: var(--surface-1); border-radius: 8px; }
+.sum .l { font-size: 11px; color: var(--text-muted); }
+.sum .v { font-size: 13px; font-weight: 500; }
+.chain { display: grid; gap: 6px; counter-reset: s; }
+.step { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; border: .5px solid var(--border); font-size: 12px; }
+.step::before { counter-increment: s; content: counter(s); width: 20px; height: 20px; border-radius: 50%; background: var(--neutral-bg); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.step.hit { border-color: var(--accent-fill); background: var(--accent-bg); }
+.step.hit::before { background: var(--accent-fill); color: #fff; }
+.step .sub { display: block; font-size: 11px; color: var(--text-muted); }
+.step.hit .sub { color: var(--accent); }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--text); color: var(--surface-2); padding: 9px 14px; border-radius: 9px;
+  font-size: 12px; opacity: 0; pointer-events: none; transition: .2s; z-index: 80; display: flex; gap: 8px; align-items: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.demo-note { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 10px; }
+
+@media (max-width: 860px) {
+  .shell { grid-template-columns: 1fr; }
+  .side { display: none; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row2 { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- Tambahan: jam kerja karyawan ---------- */
+.tab i.ti { font-size: 14px; margin-right: 4px; }
+th.num, td.num { text-align: right; white-space: nowrap; }
+td.num .sub { text-align: right; }
+.muted { color: var(--text-muted); }
+tfoot tr.total td { font-weight: 500; border-top: .5px solid var(--border-strong); border-bottom: 0; background: var(--surface-1); }
+.period { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; padding: 10px; margin-bottom: 10px; }
+.period .pf { width: 160px; }
+.period .lb { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.src-note { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-secondary); margin-left: auto; padding-bottom: 6px; }
+.src-note b { font-weight: 500; color: var(--text); }
+.card-h { display: flex; justify-content: space-between; gap: 10px; padding: 12px 12px 8px; border-bottom: .5px solid var(--border); }
+.card-h h3 { font-size: 12px; font-weight: 500; }
+.card-h p { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.step > span:first-child { display: block; }
+.days { display: grid; gap: 6px; }
+.day { display: grid; grid-template-columns: 1fr auto 72px; gap: 8px; align-items: center; padding: 8px 10px; border: .5px solid var(--border); border-radius: 8px; font-size: 12px; }
+.day .dd { font-weight: 500; }
+.day .sub { display: block; font-size: 11px; color: var(--text-muted); }
+.day .dv { text-align: right; }
+.checks { display: grid; gap: 6px; }
+.ck { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.ck.ok i { color: var(--success); }
+.m-body table { min-width: 0; }
+/* Dropdown checklist */
+.ms { position: relative; }
+.ms-btn { width: 100%; display: flex; align-items: center; gap: 6px; justify-content: space-between; padding: 6px 9px; border-radius: 8px; border: .5px solid var(--border-strong); background: var(--surface-2); font-size: 12px; cursor: pointer; text-align: left; min-height: 31px; }
+.ms-btn .ms-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-btn .ms-val.ph { color: var(--text-muted); }
+.ms-btn .ms-n { font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); flex: none; }
+.ms-btn:focus-visible { outline: 2px solid var(--accent-fill); outline-offset: 1px; }
+.ms.open .ms-btn { border-color: var(--accent-fill); }
+.ms-pop { position: absolute; z-index: 70; left: 0; right: 0; top: calc(100% + 4px); background: var(--surface-2); border: .5px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow-pop); padding: 6px; }
+.ms-pop .ms-search { margin-bottom: 6px; }
+.ms-list { max-height: 200px; overflow-y: auto; display: grid; gap: 1px; }
+.ms-opt { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.ms-opt:hover { background: var(--surface-1); }
+.ms-opt .sub { display: block; font-size: 11px; color: var(--text-muted); }
+.ms-opt.all { border-bottom: .5px solid var(--border); border-radius: 6px 6px 0 0; margin-bottom: 2px; font-weight: 500; }
+.ms-opt.dis { opacity: .55; cursor: not-allowed; }
+.ms-opt .tagr { margin-left: auto; }
+.ms-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 4px 0; margin-top: 6px; border-top: .5px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.ms-empty { padding: 10px 8px; font-size: 12px; color: var(--text-muted); }
+.ms-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+@media (max-width: 860px) {
+  .src-note { margin-left: 0; }
+  .period .pf { width: calc(50% - 5px); }
+}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="shell">
+
+  <!-- ===== Sidebar HSE ===== -->
+  <nav class="side" aria-label="Sub-halaman HSE">
+    <div class="grp">Pantau</div>
+    <a href="#"><i class="ti ti-layout-dashboard"></i> Ringkasan</a>
+    <a href="#"><i class="ti ti-chart-line"></i> Laporan dan statistik</a>
+    <div class="grp">Risiko dan insiden</div>
+    <a href="#"><i class="ti ti-alert-triangle"></i> Hazard dan inspeksi</a>
+    <a href="#"><i class="ti ti-first-aid-kit"></i> Insiden dan investigasi</a>
+    <a href="#"><i class="ti ti-file-certificate"></i> Izin kerja</a>
+    <div class="grp">Manusia</div>
+    <a href="#"><i class="ti ti-school"></i> Kompetensi</a>
+    <a href="#"><i class="ti ti-heartbeat"></i> Kesehatan kerja</a>
+    <a href="#"><i class="ti ti-building-store"></i> Kontraktor</a>
+    <div class="grp">Lingkungan dan darurat</div>
+    <a href="#"><i class="ti ti-leaf"></i> Lingkungan</a>
+    <a href="#"><i class="ti ti-flame"></i> Tanggap darurat</a>
+    <a href="#"><i class="ti ti-helmet"></i> APD dan peralatan</a>
+    <div class="grp">Kepatuhan</div>
+    <a href="#"><i class="ti ti-clipboard-check"></i> Audit dan temuan</a>
+    <a href="#"><i class="ti ti-books"></i> Dokumen dan regulasi</a>
+    <div class="grp">Konfigurasi</div>
+    <a href="#" class="on" aria-current="page"><i class="ti ti-settings"></i> Setup master</a>
+  </nav>
+
+  <!-- ===== Konten ===== -->
+  <main class="main">
+    <div class="crumbs"><span>HSE</span><i class="ti ti-chevron-right"></i><span>Setup master</span><i class="ti ti-chevron-right"></i><span>Jam kerja karyawan</span><i class="ti ti-chevron-right"></i><b id="crumbView">Standar per jabatan</b></div>
+
+    <div class="head">
+      <div>
+        <h1>Setup master</h1>
+        <p>Konfigurasi HSE · Site JMB-DKC</p>
+      </div>
+      <div class="acts">
+        <button class="icon-btn" id="themeBtn" type="button" aria-label="Ganti tema terang atau gelap"><i class="ti ti-moon"></i></button>
+        <button class="btn" type="button" data-toast="Contoh tampilan: ekspor belum aktif."><i class="ti ti-download"></i> Ekspor</button>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Setup master">
+      <button class="tab" type="button" role="tab" aria-selected="false" data-toast="Contoh tampilan: tab ini tidak disertakan."><i class="ti ti-map-pin"></i> Area dan sub area</button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-toast="Contoh tampilan: tab ini tidak disertakan."><i class="ti ti-clipboard-list"></i> Setup inspeksi</button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-toast="Contoh tampilan: tab ini tidak disertakan."><i class="ti ti-siren"></i> Setup hazard report</button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-toast="Contoh tampilan: tab ini tidak disertakan."><i class="ti ti-clipboard-check"></i> Setup P5M</button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-toast="Contoh tampilan: tab ini tidak disertakan."><i class="ti ti-messages"></i> Setup safety talk</button>
+      <button class="tab on" type="button" role="tab" aria-selected="true"><i class="ti ti-clock-hour-8"></i> Jam kerja karyawan</button>
+    </div>
+
+    <div class="seg" role="tablist" aria-label="Bagian jam kerja karyawan">
+      <button type="button" role="tab" data-view="jabatan" class="on" aria-selected="true"><i class="ti ti-briefcase"></i> Standar per jabatan <span class="count warn" title="Jabatan belum diatur">1</span></button>
+      <button type="button" role="tab" data-view="karyawan" aria-selected="false"><i class="ti ti-users"></i> Standar per karyawan <span class="count warn" title="Karyawan belum diatur">2</span></button>
+      <button type="button" role="tab" data-view="rekap" aria-selected="false"><i class="ti ti-report-analytics"></i> Rekap jam kerja</button>
+    </div>
+
+    <!-- =================== VIEW: STANDAR PER JABATAN =================== -->
+    <section class="view" id="view-jabatan">
+      <div class="kpis">
+        <div class="card kpi"><div class="l">Jabatan aktif</div><div class="v">8</div><div class="s">dengan karyawan aktif</div></div>
+        <div class="card kpi"><div class="l">Sudah diatur</div><div class="v">7</div><div class="s">jam per hari berlaku</div></div>
+        <button type="button" class="card kpi warn" data-filter-set="tblJabatan|st|none"><div class="l">Belum diatur</div><div class="v">1</div><div class="s">2 karyawan tidak terhitung</div></button>
+        <div class="card kpi"><div class="l">Berubah bulan ini</div><div class="v">1</div><div class="s">Mekanik, mulai 01 Okt</div></div>
+      </div>
+
+      <div class="notice">
+        <div class="t"><i class="ti ti-alert-triangle"></i><span>Jabatan Driver LV belum punya standar jam kerja. Hari hadir 2 karyawan di jabatan ini belum masuk total jam kerja HSE.</span></div>
+        <button class="btn sm" type="button" data-open="m-jabatan" data-pos="driver">Atur sekarang</button>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <button class="btn primary" type="button" data-open="m-jabatan"><i class="ti ti-plus"></i> Aturan jabatan</button>
+          <select data-filter="tblJabatan" data-key="dept" aria-label="Filter departemen">
+            <option value="">Semua departemen</option><option value="prod">Produksi</option><option value="plant">Plant</option><option value="hse">HSE</option><option value="office">Office</option><option value="ga">General affair</option>
+          </select>
+          <select data-filter="tblJabatan" data-key="st" aria-label="Filter status">
+            <option value="">Semua status</option><option value="set">Sudah diatur</option><option value="none">Belum diatur</option>
+          </select>
+          <div class="field-search"><i class="ti ti-search"></i><input type="text" data-filter="tblJabatan" placeholder="Cari jabatan" aria-label="Cari jabatan"></div>
+        </div>
+        <div class="tbl-wrap">
+          <table id="tblJabatan">
+            <thead><tr><th>Jabatan</th><th>Departemen</th><th class="num">Jam per hari</th><th>Berlaku</th><th class="num">Karyawan aktif</th><th>Versi</th><th style="text-align:right">Aksi</th></tr></thead>
+            <tbody>
+              <tr data-dept="prod" data-st="set">
+                <td><span class="code">Operator dump truck</span></td><td>Produksi</td>
+                <td class="num"><b>11,0</b> jam</td><td>01 Jul 2026 – sekarang</td><td class="num">2</td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci: sudah dipakai pada periode terkirim"></i> v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" title="Ubah mulai tanggal tertentu (versi baru)" aria-label="Ubah" data-open="m-jabatan" data-pos="opdt"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" title="Riwayat" aria-label="Riwayat" data-toast="Contoh tampilan: riwayat versi aturan."><i class="ti ti-history"></i></button></td>
+              </tr>
+              <tr data-dept="prod" data-st="set">
+                <td><span class="code">Operator excavator</span></td><td>Produksi</td>
+                <td class="num"><b>11,0</b> jam</td><td>01 Jul 2026 – sekarang</td><td class="num">1</td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci"></i> v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" title="Ubah" aria-label="Ubah" data-open="m-jabatan" data-pos="opex"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" title="Riwayat" aria-label="Riwayat" data-toast="Contoh tampilan: riwayat versi aturan."><i class="ti ti-history"></i></button></td>
+              </tr>
+              <tr data-dept="prod" data-st="set">
+                <td><span class="code">Foreman produksi</span></td><td>Produksi</td>
+                <td class="num"><b>11,0</b> jam</td><td>01 Jul 2026 – sekarang</td><td class="num">1</td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci"></i> v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" title="Ubah" aria-label="Ubah" data-open="m-jabatan" data-pos="foreman"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" title="Riwayat" aria-label="Riwayat" data-toast="Contoh tampilan: riwayat versi aturan."><i class="ti ti-history"></i></button></td>
+              </tr>
+              <tr data-dept="plant" data-st="set">
+                <td><span class="code">Mekanik</span><span class="sub">sebelumnya 11,0 jam (s/d 30 Sep)</span></td><td>Plant</td>
+                <td class="num"><b>10,0</b> jam</td><td>01 Okt 2026 – sekarang</td><td class="num">1<span class="sub">1 override</span></td>
+                <td><span class="ver">v2</span></td>
+                <td class="act"><button class="icon-btn" type="button" title="Ubah" aria-label="Ubah" data-open="m-jabatan" data-pos="mekanik"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" title="Riwayat" aria-label="Riwayat" data-toast="Contoh tampilan: v1 11,0 jam (01 Jul–30 Sep) → v2 10,0 jam (mulai 01 Okt)."><i class="ti ti-history"></i></button></td>
+              </tr>
+              <tr data-dept="plant" data-st="set">
+                <td><span class="code">Helper mekanik</span></td><td>Plant</td>
+                <td class="num"><b>10,0</b> jam</td><td>01 Jul 2026 – sekarang</td><td class="num">1</td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci"></i> v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" title="Ubah" aria-label="Ubah" data-open="m-jabatan" data-pos="helper"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" title="Riwayat" aria-label="Riwayat" data-toast="Contoh tampilan: riwayat versi aturan."><i class="ti ti-history"></i></button></td>
+              </tr>
+              <tr data-dept="hse" data-st="set">
+                <td><span class="code">HSE officer</span></td><td>HSE</td>
+                <td class="num"><b>10,0</b> jam</td><td>01 Jul 2026 – sekarang</td><td class="num">1</td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci"></i> v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" title="Ubah" aria-label="Ubah" data-open="m-jabatan" data-pos="hse"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" title="Riwayat" aria-label="Riwayat" data-toast="Contoh tampilan: riwayat versi aturan."><i class="ti ti-history"></i></button></td>
+              </tr>
+              <tr data-dept="office" data-st="set">
+                <td><span class="code">Admin site</span></td><td>Office</td>
+                <td class="num"><b>8,0</b> jam</td><td>01 Jul 2026 – sekarang</td><td class="num">2<span class="sub">1 override</span></td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci"></i> v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" title="Ubah" aria-label="Ubah" data-open="m-jabatan" data-pos="admin"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" title="Riwayat" aria-label="Riwayat" data-toast="Contoh tampilan: riwayat versi aturan."><i class="ti ti-history"></i></button></td>
+              </tr>
+              <tr data-dept="ga" data-st="none">
+                <td><span class="code">Driver LV</span></td><td>General affair</td>
+                <td class="num"><span class="chip warning">Belum diatur</span></td><td>—</td><td class="num">2</td>
+                <td>—</td>
+                <td class="act"><button class="btn sm" type="button" data-open="m-jabatan" data-pos="driver"><i class="ti ti-plus"></i> Atur</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="empty" data-empty="tblJabatan" hidden><i class="ti ti-search-off"></i>Tidak ada jabatan yang cocok dengan filter.</div>
+        <div class="tfoot"><span>Menampilkan <b data-count="tblJabatan">8</b> dari 8 jabatan</span><span>Aturan yang sudah dipakai pada periode terkirim hanya bisa diubah lewat versi baru.</span></div>
+      </div>
+    </section>
+
+    <!-- =================== VIEW: STANDAR PER KARYAWAN =================== -->
+    <section class="view" id="view-karyawan" hidden>
+      <div class="kpis">
+        <div class="card kpi"><div class="l">Karyawan aktif</div><div class="v">11</div><div class="s">status aktif di sistem</div></div>
+        <div class="card kpi"><div class="l">Mengikuti jabatan</div><div class="v">7</div><div class="s">tanpa override</div></div>
+        <button type="button" class="card kpi" data-filter-set="tblKaryawan|src|ovr"><div class="l">Override individu</div><div class="v">2</div><div class="s">dengan alasan tercatat</div></button>
+        <button type="button" class="card kpi warn" data-filter-set="tblKaryawan|src|none"><div class="l">Belum diatur</div><div class="v">2</div><div class="s">klik untuk lihat</div></button>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <button class="btn primary" type="button" id="btnBatch" disabled data-open="m-override"><i class="ti ti-user-edit"></i> Override terpilih <span id="selCount">(0)</span></button>
+          <select data-filter="tblKaryawan" data-key="dept" aria-label="Filter departemen">
+            <option value="">Semua departemen</option><option value="prod">Produksi</option><option value="plant">Plant</option><option value="hse">HSE</option><option value="office">Office</option><option value="ga">General affair</option>
+          </select>
+          <select data-filter="tblKaryawan" data-key="src" aria-label="Filter sumber">
+            <option value="">Semua sumber</option><option value="pos">Jabatan</option><option value="ovr">Individu</option><option value="none">Belum diatur</option>
+          </select>
+          <div class="field-search"><i class="ti ti-search"></i><input type="text" data-filter="tblKaryawan" placeholder="Cari nama atau NRP" aria-label="Cari karyawan"></div>
+        </div>
+        <div class="tbl-wrap">
+          <table id="tblKaryawan">
+            <thead><tr><th style="width:28px"><input type="checkbox" id="chkAll" aria-label="Pilih semua"></th><th>Karyawan</th><th>Jabatan</th><th class="num">Jam per hari</th><th>Sumber</th><th>Berlaku</th><th style="text-align:right">Aksi</th></tr></thead>
+            <tbody id="tbodyKaryawan"></tbody>
+          </table>
+        </div>
+        <div class="empty" data-empty="tblKaryawan" hidden><i class="ti ti-search-off"></i>Tidak ada karyawan yang cocok dengan filter.</div>
+        <div class="tfoot"><span>Menampilkan <b data-count="tblKaryawan">11</b> dari 11 karyawan aktif</span><span>Urutan: override individu → jabatan + departemen → jabatan → belum diatur.</span></div>
+      </div>
+    </section>
+
+    <!-- =================== VIEW: REKAP JAM KERJA =================== -->
+    <section class="view" id="view-rekap" hidden>
+      <div class="card period">
+        <div class="pf"><label class="lb" for="r-from">Dari</label><input type="date" id="r-from" value="2026-10-01" min="2026-10-01" max="2026-10-06"></div>
+        <div class="pf"><label class="lb" for="r-to">Sampai</label><input type="date" id="r-to" value="2026-10-06" min="2026-10-01" max="2026-10-06"></div>
+        <div class="src-note"><i class="ti ti-database"></i><span>Hari hadir diambil dari <b>Rekap Performa</b> (absensi). Tanggal kerja = tanggal shift dimulai.</span></div>
+      </div>
+
+      <div class="kpis">
+        <div class="card kpi"><div class="l">Total jam kerja</div><div class="v" id="k-total">0</div><div class="s" id="k-total-s">jam, periode terpilih</div></div>
+        <div class="card kpi"><div class="l">Karyawan tercatat</div><div class="v" id="k-emp">0</div><div class="s" id="k-emp-s">termasuk nonaktif dalam periode</div></div>
+        <div class="card kpi"><div class="l">Hari hadir</div><div class="v" id="k-days">0</div><div class="s">sumber Rekap Performa</div></div>
+        <button type="button" class="card kpi warn" data-filter-set="tblRekap|st|none"><div class="l">Belum terhitung</div><div class="v" id="k-miss">0</div><div class="s" id="k-miss-s">hari hadir tanpa standar</div></button>
+      </div>
+
+      <div class="notice" id="noticeMiss">
+        <div class="t"><i class="ti ti-alert-triangle"></i><span id="noticeMissText"></span></div>
+        <button class="btn sm" type="button" data-goto="jabatan">Atur standar</button>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <select data-filter="tblRekap" data-key="dept" aria-label="Filter departemen">
+            <option value="">Semua departemen</option><option value="prod">Produksi</option><option value="plant">Plant</option><option value="hse">HSE</option><option value="office">Office</option><option value="ga">General affair</option>
+          </select>
+          <select data-filter="tblRekap" data-key="st" aria-label="Filter status">
+            <option value="">Semua status</option><option value="ok">Terhitung</option><option value="mix">Standar berubah</option><option value="none">Belum diatur</option><option value="inactive">Nonaktif</option>
+          </select>
+          <div class="field-search"><i class="ti ti-search"></i><input type="text" data-filter="tblRekap" placeholder="Cari nama atau NRP" aria-label="Cari karyawan"></div>
+          <button class="btn" type="button" data-toast="Contoh tampilan: ekspor Excel belum aktif."><i class="ti ti-file-spreadsheet"></i> Ekspor Excel</button>
+        </div>
+        <div class="tbl-wrap">
+          <table id="tblRekap">
+            <thead><tr><th>Karyawan</th><th>Jabatan</th><th class="num">Jam per hari</th><th class="num">Hari hadir</th><th class="num">Tidak hadir</th><th class="num">Total jam</th><th>Status</th><th style="text-align:right">Rincian</th></tr></thead>
+            <tbody id="tbodyRekap"></tbody>
+            <tfoot><tr class="total"><td colspan="3">Total periode</td><td class="num" id="f-days">0</td><td class="num" id="f-abs">0</td><td class="num" id="f-total">0</td><td colspan="2"></td></tr></tfoot>
+          </table>
+        </div>
+        <div class="empty" data-empty="tblRekap" hidden><i class="ti ti-search-off"></i>Tidak ada karyawan yang cocok dengan filter.</div>
+        <div class="tfoot"><span>Menampilkan <b data-count="tblRekap">12</b> karyawan</span><span>Total jam = jam per hari yang berlaku pada tanggal hadir, dijumlahkan.</span></div>
+      </div>
+
+      <!-- Kirim ke jam kerja HSE -->
+      <div class="card" style="margin-top:10px">
+        <div class="card-h">
+          <div><h3>Kirim ke jam kerja HSE</h3><p>Rekap bulanan per departemen menggantikan input manual jam kerja karyawan internal. Input manual tetap untuk kontraktor.</p></div>
+        </div>
+        <div class="tbl-wrap">
+          <table style="min-width:620px">
+            <thead><tr><th>Periode</th><th>Status</th><th class="num">Total jam</th><th>Dikirim</th><th style="text-align:right">Aksi</th></tr></thead>
+            <tbody>
+              <tr><td><span class="code">Oktober 2026</span><span class="sub">berjalan, data s/d 12 Okt</span></td><td><span class="chip accent">Berjalan</span></td><td class="num">—</td><td>—</td><td class="act"><button class="btn sm" type="button" disabled title="Bisa dikirim setelah bulan berakhir">Kirim</button></td></tr>
+              <tr><td><span class="code">September 2026</span><span class="sub">Rekap Performa sudah final</span></td><td><span class="chip warning">Siap dikirim</span></td><td class="num">64.950,5</td><td>—</td><td class="act"><button class="btn sm primary" type="button" data-open="m-kirim"><i class="ti ti-send"></i> Tinjau dan kirim</button></td></tr>
+              <tr><td><span class="code">Agustus 2026</span></td><td><span class="chip success"><i class="ti ti-lock"></i> Terkunci</span></td><td class="num">66.812,0</td><td>02 Sep 2026<span class="sub">oleh Siti Rahmawati</span></td><td class="act"><button class="icon-btn" type="button" title="Koreksi lewat adjustment" aria-label="Koreksi" data-toast="Contoh tampilan: periode terkunci, koreksi dicatat sebagai adjustment dengan approval."><i class="ti ti-adjustments"></i></button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <p class="demo-note">Contoh tampilan dengan data fiktif. Tidak ada data yang disimpan.</p>
+  </main>
+</div>
+</div>
+
+<!-- =================== MODAL: ATURAN JABATAN =================== -->
+<div class="overlay" id="m-jabatan" hidden role="dialog" aria-modal="true" aria-labelledby="mj-title">
+  <div class="modal">
+    <div class="m-head">
+      <div><h2 id="mj-title">Aturan jam kerja jabatan</h2><p>Pilih satu atau beberapa jabatan, departemen, dan karyawan sekaligus. Karyawan dengan override individu tidak ikut diubah.</p></div>
+      <button class="icon-btn" type="button" data-close aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="m-body">
+      <div class="row2">
+        <div class="fld"><span class="lb" id="lb-pos">Jabatan <em>*</em></span>
+          <div class="ms" id="ms-pos" data-placeholder="Pilih jabatan" data-all="Semua jabatan" aria-labelledby="lb-pos"></div>
+        </div>
+        <div class="fld"><span class="lb" id="lb-dept">Departemen <em>*</em></span>
+          <div class="ms" id="ms-dept" data-placeholder="Pilih departemen" data-all="Semua departemen" aria-labelledby="lb-dept"></div>
+        </div>
+      </div>
+      <div class="fld"><span class="lb" id="lb-emp">Nama karyawan <em>*</em></span>
+        <div class="ms" id="ms-emp" data-placeholder="Pilih karyawan" data-all="Semua karyawan" aria-labelledby="lb-emp"></div>
+        <p class="hint" id="emp-hint">Daftar menyesuaikan jabatan dan departemen yang dipilih. Karyawan dengan override individu tidak ikut diubah.</p>
+      </div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="j-hours">Jam kerja per hari <em>*</em></label>
+          <div class="stepper"><button class="icon-btn" type="button" id="j-minus" aria-label="Kurangi"><i class="ti ti-minus"></i></button><input type="number" id="j-hours" value="11" min="0.5" max="24" step="0.5"><button class="icon-btn" type="button" id="j-plus" aria-label="Tambah"><i class="ti ti-plus"></i></button><span class="hint" style="margin:0">jam</span></div>
+          <p class="hint">Jam efektif yang dihitung sebagai jam kerja HSE per hari hadir.</p>
+        </div>
+        <div class="fld"><label class="lb" for="j-from">Berlaku mulai <em>*</em></label><input type="date" id="j-from" value="2026-10-13"><p class="hint">Aturan lama otomatis berakhir sehari sebelumnya.</p></div>
+      </div>
+      <div class="fld"><label class="lb" for="j-note">Catatan</label><textarea id="j-note" placeholder="Mis. mengikuti pola shift 2×12 jam dikurangi istirahat 1 jam"></textarea></div>
+      <div class="preview" id="j-preview"><i class="ti ti-info-circle"></i><span></span></div>
+    </div>
+    <div class="m-foot">
+      <button class="btn" type="button" data-close>Batal</button>
+      <button class="btn primary" type="button" id="j-save"><i class="ti ti-device-floppy"></i> Simpan aturan</button>
+    </div>
+  </div>
+</div>
+
+<!-- =================== MODAL: OVERRIDE INDIVIDU =================== -->
+<div class="overlay" id="m-override" hidden role="dialog" aria-modal="true" aria-labelledby="mo-title">
+  <div class="modal wide">
+    <div class="m-head">
+      <div><h2 id="mo-title">Override jam kerja individu</h2><p>Dipakai bila karyawan bekerja dengan jam berbeda dari standar jabatannya.</p></div>
+      <button class="icon-btn" type="button" data-close aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="m-body">
+      <div class="fld"><span class="lb">Karyawan</span><div class="chips" id="o-emps"></div></div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="o-hours">Jam kerja per hari <em>*</em></label>
+          <div class="stepper"><button class="icon-btn" type="button" id="o-minus" aria-label="Kurangi"><i class="ti ti-minus"></i></button><input type="number" id="o-hours" value="8" min="0.5" max="24" step="0.5"><button class="icon-btn" type="button" id="o-plus" aria-label="Tambah"><i class="ti ti-plus"></i></button><span class="hint" style="margin:0">jam</span></div>
+        </div>
+        <div class="fld"><label class="lb" for="o-reason">Alasan <em>*</em></label>
+          <select id="o-reason"><option value="">Pilih alasan</option><option>Alih tugas sementara</option><option>Penugasan khusus</option><option>Pola kerja khusus</option><option>Lainnya</option></select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="o-from">Berlaku mulai <em>*</em></label><input type="date" id="o-from" value="2026-10-13"></div>
+        <div class="fld"><label class="lb" for="o-to">Sampai</label><input type="date" id="o-to" disabled>
+          <label class="check" style="margin-top:6px"><input type="checkbox" id="o-open" checked><span>Tanpa batas waktu<span class="d">Ditinjau ulang tiap 90 hari</span></span></label>
+        </div>
+      </div>
+      <div class="fld"><label class="lb" for="o-note">Catatan</label><textarea id="o-note" placeholder="Mis. ditugaskan ke admin gudang part selama perbaikan workshop"></textarea></div>
+      <div>
+        <div class="group-title">Urutan penentuan jam kerja</div>
+        <div class="chain">
+          <div class="step hit"><span>Override individu<span class="sub" id="o-chain-1">8,0 jam · berlaku mulai 13 Okt 2026</span></span><span class="chip accent">dipakai</span></div>
+          <div class="step"><span>Jabatan + departemen<span class="sub">tidak ada aturan khusus departemen</span></span><span></span></div>
+          <div class="step"><span>Jabatan<span class="sub" id="o-chain-3">—</span></span><span></span></div>
+          <div class="step"><span>Belum diatur<span class="sub">hari hadir tidak dihitung, bukan 0 jam</span></span><span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="m-foot">
+      <button class="btn" type="button" data-close>Batal</button>
+      <button class="btn primary" type="button" id="o-save"><i class="ti ti-device-floppy"></i> Simpan override</button>
+    </div>
+  </div>
+</div>
+
+<!-- =================== MODAL: KIRIM KE JAM KERJA HSE =================== -->
+<div class="overlay" id="m-kirim" hidden role="dialog" aria-modal="true" aria-labelledby="mk-title">
+  <div class="modal">
+    <div class="m-head">
+      <div><h2 id="mk-title">Kirim jam kerja September 2026</h2><p>Setelah dikirim, periode terkunci dan dipakai untuk LTIFR, TRIR, dan severity rate.</p></div>
+      <button class="icon-btn" type="button" data-close aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="m-body">
+      <div class="checks">
+        <div class="ck ok"><i class="ti ti-circle-check"></i><span>Rekap Performa September sudah final</span></div>
+        <div class="ck ok"><i class="ti ti-circle-check"></i><span>Semua karyawan punya standar jam kerja (0 belum diatur)</span></div>
+        <div class="ck ok"><i class="ti ti-circle-check"></i><span>Tidak ada input manual karyawan internal untuk September</span></div>
+      </div>
+      <table style="min-width:0">
+        <thead><tr><th>Departemen</th><th class="num">Karyawan</th><th class="num">Hari hadir</th><th class="num">Jam kerja</th></tr></thead>
+        <tbody>
+          <tr><td>Produksi</td><td class="num">152</td><td class="num">3.750</td><td class="num">41.250,0</td></tr>
+          <tr><td>Plant</td><td class="num">61</td><td class="num">1.532</td><td class="num">15.320,0</td></tr>
+          <tr><td>HSE</td><td class="num">10</td><td class="num">248</td><td class="num">2.480,0</td></tr>
+          <tr><td>Office</td><td class="num">18</td><td class="num">439</td><td class="num">3.512,0</td></tr>
+          <tr><td>General affair</td><td class="num">11</td><td class="num">263</td><td class="num">2.388,5</td></tr>
+        </tbody>
+        <tfoot><tr class="total"><td>Total</td><td class="num">252</td><td class="num">6.232</td><td class="num">64.950,5</td></tr></tfoot>
+      </table>
+      <div class="preview"><i class="ti ti-info-circle"></i><span>Koreksi setelah terkunci dicatat sebagai adjustment dengan approval. Angka bulan yang sudah dilaporkan tidak berubah diam-diam.</span></div>
+    </div>
+    <div class="m-foot">
+      <button class="btn" type="button" data-close>Batal</button>
+      <button class="btn primary" type="button" data-save="pengiriman jam kerja September"><i class="ti ti-send"></i> Kirim dan kunci</button>
+    </div>
+  </div>
+</div>
+
+<!-- =================== DRAWER: RINCIAN HARIAN =================== -->
+<div class="drawer-wrap" id="drawer" hidden>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-name">
+    <div class="d-head">
+      <div><h2 id="dr-name">—</h2><p class="hint" id="dr-sub" style="margin:2px 0 0">—</p></div>
+      <button class="icon-btn" type="button" data-close-drawer aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="d-body">
+      <div class="sum">
+        <div><div class="l">Hari hadir</div><div class="v" id="dr-days">0</div></div>
+        <div><div class="l">Total jam</div><div class="v" id="dr-total">0</div></div>
+      </div>
+      <div>
+        <div class="group-title">Rincian harian</div>
+        <div class="days" id="dr-days-list"></div>
+      </div>
+      <div class="preview" id="dr-note"><i class="ti ti-info-circle"></i><span></span></div>
+      <button class="btn" type="button" data-toast="Contoh tampilan: membuka Rekap Performa karyawan ini."><i class="ti ti-external-link"></i> Buka di Rekap Performa</button>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"><i class="ti ti-info-circle"></i><span></span></div>
+
+<script>
+(function () {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const nf = (n, d = 1) => n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  /* ---------- Data contoh ---------- */
+  const DATES = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06'];
+  const DLABEL = ['Kam 01 Okt', 'Jum 02 Okt', 'Sab 03 Okt', 'Min 04 Okt', 'Sen 05 Okt', 'Sel 06 Okt'];
+  const STATUS = { H: ['Hadir', 'success'], OFF: ['OFF', ''], C: ['Cuti', 'accent'], S: ['Sakit', 'warning'], I: ['Izin', 'warning'], A: ['Alpa', 'danger'], X: ['Nonaktif', 'muted'] };
+  const POS = {
+    opdt: { n: 'Operator dump truck', d: 'Produksi', dk: 'prod', h: 11, emp: 2, ov: 0 },
+    opex: { n: 'Operator excavator', d: 'Produksi', dk: 'prod', h: 11, emp: 1, ov: 0 },
+    foreman: { n: 'Foreman produksi', d: 'Produksi', dk: 'prod', h: 11, emp: 1, ov: 0 },
+    mekanik: { n: 'Mekanik', d: 'Plant', dk: 'plant', h: 10, emp: 1, ov: 1 },
+    helper: { n: 'Helper mekanik', d: 'Plant', dk: 'plant', h: 10, emp: 1, ov: 0 },
+    hse: { n: 'HSE officer', d: 'HSE', dk: 'hse', h: 10, emp: 1, ov: 0 },
+    admin: { n: 'Admin site', d: 'Office', dk: 'office', h: 8, emp: 2, ov: 1 },
+    driver: { n: 'Driver LV', d: 'General affair', dk: 'ga', h: null, emp: 2, ov: 0 }
+  };
+  // ov: override individu {h, from, reason}
+  const EMP = [
+    { id: 'andre', nrp: '10231', n: 'Andre Saputra', p: 'admin', days: ['H', 'H', 'OFF', 'H', 'H', 'OFF'] },
+    { id: 'budi', nrp: '10115', n: 'Budi Santoso', p: 'opdt', days: ['H', 'H', 'H', 'H', 'OFF', 'H'] },
+    { id: 'dedi', nrp: '10142', n: 'Dedi Kurniawan', p: 'opdt', days: ['H', 'H', 'S', 'H', 'H', 'H'] },
+    { id: 'eko', nrp: '10187', n: 'Eko Prasetyo', p: 'opex', days: ['H', 'H', 'H', 'H', 'H', 'H'] },
+    { id: 'fajar', nrp: '10203', n: 'Fajar Hidayat', p: 'foreman', days: ['H', 'H', 'H', 'OFF', 'H', 'H'] },
+    { id: 'rudi', nrp: '10088', n: 'Rudi Hartono', p: 'mekanik', days: ['H', 'H', 'H', 'OFF', 'H', 'H'], ov: { h: 8, from: '2026-10-04', fromL: '04 Okt 2026', reason: 'Alih tugas sementara' } },
+    { id: 'hendra', nrp: '10096', n: 'Hendra Wijaya', p: 'helper', days: ['H', 'I', 'H', 'H', 'H', 'OFF'] },
+    { id: 'siti', nrp: '10251', n: 'Siti Rahmawati', p: 'hse', days: ['H', 'H', 'H', 'H', 'OFF', 'OFF'] },
+    { id: 'maya', nrp: '10158', n: 'Maya Lestari', p: 'admin', days: ['H', 'H', 'C', 'C', 'H', 'H'], ov: { h: 10, from: '2026-09-01', fromL: '01 Sep 2026', reason: 'Pola kerja khusus' } },
+    { id: 'joko', nrp: '10077', n: 'Joko Susilo', p: 'opdt', days: ['H', 'H', 'X', 'X', 'X', 'X'], inactive: '03 Okt 2026' },
+    { id: 'wawan', nrp: '10266', n: 'Wawan Setiawan', p: 'driver', days: ['H', 'H', 'H', 'H', 'H', 'OFF'] },
+    { id: 'agus', nrp: '10270', n: 'Agus Salim', p: 'driver', days: ['H', 'OFF', 'H', 'H', 'H', 'H'] }
+  ];
+  const initials = n => n.split(' ').map(w => w[0]).slice(0, 2).join('');
+
+  // Jam per hari yang berlaku pada tanggal tertentu: override → jabatan → null
+  function hoursOn(e, date) {
+    if (e.ov && date >= e.ov.from) return { h: e.ov.h, src: 'Override individu' };
+    const p = POS[e.p];
+    return p.h == null ? { h: null, src: 'Belum diatur' } : { h: p.h, src: 'Jabatan ' + p.n.toLowerCase() };
+  }
+
+  /* ---------- Tema ---------- */
+  const root = document.documentElement;
+  const isDark = () => (root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+  const syncThemeIcon = () => { $('#themeBtn i').className = 'ti ' + (isDark() ? 'ti-sun' : 'ti-moon'); };
+  $('#themeBtn').addEventListener('click', () => { root.dataset.theme = isDark() ? 'light' : 'dark'; syncThemeIcon(); });
+  syncThemeIcon();
+
+  /* ---------- Toast ---------- */
+  let tt;
+  function toast(msg) {
+    const t = $('#toast'); $('span', t).textContent = msg; t.classList.add('show');
+    clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 2800);
+  }
+
+  /* ---------- Tampilan (segmented) ---------- */
+  const titles = { jabatan: 'Standar per jabatan', karyawan: 'Standar per karyawan', rekap: 'Rekap jam kerja' };
+  function showView(v) {
+    if (!titles[v]) v = 'jabatan';
+    $$('.view').forEach(el => { el.hidden = el.id !== 'view-' + v; });
+    $$('.seg button').forEach(b => { const on = b.dataset.view === v; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    $('#crumbView').textContent = titles[v];
+    try { history.replaceState(null, '', '#' + v); } catch (e) {}
+  }
+  $$('.seg button').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+
+  /* ---------- Filter tabel ---------- */
+  function applyFilter(id) {
+    const q = (($(`input[data-filter="${id}"]`) || {}).value || '').toLowerCase();
+    const sels = $$(`select[data-filter="${id}"]`);
+    let n = 0;
+    $$(`#${id} tbody tr`).forEach(tr => {
+      let ok = tr.textContent.toLowerCase().includes(q);
+      sels.forEach(s => { if (s.value && !(tr.dataset[s.dataset.key] || '').split(' ').includes(s.value)) ok = false; });
+      tr.hidden = !ok; if (ok) n++;
+    });
+    const c = $(`[data-count="${id}"]`); if (c) c.textContent = n;
+    const e = $(`[data-empty="${id}"]`); if (e) e.hidden = n !== 0;
+  }
+  $$('[data-filter]').forEach(el => el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => applyFilter(el.dataset.filter)));
+  $$('[data-filter-set]').forEach(el => el.addEventListener('click', () => {
+    const [id, key, val] = el.dataset.filterSet.split('|');
+    const s = $(`select[data-filter="${id}"][data-key="${key}"]`);
+    if (s) { s.value = val; applyFilter(id); }
+    showView(id === 'tblJabatan' ? 'jabatan' : id === 'tblKaryawan' ? 'karyawan' : 'rekap');
+  }));
+
+  /* ---------- Standar per karyawan ---------- */
+  function renderKaryawan() {
+    $('#tbodyKaryawan').innerHTML = EMP.filter(e => !e.inactive).map(e => {
+      const p = POS[e.p];
+      let jam, src, srcKey, berlaku, act;
+      if (e.ov) {
+        jam = `<b>${nf(e.ov.h)}</b> jam<span class="sub">jabatan ${nf(p.h)} jam</span>`;
+        src = `<span class="chip accent"><i class="ti ti-user-edit"></i> Individu</span><span class="sub">${e.ov.reason}</span>`;
+        srcKey = 'ovr'; berlaku = e.ov.fromL + ' – sekarang';
+        act = `<button class="icon-btn" type="button" title="Ubah override" aria-label="Ubah override" data-open="m-override" data-emp="${e.id}"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" title="Akhiri override" aria-label="Akhiri override" data-toast="Contoh tampilan: override diakhiri mulai besok, karyawan kembali ke standar jabatan."><i class="ti ti-arrow-back-up"></i></button>`;
+      } else if (p.h == null) {
+        jam = '—'; src = '<span class="chip warning">Belum diatur</span>'; srcKey = 'none'; berlaku = '—';
+        act = `<button class="btn sm" type="button" data-open="m-jabatan" data-pos="${e.p}">Atur jabatan</button>`;
+      } else {
+        jam = `<b>${nf(p.h)}</b> jam`; src = '<span class="chip">Jabatan</span>'; srcKey = 'pos';
+        berlaku = e.p === 'mekanik' ? '01 Okt 2026 – sekarang' : '01 Jul 2026 – sekarang';
+        act = `<button class="btn sm" type="button" data-open="m-override" data-emp="${e.id}"><i class="ti ti-user-edit"></i> Override</button>`;
+      }
+      return `<tr data-dept="${p.dk}" data-src="${srcKey}">
+        <td><input type="checkbox" class="chk" value="${e.id}" aria-label="Pilih ${e.n}"></td>
+        <td><div class="person"><span class="avatar">${initials(e.n)}</span><div><div class="n">${e.n}</div><span class="sub">NRP ${e.nrp}</span></div></div></td>
+        <td>${p.n}<span class="sub">${p.d}</span></td>
+        <td class="num">${jam}</td><td>${src}</td><td>${berlaku}</td><td class="act">${act}</td></tr>`;
+    }).join('');
+  }
+  renderKaryawan();
+
+  function syncSel() {
+    const n = $$('#tbodyKaryawan .chk:checked').length;
+    $('#selCount').textContent = `(${n})`; $('#btnBatch').disabled = n === 0;
+  }
+  document.addEventListener('change', e => {
+    if (e.target.id === 'chkAll') $$('#tbodyKaryawan tr:not([hidden]) .chk').forEach(c => { c.checked = e.target.checked; });
+    if (e.target.id === 'chkAll' || e.target.classList.contains('chk')) syncSel();
+  });
+
+  /* ---------- Rekap jam kerja ---------- */
+  function calc(e, from, to) {
+    let days = 0, abs = 0, total = 0, miss = 0; const hs = new Set(); const rows = [];
+    DATES.forEach((d, i) => {
+      if (d < from || d > to) return;
+      const s = e.days[i]; const r = hoursOn(e, d); let counted = 0;
+      if (s === 'H') {
+        days++;
+        if (r.h == null) miss++; else { counted = r.h; total += r.h; hs.add(r.h); }
+      } else if (s !== 'X') abs++;
+      rows.push({ d: DLABEL[i], s, r, counted });
+    });
+    return { days, abs, total, miss, hs: Array.from(hs), rows };
+  }
+
+  function renderRekap() {
+    let from = $('#r-from').value || DATES[0], to = $('#r-to').value || DATES[5];
+    if (from > to) { [from, to] = [to, from]; }
+    let T = 0, D = 0, A = 0, M = 0, MP = 0, N = 0, INA = 0;
+    $('#tbodyRekap').innerHTML = EMP.map(e => {
+      const p = POS[e.p], c = calc(e, from, to);
+      if (!c.rows.some(r => r.s !== 'X')) return '';
+      N++; T += c.total; D += c.days; A += c.abs; M += c.miss; if (c.miss) MP++; if (e.inactive) INA++;
+      let jam, st, stKey;
+      if (c.miss && !c.hs.length) { jam = '—'; st = '<span class="chip warning">Belum diatur</span>'; stKey = 'none'; }
+      else if (c.hs.length > 1) { jam = c.hs.map(h => nf(h)).join(' → ') + '<span class="sub">standar berubah</span>'; st = '<span class="chip accent">Standar berubah</span>'; stKey = 'ok mix'; }
+      else { jam = c.hs.length ? nf(c.hs[0]) : '—'; st = '<span class="chip success">Terhitung</span>'; stKey = 'ok'; }
+      if (e.inactive) { st += `<span class="sub">nonaktif sejak ${e.inactive}</span>`; stKey += ' inactive'; }
+      const tot = c.miss && !c.hs.length ? '<span class="muted">—</span>' : `<b>${nf(c.total)}</b>`;
+      const grp = {}; c.rows.forEach(r => { if (r.s === 'H' && r.r.h != null) grp[r.r.h] = (grp[r.r.h] || 0) + 1; });
+      const formula = (!c.miss && c.hs.length) ? `<span class="sub">${c.hs.map(h => grp[h] + ' × ' + nf(h)).join(' + ')}</span>` : '';
+      return `<tr data-dept="${p.dk}" data-st="${stKey}">
+        <td><div class="person"><span class="avatar">${initials(e.n)}</span><div><div class="n">${e.n}</div><span class="sub">NRP ${e.nrp}</span></div></div></td>
+        <td>${p.n}<span class="sub">${p.d}</span></td>
+        <td class="num">${jam}</td><td class="num">${c.days}</td><td class="num">${c.abs}</td>
+        <td class="num">${tot}${formula}</td><td>${st}</td>
+        <td class="act"><button class="icon-btn" type="button" aria-label="Rincian harian ${e.n}" title="Rincian harian" data-drawer="${e.id}"><i class="ti ti-calendar-stats"></i></button></td></tr>`;
+    }).join('');
+    $('#k-total').textContent = nf(T); $('#k-emp').textContent = N; $('#k-days').textContent = D; $('#k-miss').textContent = M;
+    $('#k-emp-s').textContent = INA ? `${INA} nonaktif dalam periode` : 'semua aktif';
+    $('#k-miss-s').textContent = M ? `hari hadir, ${MP} karyawan tanpa standar` : 'semua hari hadir terhitung';
+    $('#f-days').textContent = D; $('#f-abs').textContent = A; $('#f-total').textContent = nf(T);
+    $('#noticeMiss').hidden = M === 0;
+    $('#noticeMissText').textContent = `${M} hari hadir dari ${MP} karyawan (Driver LV) belum masuk total karena jabatannya belum punya standar jam kerja.`;
+    applyFilter('tblRekap');
+  }
+  ['r-from', 'r-to'].forEach(id => $('#' + id).addEventListener('change', renderRekap));
+  renderRekap();
+
+  function openDrawer(id) {
+    const e = EMP.find(x => x.id === id), p = POS[e.p];
+    let from = $('#r-from').value || DATES[0], to = $('#r-to').value || DATES[5]; if (from > to) [from, to] = [to, from];
+    const c = calc(e, from, to);
+    $('#dr-name').textContent = e.n;
+    $('#dr-sub').textContent = `NRP ${e.nrp} · ${p.n} · ${p.d}`;
+    $('#dr-days').textContent = c.days;
+    $('#dr-total').textContent = c.miss && !c.hs.length ? '—' : nf(c.total) + ' jam';
+    $('#dr-days-list').innerHTML = c.rows.map(r => {
+      const [lbl, cls] = STATUS[r.s];
+      const right = r.s === 'H'
+        ? (r.r.h == null ? '<span class="chip warning">tidak dihitung</span>' : `<b>${nf(r.counted)}</b> jam`)
+        : '<span class="muted">0</span>';
+      const src = r.s === 'H' ? `<span class="sub">${r.r.src}${r.r.h != null ? ' · ' + nf(r.r.h) + ' jam/hari' : ''}</span>` : '';
+      return `<div class="day"><div><div class="dd">${r.d}</div>${src}</div><span class="chip ${cls}">${lbl}</span><div class="dv">${right}</div></div>`;
+    }).join('');
+    let note = 'Status kehadiran dari Rekap Performa. Jam per hari mengikuti aturan yang berlaku pada tanggal tersebut.';
+    if (e.ov && c.hs.length > 1) note = `Override ${nf(e.ov.h)} jam berlaku mulai ${e.ov.fromL} (${e.ov.reason.toLowerCase()}). Hari sebelumnya memakai standar jabatan ${nf(p.h)} jam.`;
+    if (c.miss) note = 'Jabatan ini belum punya standar jam kerja. Hari hadir tetap tercatat, tetapi belum masuk total jam kerja HSE sampai standar diatur.';
+    if (e.inactive) note = `Karyawan nonaktif sejak ${e.inactive}. Jam kerja sebelum tanggal itu tetap dihitung agar total jam kerja periode tidak berkurang.`;
+    $('span', $('#dr-note')).textContent = note;
+    $('#dr-note').classList.toggle('warn', !!c.miss);
+    $('#drawer').hidden = false; document.body.style.overflow = 'hidden';
+  }
+
+  /* ---------- Modal ---------- */
+  function openModal(id) {
+    const m = $('#' + id); m.hidden = false; document.body.style.overflow = 'hidden';
+    const f = m.querySelector('.ms-btn, select, input:not([type=checkbox]):not([disabled])'); if (f) f.focus();
+  }
+  function closeAll() { $$('.overlay').forEach(m => { m.hidden = true; }); $('#drawer').hidden = true; document.body.style.overflow = ''; }
+
+  /* Form jabatan */
+  /* Dropdown checklist generik */
+  const DEPTS = [['prod', 'Produksi'], ['plant', 'Plant'], ['hse', 'HSE'], ['office', 'Office'], ['ga', 'General affair']];
+  const MS = {};
+  function makeMS(id, onChange) {
+    const el = $('#' + id);
+    const st = { el, opts: [], sel: new Set(), q: '', onChange };
+    el.innerHTML = `<button type="button" class="ms-btn" aria-haspopup="listbox" aria-expanded="false"><span class="ms-val ph"></span><span class="ms-n" hidden></span><i class="ti ti-chevron-down"></i></button>
+      <div class="ms-pop" hidden><input type="text" class="ms-search" placeholder="Cari..." aria-label="Cari pilihan"><div class="ms-list" role="listbox" aria-multiselectable="true"></div>
+      <div class="ms-foot"><span class="ms-info"></span><button type="button" class="btn sm ms-clear">Kosongkan</button></div></div>`;
+    const btn = $('.ms-btn', el), pop = $('.ms-pop', el), list = $('.ms-list', el), search = $('.ms-search', el);
+    st.render = () => {
+      const enabled = st.opts.filter(o => !o.disabled);
+      const vis = st.opts.filter(o => (o.label + ' ' + (o.sub || '')).toLowerCase().includes(st.q));
+      const allOn = enabled.length > 0 && enabled.every(o => st.sel.has(o.v));
+      list.innerHTML = (st.opts.length ? `<label class="ms-opt all"><input type="checkbox" data-all ${allOn ? 'checked' : ''}> ${el.dataset.all} <span class="sub" style="margin-left:auto">${enabled.length}</span></label>` : '')
+        + (vis.length ? vis.map(o => `<label class="ms-opt ${o.disabled ? 'dis' : ''}" title="${o.title || ''}"><input type="checkbox" value="${o.v}" ${st.sel.has(o.v) ? 'checked' : ''} ${o.disabled ? 'disabled' : ''}><span>${o.label}${o.sub ? `<span class="sub">${o.sub}</span>` : ''}</span>${o.tag ? `<span class="tagr">${o.tag}</span>` : ''}</label>`).join('')
+          : '<div class="ms-empty">Tidak ada pilihan.</div>');
+      const chosen = st.opts.filter(o => st.sel.has(o.v));
+      const val = $('.ms-val', btn), n = $('.ms-n', btn);
+      if (!chosen.length) { val.textContent = el.dataset.placeholder; val.classList.add('ph'); n.hidden = true; }
+      else {
+        val.classList.remove('ph');
+        val.textContent = allOn && enabled.length > 1 && enabled.length === st.opts.length ? el.dataset.all : chosen.map(o => o.label).join(', ');
+        n.hidden = false; n.textContent = chosen.length;
+      }
+      $('.ms-info', el).textContent = `${chosen.length} dari ${enabled.length} dipilih`;
+    };
+    st.set = (opts, keepSel = true) => {
+      st.opts = opts;
+      const valid = new Set(opts.filter(o => !o.disabled).map(o => o.v));
+      st.sel = new Set(keepSel ? [...st.sel].filter(v => valid.has(v)) : []);
+      st.render();
+    };
+    st.values = () => [...st.sel];
+    st.close = () => { pop.hidden = true; el.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+    btn.addEventListener('click', () => {
+      const open = pop.hidden;
+      Object.values(MS).forEach(m => m.close());
+      if (open) { pop.hidden = false; el.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); search.value = ''; st.q = ''; st.render(); search.focus(); }
+    });
+    search.addEventListener('input', () => { st.q = search.value.toLowerCase(); st.render(); });
+    list.addEventListener('change', e => {
+      const c = e.target;
+      if (c.dataset.all !== undefined) { st.sel = new Set(c.checked ? st.opts.filter(o => !o.disabled).map(o => o.v) : []); }
+      else if (c.checked) st.sel.add(c.value); else st.sel.delete(c.value);
+      st.render(); st.onChange && st.onChange();
+    });
+    $('.ms-clear', el).addEventListener('click', () => { st.sel.clear(); st.render(); st.onChange && st.onChange(); });
+    el.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) { e.stopPropagation(); st.close(); btn.focus(); } });
+    MS[id] = st; return st;
+  }
+  document.addEventListener('click', e => { Object.values(MS).forEach(m => { if (!m.el.contains(e.target)) m.close(); }); });
+
+  const ACTIVE = () => EMP.filter(e => !e.inactive);
+  const msPos = makeMS('ms-pos', () => { refreshDept(); refreshEmp(true); syncJabatan(); });
+  const msDept = makeMS('ms-dept', () => { refreshEmp(true); syncJabatan(); });
+  const msEmp = makeMS('ms-emp', syncJabatan);
+
+  msPos.set(Object.entries(POS).map(([k, p]) => ({ v: k, label: p.n, sub: p.h == null ? 'belum diatur' : 'saat ini ' + nf(p.h) + ' jam' })));
+  function refreshDept() {
+    const used = new Set(msPos.values().map(k => POS[k].dk));
+    msDept.set(DEPTS.map(([k, n]) => ({ v: k, label: n, disabled: msPos.values().length > 0 && !used.has(k), title: used.has(k) ? '' : 'Tidak ada jabatan terpilih di departemen ini' })));
+  }
+  function refreshEmp(selectAllNew) {
+    const ps = new Set(msPos.values()), ds = new Set(msDept.values());
+    const before = new Set(msEmp.opts.filter(o => !o.disabled).map(o => o.v));
+    const opts = ACTIVE().filter(e => ps.has(e.p) && ds.has(POS[e.p].dk)).map(e => ({
+      v: e.id, label: e.n, sub: `NRP ${e.nrp} · ${POS[e.p].n} · ${POS[e.p].d}`,
+      disabled: !!e.ov, title: e.ov ? 'Punya override individu, ubah lewat Standar per karyawan' : '',
+      tag: e.ov ? '<span class="chip accent">Override</span>' : ''
+    }));
+    msEmp.set(opts);
+    if (selectAllNew) opts.filter(o => !o.disabled && !before.has(o.v)).forEach(o => msEmp.sel.add(o.v));
+    msEmp.render();
+  }
+
+  function syncJabatan() {
+    const h = parseFloat($('#j-hours').value || '0');
+    const ps = msPos.values(), ds = msDept.values(), es = msEmp.values();
+    const pool = msEmp.opts.filter(o => !o.disabled), ovr = msEmp.opts.filter(o => o.disabled);
+    const pv = $('#j-preview'), bad = !(h > 0 && h <= 24);
+    let msg;
+    if (!ps.length) msg = 'Pilih minimal satu jabatan.';
+    else if (!ds.length) msg = 'Pilih minimal satu departemen.';
+    else if (!es.length) msg = pool.length ? 'Pilih minimal satu karyawan.' : 'Tidak ada karyawan aktif pada kombinasi jabatan dan departemen ini.';
+    else if (bad) msg = 'Jam per hari harus lebih dari 0 dan paling banyak 24.';
+    const warn = !!msg || h > 12;
+    pv.classList.toggle('warn', warn);
+    if (!msg) {
+      const full = es.length === pool.length;
+      msg = `${nf(h)} jam per hari hadir untuk ${es.length} karyawan`
+        + ` (${ps.length} jabatan, ${ds.length} departemen). `
+        + (full ? 'Disimpan sebagai aturan jabatan, otomatis berlaku juga untuk karyawan baru di jabatan ini. '
+                : `Hanya ${es.length} dari ${pool.length} karyawan dipilih: disimpan sebagai aturan per karyawan, karyawan lain tidak berubah. `)
+        + (ovr.length ? `${ovr.length} karyawan dengan override individu tidak terdampak. ` : '')
+        + (h > 12 ? 'Di atas 12 jam: pastikan sesuai pola shift.' : '');
+    }
+    $('span', pv).textContent = msg;
+    $('#j-save').disabled = !ps.length || !ds.length || !es.length || bad;
+  }
+  function prepJabatan(k) {
+    msPos.sel = new Set(k ? [k] : []); msPos.render();
+    refreshDept();
+    msDept.sel = new Set(k ? [POS[k].dk] : []); msDept.render();
+    msEmp.opts = []; refreshEmp(true);
+    $('#j-hours').value = k && POS[k].h != null ? POS[k].h : 10;
+    syncJabatan();
+  }
+  $('#j-hours').addEventListener('input', syncJabatan);
+  $('#j-plus').addEventListener('click', () => { $('#j-hours').value = Math.min(24, (+$('#j-hours').value || 0) + 0.5); syncJabatan(); });
+  $('#j-minus').addEventListener('click', () => { $('#j-hours').value = Math.max(0.5, (+$('#j-hours').value || 0) - 0.5); syncJabatan(); });
+  $('#j-save').addEventListener('click', () => {
+    closeAll(); toast(`Contoh tampilan: aturan untuk ${msEmp.values().length} karyawan tidak benar-benar disimpan.`);
+  });
+
+  /* Form override */
+  let ovTargets = [];
+  function syncOverride() {
+    const h = parseFloat($('#o-hours').value || '0');
+    $('#o-to').disabled = $('#o-open').checked;
+    const d = $('#o-from').valueAsDate;
+    $('#o-chain-1').textContent = `${nf(h)} jam · berlaku mulai ${d ? d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}`;
+    const ps = Array.from(new Set(ovTargets.map(e => e.p)));
+    $('#o-chain-3').textContent = ps.map(k => `${POS[k].n}: ${POS[k].h == null ? 'belum diatur' : nf(POS[k].h) + ' jam'}`).join(' · ') || '—';
+  }
+  ['o-hours', 'o-from', 'o-open'].forEach(id => $('#' + id).addEventListener('input', syncOverride));
+  $('#o-plus').addEventListener('click', () => { $('#o-hours').value = Math.min(24, (+$('#o-hours').value || 0) + 0.5); syncOverride(); });
+  $('#o-minus').addEventListener('click', () => { $('#o-hours').value = Math.max(0.5, (+$('#o-hours').value || 0) - 0.5); syncOverride(); });
+  function prepOverride(ids) {
+    ovTargets = EMP.filter(e => ids.includes(e.id));
+    $('#o-emps').innerHTML = ovTargets.map(e => `<span class="chip">${e.n} · ${POS[e.p].n}</span>`).join('');
+    const one = ovTargets.length === 1 ? ovTargets[0] : null;
+    $('#o-hours').value = one && one.ov ? one.ov.h : 8;
+    $('#o-reason').value = one && one.ov ? one.ov.reason : '';
+    syncOverride();
+  }
+  $('#o-save').addEventListener('click', () => {
+    if (!$('#o-reason').value) { $('#o-reason').focus(); toast('Alasan wajib diisi untuk override individu.'); return; }
+    closeAll(); toast(`Contoh tampilan: override ${ovTargets.length} karyawan tidak benar-benar disimpan.`);
+  });
+
+  document.addEventListener('click', e => {
+    const o = e.target.closest('[data-open]');
+    if (o && !o.disabled) {
+      if (o.dataset.open === 'm-jabatan') prepJabatan(o.dataset.pos || '');
+      if (o.dataset.open === 'm-override') prepOverride(o.dataset.emp ? [o.dataset.emp] : $$('#tbodyKaryawan .chk:checked').map(c => c.value));
+      openModal(o.dataset.open); return;
+    }
+    const dr = e.target.closest('[data-drawer]'); if (dr) { openDrawer(dr.dataset.drawer); return; }
+    const g = e.target.closest('[data-goto]'); if (g) { showView(g.dataset.goto); return; }
+    if (e.target.closest('[data-close]') || e.target.classList.contains('overlay')) { closeAll(); return; }
+    if (e.target.closest('[data-close-drawer]') || e.target.id === 'drawer') { closeAll(); return; }
+    const sv = e.target.closest('[data-save]');
+    if (sv) { closeAll(); toast('Contoh tampilan: ' + sv.dataset.save + ' tidak benar-benar disimpan.'); return; }
+    const tg = e.target.closest('[data-toast]');
+    if (tg) toast(tg.dataset.toast);
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+
+  window.addEventListener('hashchange', () => showView((location.hash || '').replace('#', '')));
+  showView((location.hash || '').replace('#', ''));
+})();
+</script>
+</body>
+</html>

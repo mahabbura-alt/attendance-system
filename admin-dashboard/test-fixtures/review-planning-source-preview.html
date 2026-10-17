@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>OMOS Review Planning Source Preview</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body style="margin:0;background:#f7f5f1;padding:26px;">
+  <main id="reviewProduksiRoot"></main>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    window.getProdApiUrl = value => value;
+    window.getProdAuthHeaders = () => ({});
+    window.OMOSActionFeedback = { status() {} };
+    // Deterministic direct-hour fixture; not production data.
+    const values = source => {
+      const q = source === 'conservative' ? 140 : source === 'fleet_material' ? 165 : 150;
+      return { q, n: 1, totalEwh: 12, pPlan: 12*q, dppa: -5*q, dpua: q, dProd: 1200-8*q, fleet:1200, missing:0, other:source==='flexible'?0:300 };
+    };
+    const category = source => {
+      const v=values(source), q=v.q;
+      return {
+        pit:'BEI',jobCode:'OB',unit:'BCM',n:1,formulaVersion:'review-waterfall-direct-delay-v3',
+        prodPlan:q,totalEwh:12,pPlan:v.pPlan,dppa:v.dppa,dpua:v.dpua,dProd:v.dProd,
+        paPlan:20/24,uaPlan:12/20,hm:8,standby:7,breakdown:9,
+        produksiFleet:1200,produksiMissingPlan:0,produksiOtherFleet:v.other,
+        paWaterfall:{authoritativeDeltaPa:-5*q,total:-5*q,reconciled:true,items:[
+          {key:'PLAN_BD',description:'Budget breakdown plan',hours:4,impact:4*q,units:['EX30 350-14']},
+          {key:'BD:Engine',description:'Engine',hours:9,impact:-9*q,units:['EX30 350-14']},
+          {key:'TIME_COVERAGE',description:'Selisih jam tercatat terhadap jadwal',hours:0,impact:0,units:['EX30 350-14']}
+        ]},
+        uaWaterfall:{formulaVersion:'review-ua-spo-direct-v3',authoritativeDeltaUa:q,parameterImpactTotal:q,difference:0,reconciled:true,flags:[],lineage:[],items:[
+          {key:'S01',code:'S01',description:'Hujan',rawPlanHours:5,planHours:5,actualHours:4,allowanceHours:5,varianceHours:1,impact:q,flags:[],units:['EX30 350-14']},
+          {key:'S10',code:'S10',description:'Istirahat',rawPlanHours:3,planHours:3,actualHours:3,allowanceHours:3,varianceHours:0,impact:0,flags:[],units:['EX30 350-14']}
+        ]},
+        unitPlanned:[{unit:'EX30 350-14',ewhPlan:12,hmAktual:8,mohhAktual:24,schedulePlanHours:24,availablePlanHours:20,availableActualHours:15,plan:v.pPlan,produksi:1200,paPlan:20/24,paAktual:15/24,uaPlan:12/20,uaAktual:8/15}],
+        unitMissingPlan:[],unitOtherFleet:v.other?[{unit:'EX30 350-15',material:'CLAY',reason:'Di luar scope source planning',produksi:300}]:[]
+      };
+    };
+    window.fetch = async url => {
+      const parsed = new URL(url, location.origin);
+      const source = parsed.searchParams.get('planning_source') || 'flexible';
+      if (parsed.pathname.endsWith('/pareto')) return { ok: true, json: async () => ({
+        planningSource: source,
+        filters: { pit: 'BEI', job: 'OB' },
+        units: [{ unit: 'EX30 350-14', class: 'EX 30 T' }],
+        pa: { totalJam: 14, items: [{ kategori: 'Engine', jam: 14, kejadian: 1, unit: 'EX30 350-14' }] },
+        ua: { totalJam: 24, items: [{ kategori: 'Waiting Front', jam: 24, kejadian: 1, unit: 'EX30 350-14' }] },
+        productivity: { totalKejadian: 0, items: [] },
+      }) };
+      const labels = { flexible: 'Aktual', fleet_material: 'Fleet x Material', conservative: 'Fleet Deployment' };
+      return { ok: true, json: async () => ({ planningSource: source, planningSourceLabel: labels[source] || labels.flexible, pits: ['BEI'], jobs: ['OB'], kategori: [category(source)] }) };
+    };
+  </script>
+  <script src="../reviewProduksi.core.js"></script>
+  <script src="../reviewPareto.core.js"></script>
+  <script src="../reviewPaWaterfall.core.js?v=2"></script>
+  <script src="../reviewPaWaterfall.js?v=6"></script>
+  <script src="../reviewUaWaterfall.core.js?v=3"></script>
+  <script src="../reviewUaWaterfall.js?v=8"></script>
+  <script src="../reviewProduksi.js?v=16"></script>
+  <script>
+    window.ReviewProduksi.init().then(() => {
+      document.querySelector('[data-rp-pit="BEI"]')?.click();
+      document.querySelector('[data-rp-job="OB"]')?.click();
+    });
+  </script>
+</body>
+</html>

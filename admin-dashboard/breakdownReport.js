@@ -7,7 +7,6 @@
     waiting_tool: { label: 'Waiting Tool', color: '#b45309', bg: '#fef3c7', border: '#fde68a' },
     waiting_manpower: { label: 'Waiting Manpower', color: '#6d28d9', bg: '#ede9fe', border: '#ddd6fe' },
     waiting_vendor: { label: 'Waiting Vendor', color: '#475569', bg: '#f1f5f9', border: '#cbd5e1' },
-    awaiting_verification: { label: 'Menunggu Verifikasi', color: '#047857', bg: '#d1fae5', border: '#a7f3d0' },
     resolved: { label: 'Ready to Operate', color: '#15803d', bg: '#dcfce7', border: '#86efac' }
   };
 
@@ -58,6 +57,19 @@
     };
   }
 
+  function isEventInReportMonth(log, year, month) {
+    const prefix = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
+    const operationalDate = String(log?.tanggal || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(operationalDate)) return operationalDate.startsWith(prefix);
+    const instant = new Date(log?.start_time);
+    if (Number.isNaN(instant.getTime())) return false;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit'
+    }).formatToParts(instant);
+    const value = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return `${value.year}-${value.month}` === prefix;
+  }
+
   function partSummaryHtml(parts) {
     if (!Array.isArray(parts) || !parts.length) return '<span style="color:#94a3b8;font-size:10px;">—</span>';
     return parts.map(part => {
@@ -66,7 +78,42 @@
     }).join('');
   }
 
-  function buildReportModel(rawLogs, equipmentList, metrics, year, month) {
+  function buildUnitStatusGroups(unitStatus, equipmentList, activeLogs) {
+    const byType = new Map();
+    const add = (type, cls, isBd) => {
+      const typeName = String(type || 'Lainnya').trim() || 'Lainnya';
+      const className = String(cls || 'Tanpa Class').trim() || 'Tanpa Class';
+      if (!byType.has(typeName)) byType.set(typeName, new Map());
+      const classes = byType.get(typeName);
+      if (!classes.has(className)) classes.set(className, { className: className, ready: 0, bd: 0 });
+      const cell = classes.get(className);
+      if (isBd) cell.bd += 1; else cell.ready += 1;
+    };
+    const groups = unitStatus && Array.isArray(unitStatus.groups) ? unitStatus.groups : null;
+    if (groups && groups.length) {
+      groups.forEach(group => {
+        (group.units || []).forEach(unit => {
+          add(group.equipmentType, unit.equipmentClass || unit.model, String(unit.status) === 'BD');
+        });
+      });
+    } else {
+      const bdIds = new Set((activeLogs || []).map(log => String(log.equipment_id || '')));
+      (equipmentList || []).forEach(unit => {
+        if (!unit || !unit.id) return;
+        add(unit.kelas_alat, unit.class_unit || unit.tipe_alat, bdIds.has(String(unit.id)));
+      });
+    }
+    return Array.from(byType.entries())
+      .map(([equipmentType, classes]) => {
+        const rows = Array.from(classes.values()).sort((a, b) => a.className.localeCompare(b.className, 'id-ID', { numeric: true }));
+        const ready = rows.reduce((sum, row) => sum + row.ready, 0);
+        const bd = rows.reduce((sum, row) => sum + row.bd, 0);
+        return { equipmentType: equipmentType, total: ready + bd, ready: ready, breakdown: bd, classes: rows };
+      })
+      .sort((a, b) => a.equipmentType.localeCompare(b.equipmentType, 'id-ID'));
+  }
+
+  function buildReportModel(rawLogs, equipmentList, metrics, year, month, unitStatus) {
     const unitMap = new Map();
     (equipmentList || []).forEach(u => {
       if (u && u.id) unitMap.set(String(u.id), u);
@@ -107,32 +154,40 @@
     activeLogs.sort((a, b) => b.hours - a.hours);
     resolvedLogs.sort((a, b) => new Date(b.finish_time || b.start_time) - new Date(a.finish_time || a.start_time));
 
-    const rtuGroupMap = new Map();
-    resolvedLogs.forEach(log => {
-      const cat = String((log.unit && log.unit.kelas_alat) || log.kelas_alat || 'Support & Utility').trim();
-      if (!rtuGroupMap.has(cat)) rtuGroupMap.set(cat, []);
-      rtuGroupMap.get(cat).push(log);
-    });
+    // Update Status Unit: dikelompokkan per jenis equipment, baris per Class
+    // Unit, kolom angka Ready/BD. Sumber utama data board Update Status Unit
+    // (unit-status/current); fallback jujur dari equipment + log aktif bila
+    // sumber tidak tersedia.
+    const statusGroups = buildUnitStatusGroups(unitStatus, equipmentList, activeLogs);
 
-    const categoryHoursMap = new Map();
-    (rawLogs || []).forEach(log => {
+    const categoryEventMap = new Map();
+    (rawLogs || []).forEach((log, index) => {
+      // Planned PS tetap masuk total downtime/PA pada metrics API, tetapi bukan
+      // failure mode sehingga tidak boleh mencemari Pareto kerusakan.
+      if (log.is_planned_maintenance === true || log.counts_as_function_failure === false) return;
+      // Endpoint juga mengirim incident carry-over agar status aktif tetap
+      // terlihat. Pareto event hanya menghitung incident yang dilaporkan pada
+      // bulan laporan terpilih, bukan carry-over dari bulan sebelumnya.
+      if (!isEventInReportMonth(log, year, month)) return;
       const catName = String(log.kategori_breakdown || log.kode_breakdown || 'Lain-lain').trim();
-      const hrs = Number(log.elapsed_breakdown_hours || 0);
-      categoryHoursMap.set(catName, (categoryHoursMap.get(catName) || 0) + hrs);
+      if (!categoryEventMap.has(catName)) categoryEventMap.set(catName, new Set());
+      categoryEventMap.get(catName).add(log.id == null ? `row:${index}` : String(log.id));
     });
 
-    const totalDowntimeAll = Array.from(categoryHoursMap.values()).reduce((sum, v) => sum + v, 0);
-    const paretoCategories = Array.from(categoryHoursMap.entries())
-      .map(([name, hrs]) => ({
+    const totalParetoEvents = Array.from(categoryEventMap.values()).reduce((sum, events) => sum + events.size, 0);
+    const paretoCategories = Array.from(categoryEventMap.entries())
+      .map(([name, eventIds]) => ({
         name: name,
-        hours: hrs,
-        pct: totalDowntimeAll > 0 ? (hrs / totalDowntimeAll) * 100 : 0
+        events: eventIds.size,
+        pct: totalParetoEvents > 0 ? (eventIds.size / totalParetoEvents) * 100 : 0
       }))
-      .sort((a, b) => b.hours - a.hours)
+      .sort((a, b) => b.events - a.events || a.name.localeCompare(b.name, 'id-ID', { numeric: true }))
       .slice(0, 5);
 
     const m = metrics || {};
-    const totalIncidents = rawLogs.length;
+    const totalIncidents = Number.isFinite(Number(m.functionalFailures))
+      ? Number(m.functionalFailures)
+      : rawLogs.filter(log => log.counts_as_function_failure !== false).length;
     const openCount = activeLogs.length;
     const mttr = Number(m.mttrHours || 0);
     const mtbf = Number(m.mtbfHours || 0);
@@ -158,9 +213,10 @@
       },
       activeLogs: activeLogs,
       resolvedLogs: resolvedLogs,
-      rtuGroupMap: rtuGroupMap,
+      statusGroups: statusGroups,
+      statusTotal: statusGroups.reduce((sum, group) => sum + group.total, 0),
       paretoCategories: paretoCategories,
-      totalDowntimeAll: totalDowntimeAll
+      totalParetoEvents: totalParetoEvents
     };
   }
 
@@ -172,8 +228,8 @@
     const generatedAt = model.generatedAt;
     const metrics = model.metrics;
     const activeLogs = model.activeLogs;
-    const resolvedLogs = model.resolvedLogs;
-    const rtuGroupMap = model.rtuGroupMap;
+    const statusGroups = model.statusGroups || [];
+    const statusTotal = model.statusTotal || 0;
     const paretoCategories = model.paretoCategories;
 
     const kpiSection = `
@@ -262,33 +318,43 @@
       `;
     }
 
-    let rtuCardsHtml = '';
-    if (rtuGroupMap.size > 0) {
-      const entries = Array.from(rtuGroupMap.entries());
-      rtuCardsHtml = entries.map(([categoryName, logs]) => {
-        const unitItems = logs.map(log => `
-          <div class="br-rtu-item">
-            <span class="br-rtu-unit">${escapeHtml(log.unit.kode_alat)}</span>
-            <span class="br-rtu-meta">${formatHours(log.hours)} Jam BD · RTU ${formatDateTime(log.finish_time || log.start_time)}</span>
-          </div>
+    let statusGroupsHtml = '';
+    if (statusGroups.length > 0) {
+      statusGroupsHtml = statusGroups.map(group => {
+        const classRows = group.classes.map(row => `
+          <tr>
+            <td>${escapeHtml(row.className)}</td>
+            <td style="text-align:center;font-weight:800;color:#15803d;">${row.ready}</td>
+            <td style="text-align:center;font-weight:800;color:#b91c1c;">${row.bd}</td>
+          </tr>
         `).join('');
 
         return `
-          <div class="br-rtu-card">
-            <div class="br-rtu-card-head">
-              <strong>${escapeHtml(categoryName.toUpperCase())}</strong>
-              <span>${logs.length} Unit</span>
+          <div class="br-usu-card">
+            <div class="br-usu-card-head">
+              <strong>${escapeHtml(group.equipmentType.toUpperCase())}</strong>
+              <span>${group.total} Unit</span>
             </div>
-            <div class="br-rtu-card-body">
-              ${unitItems}
-            </div>
+            <table class="br-usu-table">
+              <thead>
+                <tr><th>Class Unit</th><th style="text-align:center;">✅ Ready</th><th style="text-align:center;">🔴 BD</th></tr>
+              </thead>
+              <tbody>
+                ${classRows}
+                <tr class="br-usu-total">
+                  <td>Total</td>
+                  <td style="text-align:center;">${group.ready}</td>
+                  <td style="text-align:center;">${group.breakdown}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         `;
       }).join('');
     } else {
-      rtuCardsHtml = `
+      statusGroupsHtml = `
         <div style="grid-column:1/-1;text-align:center;padding:18px;background:#f8fafc;border-radius:8px;color:#64748b;font-size:12px;border:1px dashed #cbd5e1;">
-          Belum ada riwayat unit selesai perbaikan pada periode ${monthName} ${year}.
+          Tidak ada data status unit pada periode ini.
         </div>
       `;
     }
@@ -302,7 +368,7 @@
           <div class="br-pareto-row">
             <div class="br-pareto-label">
               <span>${idx + 1}. ${escapeHtml(item.name)}</span>
-              <strong>${formatHours(item.hours)} Jam (${item.pct.toFixed(1)}%)</strong>
+              <strong>${item.events.toLocaleString('id-ID')} Event (${item.pct.toFixed(1)}%)</strong>
             </div>
             <div class="br-pareto-track">
               <div class="br-pareto-fill" style="width:${Math.max(4, Math.min(100, item.pct))}%;background:${barColor};"></div>
@@ -311,7 +377,7 @@
         `;
       }).join('');
     } else {
-      paretoBarsHtml = '<div style="color:#64748b;font-size:11px;text-align:center;padding:12px;">Data downtime nihil</div>';
+      paretoBarsHtml = '<div style="color:#64748b;font-size:11px;text-align:center;padding:12px;">Tidak ada event breakdown pada periode ini</div>';
     }
 
     return `
@@ -529,19 +595,19 @@
           gap: 14px;
         }
 
-        .br-rtu-grid {
+        .br-usu-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 10px;
           padding: 12px;
         }
-        .br-rtu-card {
+        .br-usu-card {
           background: #f0fdf4;
           border: 1px solid #bbf7d0;
           border-radius: 6px;
           overflow: hidden;
         }
-        .br-rtu-card-head {
+        .br-usu-card-head {
           background: #dcfce7;
           padding: 5px 10px;
           display: flex;
@@ -550,26 +616,30 @@
           color: #166534;
           border-bottom: 1px solid #bbf7d0;
         }
-        .br-rtu-card-body {
-          padding: 6px 10px;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          max-height: 170px;
-          overflow: hidden;
-        }
-        .br-rtu-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+        .br-usu-table {
+          width: 100%;
+          border-collapse: collapse;
           font-size: 10px;
           background: #ffffff;
-          padding: 3px 6px;
-          border-radius: 4px;
-          border: 1px solid #e2e8f0;
         }
-        .br-rtu-unit { font-weight: 800; color: #15803d; }
-        .br-rtu-meta { color: #64748b; font-size: 9px; }
+        .br-usu-table th {
+          background: #f1f5f9;
+          color: #334155;
+          font-size: 9px;
+          text-transform: uppercase;
+          padding: 4px 8px;
+          border-bottom: 1px solid #cbd5e1;
+        }
+        .br-usu-table td {
+          padding: 4px 8px;
+          border-bottom: 1px solid #e2e8f0;
+          color: #0f172a;
+        }
+        .br-usu-total td {
+          font-weight: 800;
+          background: #f0fdf4;
+          border-top: 1px solid #86efac;
+        }
 
         .br-pareto-box {
           padding: 12px 16px;
@@ -660,17 +730,17 @@
         <div class="br-bottom-grid">
           <section class="br-section" style="margin-bottom:0;">
             <div class="br-section-head is-success">
-              <span>✅ UNIT READY TO USE (RTU) — ${resolvedLogs.length} Unit Selesai Perbaikan</span>
-              <small style="font-weight:600;">Dikelompokkan Berdasarkan Kategori Unit</small>
+              <span>📋 UPDATE STATUS UNIT — ${statusTotal} Unit List Equipment</span>
+              <small style="font-weight:600;">Dikelompokkan Berdasarkan Jenis Equipment</small>
             </div>
-            <div class="br-rtu-grid">
-              ${rtuCardsHtml}
+            <div class="br-usu-grid">
+              ${statusGroupsHtml}
             </div>
           </section>
 
           <section class="br-section" style="margin-bottom:0;">
             <div class="br-section-head is-navy">
-              <span>📊 Top 5 Penyebab Breakdown (Akumulasi Jam)</span>
+              <span>📊 Top 5 Penyebab Breakdown (Akumulasi Event)</span>
               <small style="font-weight:600;color:#94a3b8;">Pareto Analysis</small>
             </div>
             <div class="br-pareto-box">
@@ -796,7 +866,7 @@
             </div>
           </div>
           <div style="font-size:11px;color:#0369a1;font-weight:600;display:flex;align-items:center;gap:6px;">
-            <span>ℹ️</span> Termasuk rincian unit aktif, status spare part, unit RTU, dan Pareto chart.
+            <span>ℹ️</span> Termasuk rincian unit aktif, status spare part, update status unit, dan Pareto chart.
           </div>
         </div>
 
@@ -831,9 +901,19 @@
         const logs = Array.isArray(data.logs) ? data.logs : [];
         const metrics = data.metrics || {};
         const equipment = (global.masterProdData && global.masterProdData.equipment) ? global.masterProdData.equipment : [];
+        let unitStatus = null;
+        try {
+          const statusResponse = await fetch(getProdApiUrl('/api/admin/production/breakdown/unit-status/current'), {
+            headers: Object.assign({}, getProdAuthHeaders())
+          });
+          const statusData = await readBreakdownResponse(statusResponse);
+          if (statusData && Array.isArray(statusData.groups)) unitStatus = statusData;
+        } catch (statusErr) {
+          console.warn('[OMOS Breakdown Report] Unit status tidak tersedia, memakai fallback equipment + log:', statusErr.message);
+        }
 
         prog.textContent = '🎨 Merender canvas grafik dan menyusun JPEG...';
-        const model = buildReportModel(logs, equipment, metrics, y, m);
+        const model = buildReportModel(logs, equipment, metrics, y, m, unitStatus);
         await generateBreakdownJpeg(model);
 
         prog.style.color = '#15803d';

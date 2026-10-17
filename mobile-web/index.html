@@ -510,8 +510,8 @@
         
         <div style="text-align: center; margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
           <div>
-            <span style="font-size: 13px; color: var(--text-muted);">Belum punya akun? </span>
-            <button type="button" style="background: none; border: none; color: #10B981; font-weight: 700; font-size: 13px; cursor: pointer;" onclick="showView('viewDaftar')">DAFTAR AKUN BARU 📝</button>
+            <span style="font-size: 13px; color: var(--text-muted);">Akun dibuat oleh admin HR. Sudah menerima kode undangan? </span>
+            <button type="button" id="btnAktivasiAkun" style="background: none; border: none; color: #10B981; font-weight: 700; font-size: 13px; cursor: pointer;" onclick="showAktivasi()">AKTIFKAN AKUN 🔑</button>
           </div>
           <div>
             <button type="button" style="background: none; border: none; color: #64748B; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: underline;" onclick="showView('viewLupaSandi')">🔑 Lupa Password / Reset Akun?</button>
@@ -520,80 +520,7 @@
       </form>
     </div>
 
-    <!-- =========================================================
-         VIEW 3: FORM PENDAFTARAN KARYAWAN BARU
-         ========================================================= -->
-    <div id="viewDaftar" style="display: none; padding: 24px 16px;">
-      <div class="login-brand" style="margin-bottom: 20px;">
-        <h1 style="font-size: 20px;">Pendaftaran Karyawan Baru</h1>
-        <p style="font-size: 13px;">Lengkapi data diri &amp; sampel foto untuk pengajuan akun</p>
-      </div>
-
-      <div id="daftarAlert" class="alert-box alert-error"></div>
-      <div id="daftarSuccessAlert" class="alert-box" style="background:#DCFCE7; color:#15803D; border:1px solid #86EFAC; display:none;"></div>
-
-      <form id="formDaftar" style="display: flex; flex-direction: column; gap: 14px;">
-        <div class="form-group">
-          <label for="daftarNama">Nama Lengkap Karyawan *</label>
-          <input type="text" id="daftarNama" class="form-input" placeholder="Nama sesuai KTP" required />
-        </div>
-
-        <div class="form-group">
-          <label for="daftarEmail">Email Karyawan *</label>
-          <input type="email" id="daftarEmail" class="form-input" placeholder="email@perusahaan.com" required />
-        </div>
-
-        <div class="form-group">
-          <label for="daftarPassword">Password * (min. 8 karakter)</label>
-          <input type="password" id="daftarPassword" class="form-input" placeholder="••••••••" required minlength="8" />
-        </div>
-
-        <div class="form-group">
-          <label for="daftarDept">Departemen *</label>
-          <select id="daftarDept" class="form-input" required onchange="onDeptChanged(this.value)">
-            <option value="">-- Pilih Departemen --</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="daftarJabatan">Jabatan *</label>
-          <select id="daftarJabatan" class="form-input" required>
-            <option value="">-- Pilih Jabatan --</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="daftarLokasi">Lokasi Penugasan *</label>
-          <select id="daftarLokasi" class="form-input" required>
-            <option value="">-- Pilih Lokasi Kantor/Site --</option>
-          </select>
-        </div>
-
-        <div style="background: #F8FAFC; border: 1px dashed #CBD5E1; padding: 14px; border-radius: 12px;">
-          <label style="font-size: 13px; font-weight: 700; color: #1E293B; display: block; margin-bottom: 6px;">📸 Sampel Foto Wajah Referensi (3 Foto)</label>
-          <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">Foto selfie wajah Anda dari 3 sudut berbeda untuk verifikasi presensi.</p>
-
-          <div style="display: flex; flex-direction: column; gap: 10px;">
-            <div>
-              <label style="font-size: 11px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Foto 1 (Tampak Depan)</label>
-              <input type="file" id="daftarFoto1" accept="image/*" capture="user" class="form-input" style="padding: 6px; font-size: 12px;" required />
-            </div>
-            <div>
-              <label style="font-size: 11px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Foto 2 (Miring Kiri)</label>
-              <input type="file" id="daftarFoto2" accept="image/*" capture="user" class="form-input" style="padding: 6px; font-size: 12px;" required />
-            </div>
-            <div>
-              <label style="font-size: 11px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Foto 3 (Miring Kanan)</label>
-              <input type="file" id="daftarFoto3" accept="image/*" capture="user" class="form-input" style="padding: 6px; font-size: 12px;" required />
-            </div>
-          </div>
-        </div>
-
-        <button type="submit" id="btnSubmitDaftar" class="btn-submit" style="background: #10B981;">KIRIM PENDAFTARAN</button>
-        
-        <button type="button" class="btn-submit" style="background: #64748B; margin-top: 0;" onclick="showView('viewLogin')">Kembali ke Halaman Login</button>
-      </form>
-    </div>
+    <!-- VIEW 3 (pendaftaran mandiri) dihapus: karyawan baru hanya dibuat admin HR (OMOS People v2). -->
 
     <!-- =========================================================
          VIEW 4: FORM LUPA PASSWORD / RESET AKUN

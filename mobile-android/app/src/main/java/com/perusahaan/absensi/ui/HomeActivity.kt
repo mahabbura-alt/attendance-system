@@ -19,12 +19,11 @@ import com.google.android.gms.location.LocationServices
 import com.perusahaan.absensi.R
 import com.perusahaan.absensi.data.SessionManager
 import com.perusahaan.absensi.network.RetrofitClient
+import com.perusahaan.absensi.util.WibDateTimeFormatter
 import com.perusahaan.absensi.ui.widget.MinimapView
+import com.perusahaan.absensi.update.UpdateManager
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.*
 
 class HomeActivity : AppCompatActivity() {
@@ -71,6 +70,14 @@ class HomeActivity : AppCompatActivity() {
         btnAbsenDatang.setOnClickListener { bukaAbsen(ModeAbsen.DATANG) }
         btnAbsenPulang.setOnClickListener { bukaAbsen(ModeAbsen.PULANG) }
 
+        findViewById<View>(R.id.btnMenuKalibrasiGps).setOnClickListener {
+            startActivity(Intent(this, GpsCalibrationActivity::class.java))
+        }
+
+        findViewById<View>(R.id.btnMenuRiwayat).setOnClickListener {
+            startActivity(Intent(this, RiwayatActivity::class.java))
+        }
+
         findViewById<View>(R.id.btnMenuRekapHm).setOnClickListener {
             startActivity(Intent(this, RekapHmActivity::class.java))
         }
@@ -97,6 +104,7 @@ class HomeActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        UpdateManager.checkForUpdate(this)
         mulaiJamBerjalan()
         cekSesiPending()
         muatRekap()
@@ -125,13 +133,7 @@ class HomeActivity : AppCompatActivity() {
     }
 
     private fun formatWaktuTercatat(value: String?): String {
-        if (value.isNullOrBlank()) return "—"
-        return try {
-            val formatter = DateTimeFormatter.ofPattern("dd MMM HH:mm", Locale("id", "ID"))
-            "${Instant.parse(value).atZone(ZoneId.of("Asia/Jakarta")).format(formatter)} WIB"
-        } catch (_: Exception) {
-            "—"
-        }
+        return WibDateTimeFormatter.dateTime(value) ?: "—"
     }
 
     // Aturan mutlak Rekap Performa: karyawan melihat data update terbaru admin.

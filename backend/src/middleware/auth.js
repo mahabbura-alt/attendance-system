@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const { pool } = require('../config/db');
 
+const FUEL_MOBILE_PATHS = ['/api/fuel/mobile', '/api/fuel-evidence'];
+
 async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -26,7 +28,16 @@ async function requireAuth(req, res, next) {
       });
     }
     // Identity and authorization always come from current server data, not a stale JWT claim.
-    req.user = { ...payload, ...currentUser };
+    req.user = { ...payload, ...currentUser, token_scope: payload.scope || null };
+    // Token APK OMOS Fuel hanya berlaku untuk API Fuel mobile & bukti foto Fuel.
+    if (payload.scope === 'fuel_mobile') {
+      const path = `${req.baseUrl || ''}${req.path || ''}`;
+      if (!FUEL_MOBILE_PATHS.some(prefix => path.startsWith(prefix))) {
+        return res.status(403).json({ code: 'TOKEN_SCOPE', error: 'Token APK OMOS Fuel tidak berlaku untuk endpoint ini.' });
+      }
+      // Hak modul Fuel diberikan oleh akun Fuel (dicek ulang di requireFuelMobile / fuel-evidence).
+      req.user.role = 'karyawan';
+    }
     next();
   } catch (err) {
     if (err.name !== 'JsonWebTokenError' && err.name !== 'TokenExpiredError' && err.name !== 'NotBeforeError') {

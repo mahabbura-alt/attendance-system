@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { buildPaWaterfall } = require('./reviewPaWaterfall.core.js');
+const { buildPaWaterfall, reconcilePaContributions } = require('./reviewPaWaterfall.core.js');
 
 const near = (actual, expected, tol, label) => {
   assert.ok(Math.abs(actual - expected) <= tol, `${label}: expected ~${expected}, got ${actual}`);
@@ -37,6 +37,13 @@ near(hasil.selisih, 0, 0.001, 'selisih cross-check nol');
 assert.equal(hasil.cocok, true, 'badge cocok');
 assert.equal(hasil.rows[2].unit, 'EX-01', 'unit dominan');
 
+const rekonsiliasi = reconcilePaContributions(hasil, -2100, true);
+near(rekonsiliasi.rawTotal, -6300, 0.001, 'loss kategori PA');
+near(rekonsiliasi.adjustment, 4200, 0.001, 'gain vs plan/scope PA');
+near(rekonsiliasi.total, -2100, 0.001, 'total PA sama dengan ΔPA utama');
+near(rekonsiliasi.difference, 0, 0.001, 'rekonsiliasi PA tertutup');
+assert.equal(rekonsiliasi.rows.at(-1).isAdjustment, true, 'baris penyesuaian PA eksplisit');
+
 // Guard: input tak sah -> null
 assert.equal(buildPaWaterfall({ pPlan: 37800, paPlan: 0, tHours: 400, bdItems: [] }), null, 'PA plan 0 -> null');
 assert.equal(buildPaWaterfall({ pPlan: 37800, paPlan: 0.9, tHours: 0, bdItems: [] }), null, 'T 0 -> null');
@@ -47,6 +54,9 @@ const kosong = buildPaWaterfall({ pPlan: 1000, paPlan: 0.8, tHours: 100, dppaSer
 assert.equal(kosong.rows.length, 3, 'tanpa kategori (+Ekspektasi)');
 near(kosong.expected, 1250, 0.001, 'V100 = ekspektasi saat BD nol');
 assert.equal(kosong.cocok, true, 'cocok dengan dppa +250');
+const kosongRekonsiliasi = reconcilePaContributions(kosong, 250, true);
+near(kosongRekonsiliasi.adjustment, 250, 0.001, 'tanpa event seluruh ΔPA menjadi penyesuaian scope');
+near(kosongRekonsiliasi.total, 250, 0.001, 'tanpa event tetap cocok ΔPA utama');
 
 // Item jam nol/negatif diabaikan
 const aneh = buildPaWaterfall({ pPlan: 1000, paPlan: 0.8, tHours: 100, bdItems: [{ kategori: 'X', jam: 0 }] });

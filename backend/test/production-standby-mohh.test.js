@@ -5,8 +5,7 @@ const { calculateStandbyMohhControl, intervalOverlapHours } = require('../src/co
 
 test('MOHH control balances HM, breakdown, and standby to 12 hours', () => {
   const control = calculateStandbyMohhControl({
-    hmHours: 7.25, hmRecords: 1, breakdownHours: 1.75, standbyHours: 3,
-    pendingReview: 0, returnedReview: 0
+    hmHours: 7.25, hmRecords: 1, breakdownHours: 1.75, standbyHours: 3
   });
   assert.equal(control.accountedHours, 12);
   assert.equal(control.balanceHours, 0);
@@ -26,23 +25,48 @@ test('MOHH control retains precision and reports under/over balance', () => {
   assert.equal(over.canClose, false);
 });
 
-test('MOHH control blocks closing while HM is missing or review is pending', () => {
-  const missingHm = calculateStandbyMohhControl({ hmHours: 0, hmRecords: 0, breakdownHours: 4, standbyHours: 8 });
-  assert.equal(missingHm.status, 'missing_hm');
-  assert.equal(missingHm.canClose, false);
-  assert.ok(missingHm.issues.some(issue => issue.code === 'HM_MISSING'));
+test('HM kosong bukan temuan bila standby/breakdown menutup MOHH 12 jam', () => {
+  const fullStandby = calculateStandbyMohhControl({ hmHours: 0, hmRecords: 0, breakdownHours: 0, standbyHours: 12 });
+  assert.equal(fullStandby.status, 'balanced');
+  assert.equal(fullStandby.canClose, true);
+  assert.ok(!fullStandby.issues.some(issue => issue.code === 'HM_MISSING'));
 
-  const pending = calculateStandbyMohhControl({ hmHours: 8, hmRecords: 1, breakdownHours: 1, standbyHours: 3, pendingReview: 1 });
-  assert.equal(pending.canClose, false);
-  assert.ok(pending.issues.some(issue => issue.code === 'REVIEW_PENDING'));
+  const fullBd = calculateStandbyMohhControl({ hmHours: 0, hmRecords: 0, breakdownHours: 12, standbyHours: 0 });
+  assert.equal(fullBd.status, 'balanced');
+  assert.ok(!fullBd.issues.some(issue => issue.code === 'HM_MISSING'));
+
+  const campuran = calculateStandbyMohhControl({ hmHours: 0, hmRecords: 0, breakdownHours: 4, standbyHours: 8 });
+  assert.equal(campuran.status, 'balanced');
+  assert.ok(!campuran.issues.some(issue => issue.code === 'HM_MISSING'));
 });
 
-test('MOHH control treats duplicate absolute HM records as data-quality conflict', () => {
+test('HM kosong tetap temuan bila MOHH belum tertutup standby/breakdown', () => {
+  const kurang = calculateStandbyMohhControl({ hmHours: 0, hmRecords: 0, breakdownHours: 0, standbyHours: 8 });
+  assert.equal(kurang.status, 'missing_hm');
+  assert.equal(kurang.canClose, false);
+  assert.ok(kurang.issues.some(issue => issue.code === 'HM_MISSING'));
+
+  const hampir = calculateStandbyMohhControl({ hmHours: 0, hmRecords: 0, breakdownHours: 0, standbyHours: 11.9 });
+  assert.ok(hampir.issues.some(issue => issue.code === 'HM_MISSING'), '11,9 < 12 − toleransi');
+
+  const pending = calculateStandbyMohhControl({ hmHours: 8, hmRecords: 1, breakdownHours: 1, standbyHours: 3, pendingReview: 1 });
+  assert.equal(pending.canClose, true);
+  assert.ok(!pending.issues.some(issue => issue.code === 'REVIEW_PENDING'));
+});
+
+test('MOHH control allows multiple HM segments without overlap (multi-operator shift)', () => {
   const control = calculateStandbyMohhControl({ hmHours: 8, hmRecords: 3, breakdownHours: 1, standbyHours: 3 });
   assert.equal(control.accountedHours, 12);
+  assert.equal(control.status, 'balanced');
+  assert.equal(control.canClose, true);
+  assert.ok(!control.issues.some(issue => issue.code === 'HM_DUPLICATE'));
+});
+
+test('MOHH control flags overlapping HM intervals as data-quality conflict', () => {
+  const control = calculateStandbyMohhControl({ hmHours: 8, hmRecords: 2, hmOverlapHours: 1.5, breakdownHours: 1, standbyHours: 3 });
   assert.equal(control.status, 'conflict');
   assert.equal(control.canClose, false);
-  assert.ok(control.issues.some(issue => issue.code === 'HM_DUPLICATE'));
+  assert.ok(control.issues.some(issue => issue.code === 'HM_OVERLAP'));
 });
 
 test('MOHH detects standby/breakdown overlap independently from arithmetic balance', () => {

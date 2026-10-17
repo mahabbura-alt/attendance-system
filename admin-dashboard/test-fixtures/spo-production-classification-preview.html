@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SPO Production Classification Preview</title>
+  <style>
+    body{margin:0;background:#f5f7fb;color:#0f2747;font-family:Inter,Arial,sans-serif}.shell{max-width:1500px;margin:auto;padding:28px}
+    .title{display:flex;justify-content:space-between;align-items:center}.title h1{margin:0 0 6px}.title p{margin:0;color:#64748b}
+    .toolbar{display:flex;gap:10px;align-items:end;margin:22px 0;padding:14px;background:#fff;border:1px solid #dbe7f5;border-radius:12px}
+    label{font-size:12px;color:#475569}input,select{padding:8px;border:1px solid #cbd5e1;border-radius:7px}.tombol{padding:8px 12px;border-radius:7px;border:1px solid #cbd5e1;background:#fff;cursor:pointer}.tombol--utama{background:#087f68;color:#fff;border-color:#087f68}.tombol--ghost{background:#fff}.spo-table{margin-bottom:16px}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="title"><div><small>MINE PLANNING / SPO</small><h1>Schedule Plan of Operation</h1><p>Delay budget dan klasifikasi JOB sebagai sumber kalkulasi produksi.</p></div></div>
+    <div class="toolbar">
+      <label>Tahun Awal<input id="spoGlobalStartYear" value="2026"></label>
+      <label>Tahun Akhir<input id="spoGlobalEndYear" value="2026"></label>
+      <select id="spoGlobalActiveYear"><option value="2026">2026</option></select>
+      <select id="spoWeeklyModel"><option value="week-of-year">Week of Year</option></select>
+      <span id="spoWeekStartWrap" hidden><select id="spoWeekStartDay"><option value="1">Senin</option></select></span>
+      <button id="btnGenerateSpoPeriod" class="tombol">Generate</button><button id="btnAddSpoTable" class="tombol tombol--utama">+ Tambah Tabel SPO</button>
+    </div>
+    <section id="spoTables"><span data-spo-save-status>Tersimpan</span></section>
+  </main>
+  <script>
+    window.__previewErrors=[];window.addEventListener('error',event=>window.__previewErrors.push(event.message));window.addEventListener('unhandledrejection',event=>window.__previewErrors.push(String(event.reason)));
+    window.getProdApiUrl=value=>value; window.getProdAuthHeaders=()=>({});
+    const jobs=[{job_code:'OB',job_desc:'Overburden Removal'},{job_code:'CG',job_desc:'Coal Getting'},{job_code:'FOT',job_desc:'Fleet On Truck'},{job_code:'GNR',job_desc:'General'}];
+    const labels={S01:'Hujan',S02:'Slippery',S03:'Libur',S10:'Istirahat',S48:'Jeda sahur/buka puasa',S49:'Survey Pick Up',S13:'Change Shift',S60:'Truck Scale Delay',S06:'Refueling',S14:"Sholat Jum\'at",S05:'P2H',S61:'General Safety Talk'};
+    const standbyCodes=Object.entries(labels).map(([kode,deskripsi],index)=>({id:`standby-${index+1}`,kode,kategori:deskripsi,deskripsi,planning_type:'unplanned',control_class:kode==='S01'?'uncontrollable':'controllable',owner_department:'Production'}));
+    window.fetch=async (url,options={})=>({ok:true,status:200,json:async()=>String(url).includes('/master')?{jobCodes:jobs,standbyCodes}:{contentHtml:null,planningData:null}});
+    window.alert=message=>console.info('alert',message);
+  </script>
+  <script src="../spo.core.js?v=56"></script>
+  <script>
+    SpoPlanning.init();
+    setTimeout(async()=>{
+      for(const code of ['OB','CG','FOT']){
+        document.getElementById('btnAddSpoTable').click();
+        await new Promise(resolve=>setTimeout(resolve,40));
+        const table=[...document.querySelectorAll('.spo-table')].at(-1),select=table.querySelector('[data-spo-job]');
+        select.value=code;select.dispatchEvent(new Event('change',{bubbles:true}));
+        const classification=table.querySelector('[data-spo-production-select]');
+        classification.value='prod';classification.dispatchEvent(new Event('change',{bubbles:true}));
+        const material=table.querySelector('[data-spo-material-select]');
+        material.value=code==='OB'?'ob':'coal';material.dispatchEvent(new Event('change',{bubbles:true}));
+        table.querySelector('[data-spo-deploy]').click();
+      }
+    },300);
+  </script>
+</body>
+</html>

@@ -98,7 +98,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('formLogin').addEventListener('submit', handleLogin);
-  document.getElementById('formDaftar')?.addEventListener('submit', handleDaftar);
   document.getElementById('formMintaOtp')?.addEventListener('submit', handleMintaOtpReset);
   document.getElementById('formResetPass')?.addEventListener('submit', handleResetSandi);
 });
@@ -137,13 +136,12 @@ function showView(viewId) {
   if (lupaView) lupaView.style.display = viewId === 'viewLupaSandi' ? 'block' : 'none';
   if (mainView) mainView.style.display = viewId === 'viewMain' ? 'block' : 'none';
 
-  if (viewId === 'viewDaftar') {
-    muatOpsiPendaftaranDaftar();
-  }
   if (viewId === 'viewLupaSandi') {
     document.getElementById('formMintaOtp')?.reset();
     document.getElementById('formResetPass').style.display = 'none';
     document.getElementById('formMintaOtp').style.display = 'flex';
+    const mintaBtn = document.getElementById('btnMintaOtp');
+    if (mintaBtn) mintaBtn.style.display = '';
     document.getElementById('lupaAlert').style.display = 'none';
     document.getElementById('lupaSuccessAlert').style.display = 'none';
   }
@@ -782,126 +780,6 @@ async function downloadSlipGaji() {
 }
 
 // -------------------------------------------------------------
-// PENDAFTARAN KARYAWAN BARU
-// -------------------------------------------------------------
-let opsiPendaftaranCache = null;
-
-async function muatOpsiPendaftaranDaftar() {
-  try {
-    const res = await portalFetch(`${API_BASE}/api/auth/opsi-pendaftaran`);
-    opsiPendaftaranCache = await res.json();
-
-    const deptSelect = document.getElementById('daftarDept');
-    if (deptSelect && opsiPendaftaranCache.departemen_jabatan) {
-      deptSelect.innerHTML = '<option value="">-- Pilih Departemen --</option>' +
-        Object.keys(opsiPendaftaranCache.departemen_jabatan).map(d => `<option value="${d}">${d}</option>`).join('');
-    }
-
-    const lokasiSelect = document.getElementById('daftarLokasi');
-    if (lokasiSelect && opsiPendaftaranCache.lokasi) {
-      lokasiSelect.innerHTML = '<option value="">-- Pilih Lokasi Kantor/Site --</option>' +
-        opsiPendaftaranCache.lokasi.map(l => `<option value="${l.id}">${l.nama_lokasi}</option>`).join('');
-    }
-  } catch (e) {
-    console.warn('Gagal muat opsi pendaftaran:', e);
-  }
-}
-
-function onDeptChanged(deptName) {
-  const jabSelect = document.getElementById('daftarJabatan');
-  if (!jabSelect) return;
-
-  if (!deptName || !opsiPendaftaranCache?.departemen_jabatan?.[deptName]) {
-    jabSelect.innerHTML = '<option value="">-- Pilih Jabatan --</option>';
-    return;
-  }
-
-  const jabatans = opsiPendaftaranCache.departemen_jabatan[deptName];
-  jabSelect.innerHTML = '<option value="">-- Pilih Jabatan --</option>' +
-    jabatans.map(j => `<option value="${j}">${j}</option>`).join('');
-}
-
-async function handleDaftar(e) {
-  e.preventDefault();
-  const alertEl = document.getElementById('daftarAlert');
-  const succEl = document.getElementById('daftarSuccessAlert');
-  const btn = document.getElementById('btnSubmitDaftar');
-
-  alertEl.style.display = 'none';
-  succEl.style.display = 'none';
-
-  const nama = document.getElementById('daftarNama').value.trim();
-  const email = document.getElementById('daftarEmail').value.trim();
-  const password = document.getElementById('daftarPassword').value;
-  const departemen = document.getElementById('daftarDept').value;
-  const jabatan = document.getElementById('daftarJabatan').value;
-  const lokasi_kantor_id = document.getElementById('daftarLokasi').value;
-
-  const f1 = document.getElementById('daftarFoto1').files[0];
-  const f2 = document.getElementById('daftarFoto2').files[0];
-  const f3 = document.getElementById('daftarFoto3').files[0];
-
-  if (!f1 || !f2 || !f3) {
-    alertEl.textContent = 'Harap sertakan 3 sampel foto wajah referensi';
-    alertEl.style.display = 'block';
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = 'MENYIAPKAN FOTO...';
-
-  let compressedPhotos;
-  try {
-    compressedPhotos = await Promise.all([f1, f2, f3].map((file) => compressImageBlob(file)));
-  } catch (error) {
-    alertEl.textContent = error.message;
-    alertEl.style.display = 'block';
-    btn.disabled = false;
-    btn.textContent = 'KIRIM PENDAFTARAN';
-    return;
-  }
-  btn.textContent = 'MENGIRIM PENDAFTARAN...';
-
-  const formData = new FormData();
-  formData.append('nama', nama);
-  formData.append('email', email);
-  formData.append('password', password);
-  formData.append('departemen', departemen);
-  formData.append('jabatan', jabatan);
-  formData.append('lokasi_kantor_id', lokasi_kantor_id);
-
-  formData.append('foto1', compressedPhotos[0], 'sample1.jpg');
-  formData.append('foto2', compressedPhotos[1], 'sample2.jpg');
-  formData.append('foto3', compressedPhotos[2], 'sample3.jpg');
-
-  try {
-    const res = await portalFetch(`${API_BASE}/api/auth/daftar`, {
-      method: 'POST',
-      body: formData,
-      timeoutMs: 60000,
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Pendaftaran gagal');
-
-    succEl.textContent = '🎉 Pendaftaran Berhasil Dikirim! Akun Anda sedang menunggu persetujuan Admin.';
-    succEl.style.display = 'block';
-    document.getElementById('formDaftar').reset();
-
-    setTimeout(() => {
-      showView('viewLogin');
-      succEl.style.display = 'none';
-    }, 3000);
-  } catch (err) {
-    alertEl.textContent = err.message;
-    alertEl.style.display = 'block';
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'KIRIM PENDAFTARAN';
-  }
-}
-
-// -------------------------------------------------------------
 // LUPA PASSWORD & RESET AKUN
 // -------------------------------------------------------------
 async function handleMintaOtpReset(e) {
@@ -986,5 +864,19 @@ async function handleResetSandi(e) {
   }
 }
 
+/** Aktivasi akun baru: email + kode undangan dari admin HR → buat password. */
+function showAktivasi() {
+  showView('viewLupaSandi');
+  const mintaBtn = document.getElementById('btnMintaOtp');
+  if (mintaBtn) mintaBtn.style.display = 'none';
+  const form = document.getElementById('formResetPass');
+  if (form) form.style.display = 'flex';
+  const succEl = document.getElementById('lupaSuccessAlert');
+  if (succEl) {
+    succEl.textContent = 'Masukkan email login dan kode undangan dari email Anda, lalu buat password.';
+    succEl.style.display = 'block';
+  }
+}
+
 window.showView = showView;
-window.onDeptChanged = onDeptChanged;
+window.showAktivasi = showAktivasi;

@@ -3,44 +3,521 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dashboard Absensi — Admin</title>
+<title>OMOS — One Mining System Operation</title>
+<link rel="icon" type="image/png" href="assets/reports/omos-one-path.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=53" />
-  <link rel="stylesheet" href="productionData.css?v=3" />
+  <link rel="stylesheet" href="style.css?v=65" />
+  <link rel="stylesheet" href="landing.css?v=2" />
+  <link rel="stylesheet" href="productionData.css?v=10" />
   <link rel="stylesheet" href="hm-worklog.css?v=3" />
+  <link rel="stylesheet" href="fleetDeployment.css?v=3" />
+  <link rel="stylesheet" href="productivityReport.css?v=2" />
+  <link rel="stylesheet" href="mtdReport.css?v=2" />
+  <link rel="stylesheet" href="periodicService.css?v=12" />
+  <link rel="stylesheet" href="logistics.css?v=1" />
+  <link rel="stylesheet" href="workforce.css?v=4" />
+  <link rel="stylesheet" href="people.css?v=1" />
+  <link rel="stylesheet" href="cuti.css?v=10" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.42.0/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="hse.css?v=7" />
+  <style>#workforceMovementView .workforce-card>.workforce-mpp-wrap .workforce-mpp-table{width:100%;min-width:1080px;table-layout:fixed}.modal .workforce-mpp-table{min-width:720px;table-layout:auto}</style>
 </head>
 <body>
 
-  <!-- ================= LAYAR LOGIN ================= -->
-  <div id="layarLogin" class="layar-login">
-    <div class="kartu-login">
-      <div class="kartu-login__jam" id="jamLogin">--:--:--</div>
-      <h1 class="kartu-login__judul">Dashboard Absensi</h1>
-      <p class="kartu-login__sub">Masuk sebagai admin untuk mengelola karyawan &amp; absensi</p>
+  <!-- ================= LAYAR LOGIN & ENTERPRISE LANDING PAGE OMOS ================= -->
+  <div id="layarLogin" class="layar-login" data-theme="dark">
 
-      <form id="formLogin" autocomplete="off">
-        <label class="label">Email Admin</label>
-        <input type="email" id="inputEmail" placeholder="admin@perusahaan.com" required autocomplete="off" />
+    <!-- STICKY NAVBAR -->
+    <header class="lp-navbar">
+      <a href="#top" class="lp-brand">
+        <img src="assets/reports/omos-one-path.png" alt="OMOS One Path Logo" class="lp-brand__logo" />
+        <div>
+          <div class="lp-brand__title">
+            OMOS
+            <span class="lp-brand__badge">ONLINE • v2.6</span>
+          </div>
+          <div class="lp-brand__sub">One Mining System Operation</div>
+        </div>
+      </a>
 
-        <label class="label">Password</label>
-        <input type="password" id="inputPassword" placeholder="••••••••" required autocomplete="off" />
+      <nav class="lp-nav-links">
+        <a href="#modul">6 Pilar Modul</a>
+        <a href="#explorer">Deep-Dive Fitur</a>
+        <a href="#arsitektur">Arsitektur 3-Layer</a>
+        <a href="#contact">Contact Us</a>
+      </nav>
 
-        <button type="submit" class="tombol tombol--utama tombol--lebar">Masuk ke Dashboard</button>
-        <p id="errorLogin" class="teks-error" hidden></p>
-      </form>
+      <div class="lp-nav-actions">
+        <!-- Tombol Dark / Light Mode (Simbol Matahari & Bulan) -->
+        <button type="button" class="lp-theme-toggle" id="btnThemeToggle" title="Ganti Mode Terang / Gelap" aria-label="Ganti Mode Terang / Gelap">
+          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+
+        <a href="#contact" class="lp-btn lp-btn--ghost" id="btnNavContact">💬 Contact Us</a>
+        <button type="button" class="lp-btn lp-btn--gold" id="btnNavLogin">🔐 Login</button>
+      </div>
+    </header>
+
+    <main class="lp-container" id="top">
+
+      <!-- ================= 1. HERO SECTION ================= -->
+      <section class="lp-hero">
+        <div>
+          <div class="lp-hero__brand-card">
+            <img src="assets/reports/omos-one-path.png" alt="OMOS Brand" />
+            <div>
+              <div class="lp-hero__brand-title">OMOS — One Mining System Operation</div>
+              <div class="lp-hero__brand-sub">Platform Kendali Tambang Terintegrasi</div>
+            </div>
+          </div>
+
+          <h1 class="lp-hero__title">
+            Satu Sistem Kendali Terpadu untuk <span>Operasional Tambang Presisi Tinggi.</span>
+          </h1>
+
+          <div class="lp-hero__ctas">
+            <button type="button" class="lp-btn lp-btn--gold" id="btnHeroLogin">
+              🔐 Login ke Command Center
+            </button>
+            <a href="#contact" class="lp-btn lp-btn--ghost">
+              📩 Contact Us / Request Demo
+            </a>
+          </div>
+
+          <div class="lp-hero__metrics">
+            <div>
+              <div class="lp-metric-box__val">6 Pilar Inti</div>
+              <div class="lp-metric-box__lbl">Ekosistem End-to-End</div>
+            </div>
+            <div>
+              <div class="lp-metric-box__val">24/7 Sync</div>
+              <div class="lp-metric-box__lbl">Offline-First Field Ready</div>
+            </div>
+            <div>
+              <div class="lp-metric-box__val">SMKP 100%</div>
+              <div class="lp-metric-box__lbl">Permen ESDM 26/2018</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LIVE TELEMETRY COCKPIT MOCKUP -->
+        <div class="lp-cockpit">
+          <div class="lp-cockpit__header">
+            <div class="lp-cockpit__title">
+              <span>●</span> LIVE SITE TELEMETRY SNAPSHOT
+            </div>
+            <div class="lp-cockpit__clock" id="lpLiveClock">--:--:-- WIB</div>
+          </div>
+
+          <div class="lp-tabs" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px;">
+            <button type="button" class="lp-tab-btn is-active" data-cockpit-tab="prod">⛏️ Produksi &amp; Fleet</button>
+            <button type="button" class="lp-tab-btn" data-cockpit-tab="hse">🛡️ HSE &amp; SMKP</button>
+            <button type="button" class="lp-tab-btn" data-cockpit-tab="hr">👥 People &amp; Fuel</button>
+          </div>
+
+          <!-- Cockpit View 1: Production -->
+          <div class="lp-cockpit-pane" id="cockpitPane-prod">
+            <div class="lp-cockpit__grid">
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>OB Removal (MTD)</span><span>BCM</span></div>
+                <div class="lp-tele-card__val" id="teleObVal">48.250 BCM</div>
+                <div class="lp-tele-card__sub">▲ 102.4% vs Plan SPO v7</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Coal Getting (MTD)</span><span>MT</span></div>
+                <div class="lp-tele-card__val" id="teleCoalVal">14.680 MT</div>
+                <div class="lp-tele-card__sub">▲ Jarak Final Tervalidasi</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Fleet PA / UA</span><span>%</span></div>
+                <div class="lp-tele-card__val">PA 92.4% • UA 86.8%</div>
+                <div class="lp-tele-card__sub lp-tele-card__sub--cyan">Waterfall Delta Terkunci</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Periodic Service</span><span>Status</span></div>
+                <div class="lp-tele-card__val">PS 250–2000</div>
+                <div class="lp-tele-card__sub lp-tele-card__sub--gold">Auto-Sync Temuan Mekanik</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cockpit View 2: HSE -->
+          <div class="lp-cockpit-pane" id="cockpitPane-hse" hidden>
+            <div class="lp-cockpit__grid">
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Safe Manhours</span><span>LTI-Free</span></div>
+                <div class="lp-tele-card__val">1.428.500 Jam</div>
+                <div class="lp-tele-card__sub">Zero Fatality &amp; Zero LTI</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Inspeksi HSE V2</span><span>Compliance</span></div>
+                <div class="lp-tele-card__val">91.4% Terpenuhi</div>
+                <div class="lp-tele-card__sub lp-tele-card__sub--cyan">Kuota Jabatan &amp; Jadwal Objek</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>IBPR / HIRADC</span><span>Matriks 5x5</span></div>
+                <div class="lp-tele-card__val">24 Risiko Aktif</div>
+                <div class="lp-tele-card__sub lp-tele-card__sub--gold">Pengendalian Hierarki Terverifikasi</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>PTW &amp; LOTO</span><span>Izin Kerja</span></div>
+                <div class="lp-tele-card__val">100% Terkendali</div>
+                <div class="lp-tele-card__sub">Isolasi Energi &amp; SIMOPS</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cockpit View 3: People & Fuel -->
+          <div class="lp-cockpit-pane" id="cockpitPane-hr" hidden>
+            <div class="lp-cockpit__grid">
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Fuel Ratio</span><span>L / BCM</span></div>
+                <div class="lp-tele-card__val">0.78 L/BCM</div>
+                <div class="lp-tele-card__sub">FIFO Valuation &amp; Stock Opname</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Roster S/M &amp; Cuti</span><span>Sinkron</span></div>
+                <div class="lp-tele-card__val">145 Personil</div>
+                <div class="lp-tele-card__sub lp-tele-card__sub--cyan">Siklus Cuti &amp; MPP Terproteksi</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Geotag Attendance</span><span>Multi-Point</span></div>
+                <div class="lp-tele-card__val">Radius Akurat</div>
+                <div class="lp-tele-card__sub">Validasi Kamera + GPS Buffer</div>
+              </div>
+              <div class="lp-tele-card">
+                <div class="lp-tele-card__head"><span>Payroll Engine</span><span>Otomatis</span></div>
+                <div class="lp-tele-card__val">HM + Kehadiran</div>
+                <div class="lp-tele-card__sub lp-tele-card__sub--gold">Rekap Performa &amp; Insentif</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="lp-cockpit__footer">
+            <span>🔒 Tenant &amp; Project Scoped Isolation</span>
+            <span style="color:var(--omos-emerald-bright);font-family:monospace;">● ENGINE READY</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 2. BENTO GRID 6 PILAR MODUL OMOS ================= -->
+      <section class="lp-section" id="modul">
+        <div class="lp-section__head">
+          <h2 class="lp-section__title">Enam Pilar Operasional dalam Satu Alur (One Path)</h2>
+          <p class="lp-section__desc">
+            Setiap transaksi oprasional di lapangan tercatat dalam satu sistem Platform dan terintegrasi dengan fitur modul mining Inteligence untuk keperluan review dan analisa data
+          </p>
+        </div>
+
+        <div class="lp-bento">
+          <!-- Row 1: Pilar 1 (span 7) + Pilar 2 (span 5) = 12 -->
+          <article class="lp-bento-card lp-bento-card--span-7">
+            <div>
+              <h3 class="lp-bento-card__title">⛏️ Mine Planning &amp; Production Intelligence</h3>
+              <div class="lp-bento-card__desc">
+                <div class="lp-bento-card__lead">Kendali penuh perencanaan tambang dan Produksi mulai dari :</div>
+                <ol class="lp-feature-list">
+                  <li><span>Mine Planning &amp; Scenario simulation</span></li>
+                  <li><span>Mine Budgetting &amp; Costing</span></li>
+                  <li><span>Production snapshot, Review and Pareto</span></li>
+                  <li><span>Inteligence dashboard &amp; Management berbasis AI</span></li>
+                </ol>
+              </div>
+            </div>
+          </article>
+
+          <!-- Pilar 2 -->
+          <article class="lp-bento-card lp-bento-card--span-5">
+            <div>
+              <h3 class="lp-bento-card__title">🛠️ Unit Population &amp; Maintenance</h3>
+              <div class="lp-bento-card__desc">
+                <div class="lp-bento-card__lead">Kendali penuh unit Alat berat dan Unit Support mulai dari :</div>
+                <ol class="lp-feature-list">
+                  <li><span>Periodic service terencana</span></li>
+                  <li><span>Unscheduled breakdown dalam satu database terintegrasi</span></li>
+                  <li><span>Historical data untuk kemudahan analisis (Troubleshoot, inspection, Historis pemasangan spare part)</span></li>
+                  <li><span>Indikator highlight (KPI, Unit Performance, MTBF, MTBR, MTTR)</span></li>
+                </ol>
+              </div>
+            </div>
+          </article>
+
+          <!-- Row 2: Pilar 3 (span 5) + Pilar 4 (span 7) = 12 -->
+          <article class="lp-bento-card lp-bento-card--span-5">
+            <div>
+              <h3 class="lp-bento-card__title">📦 Supply Chain Management</h3>
+              <p class="lp-bento-card__desc">
+                Kelola Kebutuhan tambang (Asset, Fuel, sparepart, consumable, etc) dalam satu modul terintegrasi, management gudang, Indikator Highlight dengan smart AI Inteligence, historical transaksi dalam satu modul yang terintegrasi dengan kebutuhan lintas departemen.
+              </p>
+            </div>
+          </article>
+
+          <!-- Pilar 4 -->
+          <article class="lp-bento-card lp-bento-card--span-7">
+            <div>
+              <h3 class="lp-bento-card__title">👥 Human Resource Management &amp; Development</h3>
+              <div class="lp-bento-card__desc">
+                <div class="lp-bento-card__lead">Kelola karyawan dalam satu modul terintegrasi, mulai dari :</div>
+                <ol class="lp-feature-list">
+                  <li><span>Record absensi realtime dari HP karyawan dengan kemudahan akses data untuk keperluan setting fleet dan kebutuhan lintas departemen lainnya</span></li>
+                  <li><span>Smart dashboard untuk evaluasi kehadiran karyawan (ATR dan keterlambatan kerja)</span></li>
+                  <li><span>MPP, Kontrak kerja karyawan, Roster cuti</span></li>
+                  <li><span>Database payroll</span></li>
+                  <li><span>Management people (Coaching, Counseling, Punishment and Reward)</span></li>
+                  <li><span>Indikator Highlight dan KPI Lintas departemen</span></li>
+                </ol>
+              </div>
+            </div>
+          </article>
+
+          <!-- Row 3: Pilar 5 (span 7) + Pilar 6 (span 5) = 12 -->
+          <article class="lp-bento-card lp-bento-card--span-7" id="explorer">
+            <div>
+              <h3 class="lp-bento-card__title">🛡️ HSE &amp; Keselamatan Pertambangan (SMKP Minerba)</h3>
+              <div class="lp-bento-card__desc">
+                <div class="lp-bento-card__lead">Sistem manajemen K3L dalam satu modul terintegrasi, mulai dari :</div>
+                <ol class="lp-feature-list">
+                  <li><span>Kemudahan Pelaporan Hazard, insiden, Inspeksi, P5M, Safety Talk dan investigasi langsung dari HP karyawan.</span></li>
+                  <li><span>Database Kompetensi karyawan, SIMPER &amp; Mine Permit, APD, izin kerja, JSA, Audit (Internal dan SMKP) dokumen Peraturan perusahaan, Golden rules dan regulasi pemerintah.</span></li>
+                  <li><span>Monitoring Lingkungan, Limbah B3, kesehatan kerja dan tanggap darurat</span></li>
+                  <li><span>Indikator Highlight KPI, LTI, LTIFR yang terintegrasi database dan tersedia Mode layar TV</span></li>
+                  <li><span>Setup Master yang fleksibel, custom semua jenis form, parameter dan dokumen sesuai dengan standar masing - masing perusahaan.</span></li>
+                </ol>
+              </div>
+            </div>
+          </article>
+
+          <!-- Pilar 6 -->
+          <article class="lp-bento-card lp-bento-card--span-5">
+            <div>
+              <h3 class="lp-bento-card__title">🧠 Core Platform &amp; Decision Governance</h3>
+              <p class="lp-bento-card__desc">
+                Isolasi data per tenant/project, effective-dated master data, RBAC granular per sub-admin, observabilitas Web Vitals &amp; Server-Timing, serta ketahanan sinkronisasi jaringan tambang terpencil.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ================= 3. ARSITEKTUR 3-LAPISAN ENTERPRISE ================= -->
+      <section class="lp-section" id="arsitektur">
+        <div class="lp-section__head">
+          <h2 class="lp-section__title">Dirancang untuk Ketangguhan Lapangan &amp; Skala Multi-Site</h2>
+          <p class="lp-section__desc">
+            Arsitektur OMOS memisahkan tanggung jawab antara Control Plane, Client Data Plane, Core Platform, dan Modul Operasional Tambang untuk menjamin keamanan serta keakuratan perhitungan.
+          </p>
+        </div>
+
+        <div class="lp-arch-stack">
+          <div class="lp-arch-layer lp-arch-layer--cyan">
+            <div>
+              <div class="lp-arch-layer__title">OMOS Intelligence Layer</div>
+              <div class="lp-arch-layer__desc">AI Vision • Operational Intelligence • Predictive Mining — Analisis Pareto Root-Cause, Delay Impact Waterfall, dan Forecasting Operasional.</div>
+            </div>
+          </div>
+
+          <div class="lp-arch-layer">
+            <div>
+              <div class="lp-arch-layer__title">OMOS Mining Modules</div>
+              <div class="lp-arch-layer__desc">People • Production • Commercial • Maintenance • HSE • Fleet — Mengikuti semantik tanggal operasional shift tambang dan formula teknik tervalidasi.</div>
+            </div>
+          </div>
+
+          <div class="lp-arch-layer lp-arch-layer--emerald">
+            <div>
+              <div class="lp-arch-layer__title">OMOS Core Platform &amp; Data Plane</div>
+              <div class="lp-arch-layer__desc">Identity • RBAC • MDM • Offline Sync • Workflow • Audit • Security — Didukung PostgreSQL 17, Cloud Sync, Idempotent Retry, dan jejak audit penuh.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 4. CONTACT US SECTION ================= -->
+      <section class="lp-section" id="contact">
+        <div class="lp-section__head">
+          <h2 class="lp-section__title">Siap Mengintegrasikan Operasional Tambang Anda?</h2>
+          <p class="lp-section__desc">
+            Diskusikan kebutuhan site tambang Anda, jadwalkan presentasi demo langsung, atau hubungi tim dukungan teknis OMOS (One Mining System Operation).
+          </p>
+        </div>
+
+        <div class="lp-contact-grid">
+          <form class="lp-form-card" id="formContactOmos">
+            <div style="font-size:15px;font-weight:700;margin-bottom:14px;color:var(--omos-ink);">
+              📩 Formulir Konsultasi &amp; Request Demo
+            </div>
+
+            <div class="lp-form-row">
+              <div class="lp-field" style="margin-bottom:0;">
+                <label for="inContactName">Nama Lengkap *</label>
+                <input type="text" id="inContactName" placeholder="Contoh: Budi Santoso" required />
+              </div>
+              <div class="lp-field" style="margin-bottom:0;">
+                <label for="inContactCompany">Perusahaan / Nama Site *</label>
+                <input type="text" id="inContactCompany" placeholder="PT Prima Indojaya Mandiri / Site..." required />
+              </div>
+            </div>
+
+            <div class="lp-form-row">
+              <div class="lp-field" style="margin-bottom:0;">
+                <label for="inContactRole">Jabatan / Departemen</label>
+                <input type="text" id="inContactRole" placeholder="KTT / PJO / Mine Plan / HR / HSE" />
+              </div>
+              <div class="lp-field" style="margin-bottom:0;">
+                <label for="inContactModule">Fokus Modul Prioritas</label>
+                <select id="inContactModule">
+                  <option value="Full Suite OMOS (All-in-One)">Full Suite OMOS (Seluruh Modul)</option>
+                  <option value="Mine Planning & Production Intelligence">Mine Planning &amp; Production Intelligence</option>
+                  <option value="Unit Population & Maintenance">Unit Population &amp; Maintenance</option>
+                  <option value="Supply Chain Management">Supply Chain Management</option>
+                  <option value="Human Resource Management & Development">Human Resource Management &amp; Development</option>
+                  <option value="HSE & Keselamatan Pertambangan (SMKP Minerba)">HSE &amp; Keselamatan Pertambangan (SMKP Minerba)</option>
+                  <option value="Core Platform & Decision Governance">Core Platform &amp; Decision Governance</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="lp-field">
+              <label for="inContactMessage">Pesan / Kebutuhan Operasional Site *</label>
+              <textarea id="inContactMessage" rows="3" placeholder="Jelaskan jumlah armada, lokasi site, atau kebutuhan integrasi..." required></textarea>
+            </div>
+
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+              <button type="submit" class="lp-btn lp-btn--gold">
+                💬 Kirim &amp; Teruskan via WhatsApp
+              </button>
+              <button type="button" class="lp-btn lp-btn--ghost" id="btnContactEmail">
+                ✉️ Kirim via Email Resmi
+              </button>
+              <span id="contactFeedbackMsg" style="font-size:12px;color:var(--omos-emerald-bright);" hidden></span>
+            </div>
+          </form>
+
+          <div class="lp-form-card" style="display:flex;flex-direction:column;justify-content:space-between;">
+            <div>
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                <img src="assets/reports/omos-one-path.png" alt="OMOS Logo" style="width:48px;height:48px;border-radius:10px;background:#FAF8F5;padding:3px;object-fit:contain;border:1px solid var(--omos-border);" />
+                <div>
+                  <div style="font-weight:800;font-size:15px;color:var(--omos-ink);">OMOS Command Support</div>
+                  <div style="font-size:12px;color:var(--omos-ink-muted);">One Mining System Operation</div>
+                </div>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:12px;font-size:12.5px;">
+                <div class="lp-support-box">
+                  <div class="lp-support-box__lbl">🏢 Dukungan Implementasi &amp; Operasional</div>
+                  <div class="lp-support-box__val">OMOS - Support Engineer</div>
+                </div>
+                <div class="lp-support-box">
+                  <div class="lp-support-box__lbl">✉️ Email Kemitraan &amp; Bantuan Teknis</div>
+                  <div class="lp-support-box__val" style="color:var(--omos-cyan);">support@omos-mining.com</div>
+                </div>
+                <div class="lp-support-box">
+                  <div class="lp-support-box__lbl">⏱️ Layanan Site &amp; Server</div>
+                  <div class="lp-support-box__val" style="color:var(--omos-emerald-bright);">24/7 Shift Siang &amp; Malam (WIB)</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--omos-border);display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:11.5px;color:var(--omos-ink-muted);">Sudah memiliki akun otorisasi?</span>
+              <button type="button" class="lp-btn lp-btn--gold" id="btnCardLogin" style="padding:6px 12px;font-size:11.5px;">
+                Login Sekarang →
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FOOTER -->
+      <footer class="lp-footer">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <img src="assets/reports/omos-one-path.png" alt="OMOS" style="width:28px;height:28px;border-radius:6px;background:#FAF8F5;padding:2px;border:1px solid var(--omos-border);" />
+          <span><strong>OMOS (One Mining System Operation)</strong> • Architecture v2.6</span>
+        </div>
+        <div>
+          © 2026 OMOS Platform — Seluruh Hak Cipta Dilindungi.
+        </div>
+      </footer>
+
+    </main>
+
+    <!-- ================= MODAL LOGIN TERPADU ================= -->
+    <div class="lp-modal-backdrop" id="modalLoginOmos" hidden>
+      <div class="lp-modal">
+        <div class="lp-modal__head">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <img src="assets/reports/omos-one-path.png" alt="OMOS" style="width:36px;height:36px;border-radius:8px;background:#FAF8F5;padding:2px;border:1px solid var(--omos-border);" />
+            <div>
+              <div style="font-size:15px;font-weight:800;color:var(--omos-ink);">Login Sistem OMOS</div>
+              <div style="font-size:11px;color:var(--omos-ink-muted);">One Mining System Operation</div>
+            </div>
+          </div>
+          <button type="button" class="lp-btn lp-btn--ghost" id="btnCloseLoginModal" style="padding:4px 9px;">✕</button>
+        </div>
+
+        <div class="lp-tabs">
+          <button type="button" class="lp-tab-btn is-active" id="tabBtnAdminLogin">🖥️ Command Center (Admin)</button>
+          <button type="button" class="lp-tab-btn" id="tabBtnPortalKaryawan">📱 Portal Karyawan</button>
+        </div>
+
+        <!-- Tab 1: Form Login Admin (Terhubung ke #formLogin asli) -->
+        <div id="paneAdminLogin">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:11.5px;color:var(--omos-ink-muted);">
+            <span>Otorisasi Dashboard &amp; Modul Tambang</span>
+            <span id="jamLogin" style="font-family:monospace;color:var(--omos-gold-bright);">--:--:--</span>
+          </div>
+          <form id="formLogin" autocomplete="off">
+            <div class="lp-field">
+              <label for="inputEmail">Email Otorisasi</label>
+              <input type="email" id="inputEmail" placeholder="admin@perusahaan.com" required autocomplete="off" />
+            </div>
+            <div class="lp-field">
+              <label for="inputPassword">Password</label>
+              <input type="password" id="inputPassword" placeholder="••••••••" required autocomplete="off" />
+            </div>
+            <button type="submit" class="lp-btn lp-btn--gold" style="width:100%;padding:10px;margin-top:4px;">
+              Masuk ke Dashboard OMOS →
+            </button>
+            <p id="errorLogin" class="teks-error" style="margin-top:8px;text-align:center;" hidden></p>
+          </form>
+        </div>
+
+        <!-- Tab 2: Akses Portal Karyawan -->
+        <div id="panePortalKaryawan" hidden>
+          <p style="font-size:12.5px;color:var(--omos-ink-secondary);margin-bottom:14px;">
+            Untuk presensi wajah &amp; GPS, melihat jadwal kerja, riwayat kehadiran, serta slip gaji karyawan lapangan:
+          </p>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <a href="/karyawan.html" class="lp-btn lp-btn--emerald" id="btnModalGoPortal" style="width:100%;padding:10px;">
+              🌐 Buka Portal Absensi Web
+            </a>
+            <a href="/Absensi_PIM.apk" download class="lp-btn lp-btn--ghost" id="btnModalDownloadApk" style="width:100%;padding:10px;">
+              📲 Unduh Aplikasi Android
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
+
   </div>
 
   <!-- ================= APLIKASI UTAMA ================= -->
   <div id="app" class="app" hidden>
 
     <aside class="sidebar">
-      <div class="sidebar__brand" style="display:flex;align-items:flex-start;gap:7px;">
-        <span class="sidebar__brand-mark" style="line-height:20px;">●</span>
+      <div class="sidebar__brand" style="display:flex;align-items:center;gap:9px;">
+        <img src="assets/reports/omos-one-path.png" alt="OMOS" style="width:32px;height:32px;border-radius:8px;background:#FAF8F5;padding:2px;object-fit:contain;flex-shrink:0;" />
         <div>
-          <div style="font-size:18px;line-height:20px;">OMOS</div>
-          <div style="font-size:9px;line-height:12px;margin-top:2px;color:rgba(255,255,255,0.65);font-weight:500;white-space:nowrap;">One Mining One System</div>
+          <div style="font-size:18px;line-height:20px;font-weight:800;">OMOS</div>
+          <div style="font-size:9px;line-height:12px;margin-top:2px;color:rgba(255,255,255,0.68);font-weight:500;white-space:nowrap;">One Mining System Operation</div>
         </div>
       </div>
 
@@ -50,7 +527,6 @@
         <button class="sidebar__tab" data-tab="karyawan">👥 Karyawan</button>
         <button class="sidebar__tab" data-tab="performa">📊 Rekap Performa</button>
         <button class="sidebar__tab" data-tab="roster">📅 Roster Karyawan</button>
-        <button class="sidebar__tab" data-tab="registrasi">⏳ Registrasi Pending <span id="badgePending" style="display:none;background:#EF4444;color:#ffffff;font-size:11px;font-weight:bold;padding:2px 7px;border-radius:10px;margin-left:6px;">0</span></button>
         <button class="sidebar__tab" data-tab="payroll">💳 Database Payroll</button>
         <button class="sidebar__tab" data-tab="hm">🚜 Database HM</button>
         <button class="sidebar__tab" data-tab="kalkulasiPayroll">🧮 Kalkulasi Payroll</button>
@@ -70,8 +546,7 @@
           <button class="sidebar__tab sidebar__subtab" data-tab="prodPlanProductivity" style="font-size:12px;">0.5 🎯 OB Productivity Planning</button>
           <button class="sidebar__tab sidebar__subtab" data-tab="prodCoalProductivity" style="font-size:12px;">0.6 ⛏️ Coal Productivity Planning</button>
           <button class="sidebar__tab sidebar__subtab" data-tab="prodBudgetingCosting" style="font-size:12px;">0.7 ⛽ Fuel Budgeting</button>
-          <button class="sidebar__tab sidebar__subtab" data-tab="prodFleetCapacity" style="font-size:12px;">0.8 🚚 Fleet Capacity</button>
-          <button class="sidebar__tab sidebar__subtab" data-tab="prodUnitMapping" style="font-size:12px;">0.9 🗺️ Unit Mapping</button>
+          <button class="sidebar__tab sidebar__subtab" data-tab="prodFleetCapacity" style="font-size:12px;">0.8 🚚 Fleet Deployment</button>
         </div>
 
         <button class="sidebar__tab" data-tab="prodInputData">1. 📝 Input Data</button>
@@ -82,11 +557,16 @@
         <button class="sidebar__tab" data-tab="prodDailyDashboard">6. 🌧️ Data Curah Hujan</button>
         <button class="sidebar__tab" data-tab="prodDataProduksi">7. 📊 Data Produksi</button>
         <button class="sidebar__tab" data-tab="prodReviewProduksi">8. 🔍 Review Produksi</button>
-        <button class="sidebar__tab" data-tab="prodProductivityReport">9. 🚀 Productivity Report</button>
-        <button class="sidebar__tab" data-tab="prodMtdReport">10. 📅 MTD Report</button>
-        <button class="sidebar__tab" data-tab="prodYtdReport">11. 🗓️ YTD Report</button>
-        <button class="sidebar__tab" data-tab="prodProjectToDate">12. 🏆 Project To Date</button>
-        <button class="sidebar__tab" data-tab="prodExecutiveDashboard" style="background:#1e293b;color:#38bdf8;font-weight:bold;border:1px solid #334155;">13. ⚡ Executive Dashboard</button>
+        <button class="sidebar__tab" data-tab="prodProductivityReport">9. 🏆 Leader Board</button>
+        <button class="sidebar__tab" data-tab="prodSurveyReport">10. 🧭 Survey Report</button>
+        <button class="sidebar__tab" data-tab="prodMtdReport">11. 📅 MTD Report</button>
+        <button class="sidebar__tab" data-tab="prodYtdReport">12. 🗓️ YTD Report</button>
+        <button class="sidebar__tab" data-tab="prodProjectToDate">13. 🏆 Project To Date</button>
+        <button class="sidebar__tab" data-tab="prodExecutiveDashboard" style="background:#1e293b;color:#38bdf8;font-weight:bold;border:1px solid #334155;">14. ⚡ Executive Dashboard</button>
+        <div style="font-size:10px;font-weight:800;color:#94a3b8;letter-spacing:.08em;margin:18px 10px 4px;text-transform:uppercase">Supply Chain</div>
+        <button class="sidebar__tab" data-tab="logistik">📦 LOGISTIK</button>
+        <div style="font-size:10px;font-weight:800;color:#94a3b8;letter-spacing:.08em;margin:18px 10px 4px;text-transform:uppercase">K3 &amp; Lingkungan</div>
+        <button class="sidebar__tab" data-tab="hse">🛡️ HSE</button>
       </nav>
 
       <div class="sidebar__footer">
@@ -97,6 +577,8 @@
     </aside>
 
     <main class="konten">
+      <section id="tabLogistik" class="tab-panel"><div id="logisticsRoot"></div></section>
+      <section id="tabHse" class="tab-panel"><div id="hseRoot"></div></section>
 
       <!-- ===== TAB ABSENSI ===== -->
       <section id="tabAbsensi" class="tab-panel is-aktif">
@@ -145,6 +627,7 @@
           </div>
         </div>
 
+        <p id="infoBarisAbsensi" style="margin:0 0 8px 0;font-size:12px;color:#64748b;"></p>
         <div class="tabel-wrap tabel-wrap-sticky">
           <table class="tabel tabel-sticky">
             <thead>
@@ -194,71 +677,17 @@
 
       <!-- ===== TAB KARYAWAN ===== -->
       <section id="tabKaryawan" class="tab-panel">
-        <div class="tab-panel__head">
-          <h2>Database Karyawan</h2>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <select id="filterDepartemenKaryawan" class="input-filter" style="font-weight:700;min-width:180px;border:1.5px solid #0f3460;background:#fff;color:#0f172a;">
-              <option value="">🏢 Departemen: Semua</option>
-            </select>
-            <select id="filterJabatanKaryawan" class="input-filter" style="font-weight:700;min-width:180px;border:1.5px solid #0f3460;background:#fff;color:#0f172a;">
-              <option value="">👔 Jabatan: Semua</option>
-            </select>
-            <button id="btnAuditLogKaryawan" class="tombol tombol--ghost">📋 Audit Log Karyawan</button>
-            <button id="btnTambahKaryawan" class="tombol tombol--utama">+ Tambah karyawan</button>
+        <div id="panelResetSandi" class="rs-panel" hidden>
+          <div class="rs-head">
+            <strong>Permintaan reset sandi (<span data-rs-count>0</span>)</strong>
+            <span class="rs-muted">Dari aplikasi OMOS Safety · sandi sementara wajib diganti karyawan setelah login</span>
           </div>
+          <div data-rs-list class="rs-list"></div>
         </div>
-
-        <!-- KPI Highlight Grid untuk Database Karyawan -->
-        <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));gap:14px;margin-bottom:20px;">
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #0f3460;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">TOTAL KARYAWAN</div>
-            <div id="kpiHighlightTotal" style="font-size:28px;font-weight:800;color:#0f172a;margin-top:4px;">0</div>
-            <div style="font-size:11px;color:#047857;font-weight:600;margin-top:2px;">👥 Terdaftar di Sistem</div>
-          </div>
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #0284c7;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">PRODUKSI</div>
-            <div id="kpiHighlightProduksi" style="font-size:28px;font-weight:800;color:#0284c7;margin-top:4px;">0</div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">Operator, SPV, Pengawas</div>
-          </div>
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #0284c7;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">ENGINEERING</div>
-            <div id="kpiHighlightEngineering" style="font-size:28px;font-weight:800;color:#0284c7;margin-top:4px;">0</div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">Mine Plan, Surveyor, Admin</div>
-          </div>
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #16a34a;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">LOGISTIK</div>
-            <div id="kpiHighlightLogistik" style="font-size:28px;font-weight:800;color:#16a34a;margin-top:4px;">0</div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">Driver DT, Fuelman, Gudang</div>
-          </div>
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #d97706;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">MAINTENANCE</div>
-            <div id="kpiHighlightMaintenance" style="font-size:28px;font-weight:800;color:#d97706;margin-top:4px;">0</div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">Mekanik, Welder, Electrician</div>
-          </div>
-          <div class="kartu-kpi" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);border-top:4px solid #7c3aed;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">HRGA, HSE & LAINNYA</div>
-            <div id="kpiHighlightHSE" style="font-size:28px;font-weight:800;color:#7c3aed;margin-top:4px;">0</div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">HRGA, Finance, HSE, PJO</div>
-          </div>
-        </div>
-        <div class="tabel-wrap">
-          <table class="tabel">
-            <thead>
-              <tr>
-                <th>Nama</th>
-                <th>Employee ID</th>
-                <th>Email</th>
-                <th>Jabatan</th>
-                <th>Departemen</th>
-                <th>Wajah</th>
-                <th>Aksi</th>
-              </tr>
-            </thead>
-            <tbody id="tbodyKaryawan">
-              <tr><td colspan="7" class="tabel__kosong">Memuat data...</td></tr>
-            </tbody>
-          </table>
-        </div>
+        <!-- OMOS People v2: dirender people.js (acuan: assets/sample page/omos_karyawan_layout.html) -->
+        <div id="peopleRoot" class="pp"><div class="pp-card pp-empty">Memuat data karyawan…</div></div>
+        <!-- Dipakai tab MPP (workforce.js); dipindahkan ke dalam #peopleRoot oleh people.js -->
+        <div id="workforceMovementView" hidden></div>
       </section>
 
       <!-- ===== TAB REKAP PERFORMA ===== -->
@@ -370,11 +799,17 @@
         </div>
 
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0 10px;padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:9px;">
+          <div class="cuti-segmented" style="margin:0"><button type="button" data-cuti-view="jadwal" class="is-active">Jadwal Roster</button><button type="button" data-cuti-view="cuti">Database Cuti</button><button type="button" data-cuti-view="kebijakan">Atur Roster Cuti</button></div>
+        </div>
+
+        <div id="rosterScheduleView">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0 10px;padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:9px;">
           <label class="label" style="margin:0;">Tanggal awal</label>
           <input id="rosterTanggalMulai" type="date" class="input-filter" />
           <label class="label" style="margin:0;">Tanggal akhir</label>
           <input id="rosterTanggalAkhir" type="date" class="input-filter" />
           <select id="rosterFilterJabatan" class="input-filter"><option value="">Jabatan: Semua</option></select>
+          <input id="rosterCariKaryawan" type="search" class="input-filter" placeholder="Cari nama / ID karyawan" aria-label="Cari karyawan pada roster" />
           <button id="btnTampilkanRoster" class="tombol tombol--utama">Terapkan Periode</button>
         </div>
 
@@ -384,50 +819,23 @@
           <span class="roster-badge roster-badge--cp">CP = Cuti periodik (reset siklus)</span>
           <span class="roster-badge roster-badge--c">C = Cuti khusus (tidak mengubah siklus)</span>
           <span class="roster-badge roster-badge--off">OFF = Istirahat</span>
-          <span style="color:#64748b;">Klik sel tanggal untuk membuat override. Absensi kamera tetap menjadi sumber aktual utama.</span>
+          <span style="color:#64748b;">Setiap sel memakai dropdown status. Sel Database Cuti dikunci dan harus dikoreksi dari sumbernya. Absensi kamera tetap menjadi sumber aktual utama.</span>
         </div>
 
         <div id="rosterSummary" style="font-size:13px;color:#475569;margin-bottom:10px;"></div>
         <div id="rosterTables">
           <div class="tabel__kosong">Memuat data roster...</div>
         </div>
+        </div><!-- /rosterScheduleView -->
+
+        <div id="cutiView" hidden>
+          <div class="cuti-dynamic"><div class="tabel__kosong">Pilih Database Cuti untuk memuat data.</div></div>
+        </div>
+        <div id="cutiPolicyView" hidden></div>
       </section>
 
       <!-- ===== TAB REGISTRASI PENDING ===== -->
-      <section id="tabRegistrasi" class="tab-panel">
-        <div class="tab-panel__head">
-          <h2>Registrasi Pending</h2>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <select id="filterStatusRegistrasi" class="input-filter">
-              <option value="menunggu">Menunggu</option>
-              <option value="disetujui">Disetujui</option>
-              <option value="ditolak">Ditolak</option>
-            </select>
-            <button id="btnMuatRegistrasi" class="tombol tombol--ghost">Muat Ulang</button>
-          </div>
-        </div>
-        <div class="tabel-wrap">
-          <table class="tabel">
-            <thead>
-              <tr>
-                <th>Nama</th>
-                <th>Email</th>
-
-                <th>Jabatan</th>
-                <th>Departemen</th>
-                <th>Sampel Wajah</th>
-                <th>Lokasi Dipilih</th>
-                <th>Tanggal Daftar</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="tbodyRegistrasi">
-              <tr><td colspan="10" class="tabel__kosong">Memuat data...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <!-- Tab Registrasi Pending dihapus (People v2): karyawan baru hanya lewat Karyawan → Tambah karyawan. -->
 
       <!-- ===== TAB PAYROLL ===== -->
       <section id="tabPayroll" class="tab-panel">
@@ -661,6 +1069,7 @@
               <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Pengaturan kustom master unit (Kode, Type, Class, Brand, Date In, Fuel Rate L/Jam). Admin dapat mengedit semua data.</p>
             </div>
             <div style="display:flex;gap:8px;">
+              <button class="tombol tombol--ghost" onclick="cetakLabelEquipmentTerfilter()" title="Cetak label QR untuk unit yang tampil di tabel">🏷️ Cetak Label QR</button>
               <button class="tombol tombol--ghost" onclick="exportEquipmentExcel()">Export Excel</button>
               <button class="tombol tombol--ghost" onclick="pilihFileImportEquipment()">Import Excel</button>
               <button class="tombol tombol--utama" onclick="bukaModalTambahEquipment()">+ Tambah Unit Baru</button>
@@ -707,6 +1116,7 @@
               <thead>
                 <tr>
                   <th rowspan="2">Kode Unit</th>
+                  <th rowspan="2" title="ID otomatis untuk QR APK OMOS Fuel">ID (QR)</th>
                   <th rowspan="2">Jenis Alat</th>
                   <th rowspan="2">Class</th>
                   <th rowspan="2">Tipe Model</th>
@@ -718,6 +1128,7 @@
                   <th rowspan="2">Lokasi</th>
                   <th rowspan="2">Keterangan</th>
                   <th rowspan="2">Unit Km-only</th>
+                  <th rowspan="2">Tangki BBM (L)</th>
                   <th rowspan="2">Aksi</th>
                 </tr>
                 <tr>
@@ -726,7 +1137,7 @@
                 </tr>
               </thead>
               <tbody id="tbodyParamEquipment">
-                <tr><td colspan="14" class="tabel__kosong">Memuat master list unit...</td></tr>
+                <tr><td colspan="16" class="tabel__kosong">Memuat master list unit...</td></tr>
               </tbody>
             </table>
           </div>
@@ -794,7 +1205,7 @@
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
               <div>
                 <h3 style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">Master JOB</h3>
-                <p style="margin:3px 0 0;font-size:11px;color:#64748b;">Referensi awal operasional tambang. Seluruh kode dan deskripsi dapat disesuaikan dengan standar perusahaan.</p>
+                <p style="margin:3px 0 0;font-size:11px;color:#64748b;">Referensi awal operasional tambang. Kode sistem OB, CG, dan DW terkunci; deskripsinya dapat disesuaikan dengan standar perusahaan.</p>
               </div>
               <button class="tombol" style="padding:4px 10px;font-size:11px;" onclick="bukaModalTambahJobCode()">+ JOB</button>
             </div>
@@ -899,7 +1310,7 @@
         <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
           <div>
             <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🎯 OB Productivity Planning</h2>
-            <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Perencanaan target produktivitas per jam untuk Excavator, Dump Truck, dan Fleet Loading. Formula mengikuti struktur Excel: Loader Cap, Num of Pass, Loading Time, Cycle Time Truck, Loader Productivity, Truck Productivity, Fleet Match, Fleet Productivity.</p>
+            <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Loader Productivity menjadi sumber target operasional. Hauler Productivity menyimpan acuan DT, sedangkan Setting Fleet Simulation hanya untuk simulasi sesi dan tidak terhubung ke modul lain.</p>
           </div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span id="planProductivitySaveStatus" style="font-size:11px;color:#15803d;"></span><button id="btnAddPlanProductivityTable" type="button" class="tombol tombol--utama">+ Tambah Fleet</button></div>
         </div>
@@ -933,43 +1344,15 @@
 
       <!-- ================= 0.7 FLEET CAPACITY ================= -->
       <section id="tab-prodFleetCapacity" class="tab-konten" hidden>
-        <div style="display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#f8fafc;border:1px solid #dbe7f5;border-radius:9px;">
-          <label style="font-size:11px;font-weight:700;color:#475569;">Pilih Tahun<select id="fleetCapacityYear" style="display:block;margin-top:4px;min-width:110px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-weight:700;"></select></label>
-          <span id="fleetCapacityStatus" style="font-size:11px;color:#15803d;padding-bottom:8px;">Memuat…</span>
-        </div>
-        <div id="fleetPitAreaSetup" style="min-width:0;"></div>
-        <div id="fleetPitAreaSelector" style="margin-top:14px;min-width:0;"></div>
-        <div id="fleetAreaPlanningGuide" style="margin-top:14px;padding:28px;border:1px dashed #94a3b8;border-radius:12px;background:#f8fafc;text-align:center;color:#64748b;font-size:14px;font-weight:700;">Silakan pilih area</div>
-        <div id="fleetAreaPlanningContent" hidden>
-          <div id="fleetPeriodicSetup" style="margin-top:14px;min-width:0;"></div>
-          <div id="fleetProductionPlanning" style="margin-top:14px;min-width:0;"></div>
-        </div>
-      </section>
-
-      <!-- ================= 0.9 UNIT MAPPING ================= -->
-      <section id="tab-prodUnitMapping" class="tab-konten" hidden>
-        <div class="um-page-head">
-          <div>
-            <h2>🗺️ Unit Mapping Control Board</h2>
-            <p>Komposisi dan alokasi unit per area berdasarkan PIT Area Setup dan Fleet Periodic Setup.</p>
-          </div>
-          <span class="um-strict-badge">🔒 Strict DT Compatibility</span>
-        </div>
-        <div class="um-toolbar">
-          <label>Tahun<select id="unitMappingYear"></select></label>
-          <label>Bulan<select id="unitMappingMonth"></select></label>
-          <label>Mapping Scope<select id="unitMappingScope"><option value="month">Bulanan</option><option value="week">Mingguan</option><option value="day">Harian</option></select></label>
-          <label>Minggu<select id="unitMappingWeek"></select></label>
-          <label>Hari<select id="unitMappingDay"></select></label>
-          <div class="um-period-caption"><small>Periode aktif</small><strong id="unitMappingPeriodCaption">—</strong></div>
-          <span id="unitMappingStatus" data-tone="pending">Memuat…</span>
-        </div>
-        <div class="um-actions">
+        <div id="fleetDeploymentRoot" class="fdp-shell" aria-live="polite"></div>
+        <div id="fleetUnitMappingView" class="fdp-unit-mapping" hidden>
+          <div class="um-actions">
           <div class="um-actions__filters">
             <input id="unitMappingSearch" type="search" placeholder="Cari kode unit, class, atau model…" aria-label="Cari unit" />
             <select id="unitMappingQueueFilter" aria-label="Filter antrean unit"><option value="all">Semua Antrian</option><option value="excavator-support">Excavator Support</option><option value="dump-truck">Dump Truck</option><option value="dozer-support">Dozer Support</option><option value="support">Support Equipment</option><option value="mixed">Mixed Allocation</option></select>
           </div>
           <div class="um-actions__buttons">
+            <span id="unitMappingStatus" data-tone="pending">Memuat…</span>
             <button type="button" id="unitMappingUndo" disabled>↶ Undo</button>
             <button type="button" id="unitMappingRedo" disabled>↷ Redo</button>
             <button type="button" id="unitMappingCopyPrevious">⧉ Copy Periode Sebelumnya</button>
@@ -979,6 +1362,7 @@
         <div class="um-workspace">
           <div id="unitMappingQueue"></div>
           <div id="unitMappingKpis" class="um-kpi-grid"></div>
+        </div>
         </div>
       </section>
 
@@ -991,7 +1375,7 @@
               <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📝 Input Data Produksi (Daily Work Log)</h2>
               <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Pencatatan jam kerja unit, operator, JOB, PIT/Area, dan total HM otomatis.</p>
             </div>
-            <!-- POJOK KANAN ATAS: SLICER UTAMA TAHUN & BULAN + TOMBOL EXPORT & TAMBAH WORK LOG -->
+            <!-- POJOK KANAN ATAS: SLICER UTAMA TAHUN & BULAN + AKSI WORK LOG -->
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <div style="display:flex;align-items:center;gap:4px;">
                 <label style="font-size:12px;font-weight:700;color:#475569;">📅 Tahun:</label>
@@ -1035,7 +1419,7 @@
                     <strong style="font-size:13px;color:#0f172a;">👥 Filter Jabatan Manpower</strong>
                     <button type="button" class="tombol-tautan" onclick="tutupManpowerFilterPanel()" style="font-size:12px;color:#64748b;">✕</button>
                   </div>
-                  <p style="margin:0 0 8px;font-size:11px;color:#64748b;">Centang jabatan yang boleh tampil di kolom <b>Operator</b> tabel Input Data & tombol <b>+ Tambah Work Log</b>. Secara default semua jabatan aktif tampil; centang untuk mempersempit. Kosongkan semua = dropdown Operator kosong.</p>
+                  <p style="margin:0 0 8px;font-size:11px;color:#64748b;">Centang jabatan yang boleh tampil di kolom <b>Operator</b> tabel Input Data dan baris <b>Insert Data</b>. Secara default semua jabatan aktif tampil; centang untuk mempersempit. Kosongkan semua = dropdown Operator kosong.</p>
                   <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#0f172a;padding:6px 8px;background:#f1f5f9;border-radius:6px;margin-bottom:6px;cursor:pointer;">
                     <input type="checkbox" id="manpowerCheckAll" onchange="setAllManpowerJabatan(this.checked)" style="width:16px;height:16px;accent-color:#0f766e;"> Semua Jabatan
                   </label>
@@ -1046,8 +1430,8 @@
                   </div>
                 </div>
               </div>
-              <button class="tombol" onclick="bukaModalMultiWorkLog()" style="border-color:#4338ca;color:#fff;background:#4f46e5;box-shadow:0 3px 8px rgba(79,70,229,.24);font-weight:800;">+ Multi Work Log</button>
-              <button class="tombol tombol--utama" onclick="bukaModalInputDataProduksi()">+ Tambah Work Log</button>
+              <button id="btnInsertInputData" class="tombol tombol--utama" onclick="insertInputDataRow()" title="Tambahkan satu baris Work Log kosong untuk diisi langsung pada tabel">+ Insert Data</button>
+              <button id="btnHmMeterLifecycle" class="tombol" onclick="bukaModalHmMeter()" title="Catat penggantian atau reset hour meter tanpa memakai nilai HM negatif" style="border-color:#2563eb;color:#1d4ed8;background:#eff6ff;font-weight:800;">⚙ HM Meter</button>
             </div>
           </div>
 
@@ -1138,6 +1522,8 @@
               <option value="07">Juli</option><option value="08">Agustus</option><option value="09">September</option>
               <option value="10">Oktober</option><option value="11">November</option><option value="12">Desember</option>
             </select></label>
+            <button id="btnDatabaseFuel" class="tombol" onclick="bukaDatabaseFuel()">🗄️ Database Fuel</button>
+            <button id="btnAksesFuel" class="tombol" onclick="window.FuelAccessUi?.open()" title="Validasi transaksi APK, tutup shift, akun & perangkat OMOS Fuel">📱 Akses Fuel</button>
             <button id="btnExportFuelExcel" class="tombol tombol--ghost" onclick="exportFuelExcel()">📊 Export</button>
             <button id="btnImportFuelExcel" class="tombol fuel-button-import" onclick="pilihFileImportFuel()">⬆ Import</button>
             <input id="inputImportFuelExcel" type="file" accept=".xlsx,.xls" hidden />
@@ -1152,6 +1538,9 @@
             <button id="btnDeleteSelectedFuel" class="tombol fuel-button-delete" onclick="deleteSelectedFuelLogs()" disabled>Hapus Terpilih</button>
             <button class="tombol tombol--ghost" onclick="cancelFuelBulkDelete()">Batal</button>
           </div>
+        </div>
+
+        <div id="databaseFuelWorkspace" hidden>
         </div>
 
         <div class="fuel-filter-panel">
@@ -1178,7 +1567,6 @@
             <div><h2>⏱️ Unit Standby Control</h2><p>Standby per hari operasional dan shift, terorganisasi berdasarkan jenis, class, dan kode unit.</p></div>
             <div class="standby-v2-actions">
               <button class="tombol standby-history-button" onclick="bukaStandbyHistory()">📚 Standby History</button>
-              <button class="tombol standby-review-button" onclick="bukaReviewStandby()">✓ Review Standby <span id="standbyReviewBadge">0</span></button>
               <button class="tombol standby-quality-button" onclick="bukaStandbyDataQuality()">Data Quality <span id="standbyQualityBadge">0</span></button>
               <button class="tombol standby-pareto-button" onclick="bukaStandbyPareto()">Pareto</button>
               <button class="tombol standby-export-button" onclick="exportStandbyExcel()">📊 Export Excel</button>
@@ -1205,7 +1593,6 @@
             <label>Class<select id="slicerStandbyClass" onchange="syncStandbyFilterOptions();renderStandbyWorkspace()"><option value="">Semua Class</option></select></label>
             <label>Kode Unit<select id="slicerStandbyUnit" onchange="renderStandbyWorkspace()"><option value="">Semua Unit</option></select></label>
             <label>Kode Standby<select id="slicerStandbyCodeV2" onchange="renderStandbyWorkspace()"><option value="">Semua Kode</option></select></label>
-            <label>Status Review<select id="slicerStandbyReview" onchange="renderStandbyWorkspace()"><option value="">Semua Status</option><option value="pending">Belum Direview</option><option value="approved">Disetujui</option><option value="returned">Dikembalikan</option></select></label>
             <button class="tombol-tautan" onclick="resetSlicerStandbyV2()">Reset Filter</button>
           </div>
 
@@ -1329,7 +1716,7 @@
 
       <!-- ================= 3. BREAKDOWN ================= -->
       <section id="tab-prodBreakdown" class="tab-konten" hidden>
-        <div class="breakdown-page-header">
+        <div id="breakdownControlHeader" class="breakdown-page-header">
           <div>
             <h2>🛠️ Unit Breakdown Control</h2>
             <p>Monitoring BD, durasi proses mekanik, waktu tunggu, PIC, part dan nomor PO per unit.</p>
@@ -1348,20 +1735,25 @@
             <button class="tombol tombol--utama" onclick="bukaModalInputBreakdown()">+ Breakdown Baru</button>
           </div>
         </div>
+        <div class="breakdown-workspace-tabs" role="tablist" aria-label="Workspace maintenance">
+          <button id="btnBreakdownControlWorkspace" class="is-active" type="button" onclick="switchBreakdownWorkspace('breakdown')">Breakdown Control</button>
+          <button id="btnPeriodicServiceWorkspace" type="button" onclick="switchBreakdownWorkspace('periodic')">Periodic Service</button>
+        </div>
+        <div id="breakdownControlWorkspace">
         <div class="breakdown-filter-panel">
           <label class="breakdown-filter-search"><span>⌕</span><input id="slicerBreakdownCari" type="search" placeholder="Cari unit, kerusakan, reporter, PIC, part atau PO…" oninput="terapkanSlicerBreakdown()" /></label>
           <label>Status<select id="slicerBreakdownStatus" onchange="terapkanSlicerBreakdown()">
             <option value="">Semua Status</option><option value="open">Semua Aktif</option>
             <option value="mechanic_progress">Progres Mekanik</option><option value="waiting_part">Waiting Part</option>
             <option value="waiting_tool">Waiting Tool</option><option value="waiting_manpower">Waiting Manpower</option>
-            <option value="waiting_vendor">Waiting Vendor</option><option value="awaiting_verification">Menunggu Verifikasi</option><option value="resolved">Ready to Operate</option>
+            <option value="waiting_vendor">Waiting Vendor</option><option value="resolved">Ready to Operate</option>
           </select></label>
           <button type="button" class="tombol-tautan" onclick="resetSlicerBreakdown()">Reset Filter</button>
           <span id="counterSlicerBreakdown" class="breakdown-filter-count">0 unit</span>
         </div>
 
         <div id="breakdownKpiGrid" class="breakdown-kpi-grid" aria-live="polite">
-          <article><span>Calendar PA</span><strong id="metricPa">--%</strong><small id="metricPaBasis">Basis periode</small></article>
+          <article class="is-link"><button type="button" class="breakdown-kpi-link" onclick="bukaBreakdownMaKpi()" aria-label="Tampilkan Calendar MA per jenis equipment"><span>Calendar MA</span><strong id="metricMa">--%</strong><small id="metricMaBasis">HM / (HM + BD)</small></button></article>
           <article><span>MTBF Kalender</span><strong id="metricMtbf">-- Jam</strong><small>Uptime kalender / BD</small></article>
           <article><span>MTTR Selesai</span><strong id="metricMttr">-- Jam</strong><small>Rata-rata BD selesai</small></article>
           <article class="is-danger"><span>Breakdown Aktif</span><strong id="metricBdOpen">0</strong><small>BD belum selesai</small></article>
@@ -1380,7 +1772,7 @@
             </div>
           </section>
           <section class="breakdown-table-section is-ready-check">
-            <header><div><h3>✅ Selesai Perbaikan & Verifikasi</h3><p>Unit selesai diperbaiki, menunggu validasi, atau telah Ready to Operate.</p></div><strong id="breakdownCompletedCount">0 BD</strong></header>
+            <header><div><h3>✅ Unit Ready / Riwayat Release</h3><p>Breakdown yang telah ditutup dan unit dilepas kembali ke status Ready to Operate.</p></div><strong id="breakdownCompletedCount">0 BD</strong></header>
             <div class="tabel-wrap breakdown-table-wrap">
               <table class="tabel breakdown-unit-table breakdown-completed-table">
                 <thead><tr><th>Unit</th><th>Tanggal / Shift</th><th>Jenis Kerusakan</th><th>Mulai</th><th>Status</th><th>Total BD</th><th>Report By</th><th>PIC</th><th>Detail Part / PO</th><th>Aksi</th></tr></thead>
@@ -1388,7 +1780,75 @@
               </table>
             </div>
           </section>
+          <section class="breakdown-table-section breakdown-unit-status-board" aria-labelledby="breakdownUnitStatusTitle">
+            <header>
+              <div><h3 id="breakdownUnitStatusTitle">🚦 Update Status Unit</h3><p>Status realtime berdasarkan Breakdown aktif pada populasi List Equipment.</p></div>
+              <div class="breakdown-unit-status-meta"><span id="breakdownUnitStatusUpdated">Belum dimuat</span><button type="button" class="tombol tombol--kecil" onclick="muatBreakdownUnitStatus()">↻ Refresh</button></div>
+            </header>
+            <div class="breakdown-unit-status-body">
+              <div class="breakdown-type-indicator-panel">
+                <strong>Populasi berdasarkan jenis unit</strong>
+                <div id="breakdownTypeIndicators" class="breakdown-type-indicators"><span class="tabel__kosong">Memuat populasi unit...</span></div>
+              </div>
+              <div class="breakdown-unit-status-toolbar">
+                <div class="breakdown-unit-summary" aria-live="polite">
+                  <button type="button" data-unit-status-summary="" onclick="setBreakdownUnitStatusFilter('')"><small>Semua</small><b id="breakdownUnitTotal">0</b></button>
+                  <button type="button" data-unit-status-summary="Ready" onclick="setBreakdownUnitStatusFilter('Ready')"><small>Ready</small><b id="breakdownUnitReady">0</b></button>
+                  <button type="button" data-unit-status-summary="BD" onclick="setBreakdownUnitStatusFilter('BD')"><small>BD</small><b id="breakdownUnitBd">0</b></button>
+                </div>
+                <label class="breakdown-unit-search"><span>⌕</span><input id="breakdownUnitStatusSearch" type="search" placeholder="Cari kode unit..." oninput="renderBreakdownUnitStatus()" /></label>
+                <select id="breakdownUnitStatusFilter" aria-label="Filter status unit" onchange="renderBreakdownUnitStatus()"><option value="">Semua Status</option><option value="Ready">Ready</option><option value="BD">BD</option></select>
+                <select id="breakdownUnitTypeFilter" aria-label="Filter jenis unit" onchange="renderBreakdownUnitStatus()"><option value="">Semua Jenis Unit</option></select>
+                <div class="breakdown-unit-view-toggle" role="group" aria-label="Mode tampilan"><button type="button" data-unit-view="compact" onclick="setBreakdownUnitStatusView('compact')">Ringkas</button><button type="button" data-unit-view="detail" class="is-active" onclick="setBreakdownUnitStatusView('detail')">Detail</button></div>
+                <button id="breakdownUnitQualityButton" type="button" class="tombol tombol--kecil breakdown-unit-quality-button" onclick="bukaBreakdownUnitDataQuality()">Data Quality <span>0</span></button>
+              </div>
+              <div id="breakdownUnitStatusGroups" class="breakdown-unit-status-groups"><p class="tabel__kosong">Memuat status unit...</p></div>
+            </div>
+          </section>
         </div>
+        </div>
+
+        <section id="periodicServiceWorkspace" class="periodic-service-workspace" hidden aria-labelledby="periodicServiceTitle">
+          <header class="periodic-service-header">
+            <div class="periodic-service-header-main">
+              <div class="periodic-service-heading"><span>PLANNED MAINTENANCE</span><h2 id="periodicServiceTitle">🧰 Periodic Service Control</h2><p>Jadwal berbasis HM Input Data, realisasi Breakdown PS, dan temuan tindak lanjut.</p></div>
+              <div class="periodic-service-header-actions">
+                <label>Dari<input id="psPeriodFrom" type="date" onchange="muatPeriodicService()" /></label>
+                <label>Sampai<input id="psPeriodTo" type="date" onchange="muatPeriodicService()" /></label>
+                <button type="button" class="tombol" onclick="muatPeriodicService()">↻ Refresh</button>
+                <button type="button" class="tombol periodic-forecast-button" onclick="bukaForecastPaPeriodicService()">📈 Forecast PA</button>
+                <button type="button" class="tombol tombol--utama" onclick="bukaModalAreaSetupPeriodicService()">⚙ Service Setup</button>
+              </div>
+            </div>
+            <p class="periodic-period-note">Range memfilter realisasi dan temuan terselesaikan. Jadwal HM, service berjalan, dan temuan terbuka tetap realtime.</p>
+            <div class="periodic-kpi-grid" aria-live="polite">
+              <article><button type="button" class="periodic-kpi-link" data-ps-indicator="configured" onclick="bukaDataIndikatorPeriodicService('configured')"><small>Unit Terkonfigurasi</small><strong id="psKpiConfigured">0</strong><span>punya interval HM</span><i>Lihat data →</i></button></article>
+              <article class="is-warning"><button type="button" class="periodic-kpi-link" data-ps-indicator="upcoming" onclick="bukaDataIndikatorPeriodicService('upcoming')"><small>Mendekati Service</small><strong id="psKpiUpcoming">0</strong><span>dalam warning range</span><i>Lihat data →</i></button></article>
+              <article class="is-danger"><button type="button" class="periodic-kpi-link" data-ps-indicator="overdue" onclick="bukaDataIndikatorPeriodicService('overdue')"><small>Jatuh Tempo</small><strong id="psKpiOverdue">0</strong><span>due / overdue</span><i>Lihat data →</i></button></article>
+              <article class="is-progress"><button type="button" class="periodic-kpi-link" data-ps-indicator="in_progress" onclick="bukaDataIndikatorPeriodicService('in_progress')"><small>Service Berjalan</small><strong id="psKpiProgress">0</strong><span>Breakdown PS aktif</span><i>Lihat data →</i></button></article>
+              <article><button type="button" class="periodic-kpi-link" data-ps-indicator="findings" onclick="bukaDataIndikatorPeriodicService('findings')"><small>Temuan Terbuka</small><strong id="psKpiFindings">0</strong><span>perlu ditindaklanjuti</span><i>Lihat data →</i></button></article>
+            </div>
+          </header>
+          <div class="periodic-toolbar">
+            <label class="breakdown-filter-search"><span>⌕</span><input id="psSearch" type="search" placeholder="Cari kode atau jenis unit…" oninput="renderPeriodicSchedule()" /></label>
+            <select id="psStatusFilter" onchange="hapusFilterIndikatorPeriodicService();renderPeriodicSchedule()"><option value="">Semua Status</option><option value="overdue">Overdue</option><option value="due">Due</option><option value="upcoming">Mendekati</option><option value="normal">Normal</option><option value="in_progress">Service Berjalan</option><option value="not_configured">Belum Diatur</option></select>
+            <select id="psTypeFilter" onchange="renderPeriodicSchedule()"><option value="">Semua Jenis Unit</option></select>
+            <span id="psUpdatedAt">Belum dimuat</span>
+          </div>
+          <div class="periodic-view-tabs" role="tablist">
+            <button class="is-active" data-ps-view="schedule" onclick="switchPeriodicView('schedule')">Jadwal Service</button>
+            <button data-ps-view="packages" onclick="switchPeriodicView('packages')">Paket & Kebutuhan</button>
+            <button data-ps-view="history" onclick="switchPeriodicView('history')">Realisasi & Riwayat</button>
+            <button data-ps-view="findings" onclick="switchPeriodicView('findings')">Temuan</button>
+          </div>
+          <div id="psViewSchedule" class="periodic-view-panel">
+            <div class="tabel-wrap"><table class="tabel periodic-table"><thead><tr><th>Unit</th><th>HM Aktual</th><th>Service Terakhir</th><th>Interval</th><th>Next Due</th><th>Sisa HM</th><th>Status</th><th>Work Order</th><th>Aksi</th></tr></thead><tbody id="psScheduleBody"><tr><td colspan="9" class="tabel__kosong">Buka workspace untuk memuat jadwal.</td></tr></tbody></table></div>
+          </div>
+          <div id="psViewPackages" class="periodic-view-panel" hidden><div id="psPackageGrid" class="periodic-package-grid"></div></div>
+          <div id="psViewHistory" class="periodic-view-panel" hidden><div class="tabel-wrap"><table class="tabel periodic-table"><thead><tr><th>Unit</th><th>Paket & Kebutuhan</th><th>Status</th><th>Due HM</th><th>Jadwal / Realisasi</th><th>Durasi PS</th><th>HM Service</th><th>Temuan</th><th>Aksi</th></tr></thead><tbody id="psHistoryBody"></tbody></table></div></div>
+          <div id="psViewFindings" class="periodic-view-panel" hidden><div id="psFindingList" class="periodic-finding-list"></div></div>
+          <p class="periodic-lineage-note"><b>Lineage:</b> HM aktual berasal dari Input Data. Tombol Service menyimpan realisasi dan Breakdown <code>PS</code> secara atomik. PS memengaruhi MOHH/PA, tetapi tidak dihitung sebagai functional failure pada MTBF/MTTR.</p>
+        </section>
       </section>
 
       <!-- ================= 5. INPUT RITASE & FLEET MAPPING ================= -->
@@ -1438,36 +1898,23 @@
 
       <!-- ================= 8. PRODUCTIVITY REPORT ================= -->
       <section id="tab-prodProductivityReport" class="tab-konten" hidden>
-        <div style="margin-bottom:16px;">
-          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🚀 Equipment & Operator Productivity Ranking</h2>
-          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Leaderboard Top 10 / Bottom 10 produktivitas unit Excavator, Dump Truck, dan Operator.</p>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
-            <h4 style="margin:0 0 12px 0;font-size:14px;font-weight:800;color:#0f172a;">🏆 Top 10 Excavator Productivity</h4>
-            <div id="listTopExcavators">Memuat data ranking...</div>
-          </div>
-          <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
-            <h4 style="margin:0 0 12px 0;font-size:14px;font-weight:800;color:#0f172a;">🚛 Top 10 Dump Truck Productivity</h4>
-            <div id="listTopDumpTrucks">Memuat data ranking...</div>
-          </div>
-        </div>
       </section>
 
-      <!-- ================= 9. MTD REPORT ================= -->
+      <!-- ================= 10. SURVEY REPORT ================= -->
+      <section id="tab-prodSurveyReport" class="tab-konten" hidden>
+        <div style="margin-bottom:16px;">
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🧭 Survey Report</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Laporan hasil survey lapangan.</p>
+        </div>
+        <div id="surveyReportRoot"><p class="tabel__kosong">Modul Survey Report segera hadir.</p></div>
+      </section>
+
+      <!-- ================= 11. MTD REPORT ================= -->
       <section id="tab-prodMtdReport" class="tab-konten" hidden>
-        <div style="margin-bottom:16px;">
-          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">📅 Month To Date (MTD) Production Report</h2>
-          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Akumulasi pencapaian produksi bulan berjalan vs target bulanan dan 30-day forecast.</p>
-        </div>
-        <div style="background:#fff;padding:16px;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:16px;">
-          <div style="position:relative;height:300px;width:100%;max-height:300px;">
-            <canvas id="chartMtdTrend"></canvas>
-          </div>
-        </div>
+        <div id="mtdReportRoot"></div>
       </section>
 
-      <!-- ================= 10. YTD REPORT ================= -->
+      <!-- ================= 12. YTD REPORT ================= -->
       <section id="tab-prodYtdReport" class="tab-konten" hidden>
         <div style="margin-bottom:16px;">
           <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🗓️ Year To Date (YTD) Production & Fuel Graphs</h2>
@@ -1480,7 +1927,7 @@
         </div>
       </section>
 
-      <!-- ================= 11. PROJECT TO DATE ================= -->
+      <!-- ================= 13. PROJECT TO DATE ================= -->
       <section id="tab-prodProjectToDate" class="tab-konten" hidden>
         <div style="margin-bottom:16px;">
           <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">🏆 Project To Date (Lifetime Accumulation)</h2>
@@ -1502,7 +1949,7 @@
         </div>
       </section>
 
-      <!-- ================= 12. EXECUTIVE DASHBOARD (SIGNATURE DARK MODE CONTROL ROOM) ================= -->
+      <!-- ================= 14. EXECUTIVE DASHBOARD (SIGNATURE DARK MODE CONTROL ROOM) ================= -->
       <section id="tab-prodExecutiveDashboard" class="tab-konten" hidden style="background:#0f172a;color:#f8fafc;padding:24px;border-radius:14px;margin-top:-10px;">
         <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;padding-bottom:16px;margin-bottom:20px;">
           <div>
@@ -1555,8 +2002,19 @@
   <script src="config.js?v=26"></script>
   <script src="ui-action-feedback.js?v=3"></script>
   <script src="roster-preview.js?v=1"></script>
-    <script src="production.loader.js?v=21"></script>
-  <script src="app.js?v=42"></script>
+    <script src="production.loader.js?v=56"></script>
+  <script src="logistics.js?v=1"></script>
+  <script src="workforce.js?v=7"></script>
+  <script src="people.js?v=1"></script>
+  <script src="cuti.js?v=11"></script>
+  <script src="app.js?v=48"></script>
+  <script src="landing.js?v=2"></script>
   <script src="hm-worklog.js?v=4"></script>
+  <script src="hse-ask.js?v=1"></script>
+  <script src="hse-delegators.js?v=1"></script>
+  <script src="reset-sandi.js?v=1"></script>
+  <script src="hse-photo-viewer.js?v=1"></script>
+  <script src="hse-ai.js?v=1"></script>
+  <script src="hse.js?v=12"></script>
 </body>
 </html>

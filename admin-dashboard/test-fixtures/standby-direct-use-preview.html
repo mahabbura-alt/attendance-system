@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Standby Direct Use Preview</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    body{margin:0;background:#f6f5f2;color:#0f172a;font-family:Inter,Arial,sans-serif}.preview{max-width:1440px;margin:auto;padding:28px}.head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.head h1{margin:0 0 6px;font-size:25px}.head p{margin:0;color:#64748b}.filters,.cards,.panel{margin-top:18px}.filters{display:flex;gap:12px;align-items:end;padding:16px;background:#fff;border:1px solid #dbe4ef;border-radius:14px}.filters label{font-size:11px;font-weight:800;color:#475569;text-transform:uppercase}.filters input,.filters select{display:block;margin-top:6px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card{background:#fff;border:1px solid #dbe4ef;border-top:4px solid #0f766e;border-radius:12px;padding:16px}.card small{font-size:10px;font-weight:800;letter-spacing:.08em;color:#64748b}.card strong{display:block;font-size:25px;margin-top:8px}.panel{background:#fff;border:1px solid #dbe4ef;border-radius:14px;overflow:hidden}.panel-title{padding:16px 18px;border-bottom:1px solid #dbe4ef;font-weight:800}.notice{margin:16px 18px;padding:12px 14px;border-radius:9px;background:#ecfdf5;color:#047857;font-size:13px}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#eff6ff;color:#334155;text-align:left;padding:12px;border-bottom:1px solid #cbd5e1;font-size:10px;letter-spacing:.04em}td{padding:12px;border-bottom:1px solid #e2e8f0}.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-size:10px;font-weight:800}.btn{border:1px solid #cbd5e1;border-radius:8px;background:#fff;padding:7px 11px;font-weight:700}.primary{background:#0f766e;color:#fff;border-color:#0f766e}@media(max-width:760px){.preview{padding:14px}.filters{align-items:stretch;flex-direction:column}.cards{grid-template-columns:1fr 1fr}.head{flex-direction:column}.filters input,.filters select{width:100%}}
+  </style>
+</head>
+<body>
+  <main class="preview">
+    <section class="head">
+      <div><h1>⏱ Standby</h1><p>Catat waktu standby unit. Data yang tersimpan langsung digunakan pada Review Produksi dan perhitungan terkait.</p></div>
+      <button class="btn primary">+ Tambah Standby</button>
+    </section>
+    <section class="filters" aria-label="Filter Standby">
+      <label>Dari<input type="date" value="2026-09-23"></label>
+      <label>Sampai<input type="date" value="2026-09-24"></label>
+      <label>Area<select><option>Semua area</option></select></label>
+      <label>Unit<select><option>Semua unit</option></select></label>
+      <button class="btn">Tampilkan</button>
+    </section>
+    <section class="cards">
+      <div class="card"><small>TOTAL CATATAN</small><strong>14</strong></div>
+      <div class="card"><small>TOTAL JAM STANDBY</small><strong>168,00</strong></div>
+      <div class="card"><small>UNIT TERDAMPAK</small><strong>14</strong></div>
+      <div class="card"><small>DATA AKTIF</small><strong>14</strong></div>
+    </section>
+    <section class="panel">
+      <div class="panel-title">Data Standby</div>
+      <div class="notice">✓ Data tersimpan sah digunakan tanpa proses Review Standby tambahan.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Tanggal / Shift</th><th>Unit</th><th>Kode</th><th>Waktu</th><th>Jam</th><th>Sumber</th><th>Status Data</th><th>Aksi</th></tr></thead>
+        <tbody>
+          <tr><td>23 Sep 2026<br><small>Shift Malam</small></td><td><b>DT30 136 (6-98)</b><br><small>Dump Truck · DT 30 T</small></td><td>S34<br><small>Waiting Instruction</small></td><td>18:00–06:00</td><td><b>12,00</b></td><td>Manual</td><td><span class="badge">Tersimpan</span></td><td><button class="btn">Edit</button></td></tr>
+          <tr><td>23 Sep 2026<br><small>Shift Malam</small></td><td><b>DT30 133 (6-95)</b><br><small>Dump Truck · DT 30 T</small></td><td>S34<br><small>Waiting Instruction</small></td><td>18:00–06:00</td><td><b>12,00</b></td><td>Manual</td><td><span class="badge">Tersimpan</span></td><td><button class="btn">Edit</button></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+  </main>
+</body>
+</html>

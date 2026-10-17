@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "admin-dashboard/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "mobile-web/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    { "src": "/Absensi_PIM.apk", "dest": "https://omos-mining.com/Absensi_PIM.apk" },
+    { "src": "/Absensi%20PIM.apk", "dest": "https://omos-mining.com/Absensi_PIM.apk" },
+    { "src": "/download-apk", "dest": "https://omos-mining.com/download-apk" },
+    { "src": "/api/(.*)", "dest": "https://omos-mining.com/api/$1" },
+    { "src": "/health", "dest": "https://omos-mining.com/health" },
+    {
+      "src": "/(.*)",
+      "status": 308,
+      "headers": { "Location": "https://omos-mining.com/$1" }
+    }
+  ]
+}

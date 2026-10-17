@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMOS · Setup inspeksi HSE</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root {
+  --page: #e9ecf0;
+  --surface-1: #f4f5f7;
+  --surface-2: #ffffff;
+  --border: rgba(15, 23, 42, .14);
+  --border-strong: rgba(15, 23, 42, .28);
+  --text: #1a1f29;
+  --text-secondary: #515a6a;
+  --text-muted: #6f7888;
+  --accent: #1d5fd1;
+  --accent-bg: #e6efff;
+  --accent-fill: #3b82f6;
+  --success: #12713a;
+  --success-bg: #e3f4ea;
+  --success-fill: #2fa664;
+  --warning: #8a5a00;
+  --warning-bg: #fff2d6;
+  --warning-fill: #e0a100;
+  --danger: #a8261f;
+  --danger-bg: #fde8e6;
+  --danger-fill: #d64541;
+  --neutral-bg: #eceff3;
+  --shadow-pop: 0 8px 28px rgba(15, 23, 42, .18);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0f1217; --surface-1: #171b22; --surface-2: #1f242d;
+    --border: rgba(255,255,255,.12); --border-strong: rgba(255,255,255,.26);
+    --text: #e8ebf0; --text-secondary: #aab2c0; --text-muted: #8a93a3;
+    --accent: #7fb0ff; --accent-bg: #1c2b46; --accent-fill: #4a8df0;
+    --success: #6fd49b; --success-bg: #14301f; --success-fill: #3bb673;
+    --warning: #f1c24f; --warning-bg: #3a2d10; --warning-fill: #e0a100;
+    --danger: #ff8d86; --danger-bg: #3d1a18; --danger-fill: #e0524d;
+    --neutral-bg: #2a303b; --shadow-pop: 0 8px 28px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0f1217; --surface-1: #171b22; --surface-2: #1f242d;
+  --border: rgba(255,255,255,.12); --border-strong: rgba(255,255,255,.26);
+  --text: #e8ebf0; --text-secondary: #aab2c0; --text-muted: #8a93a3;
+  --accent: #7fb0ff; --accent-bg: #1c2b46; --accent-fill: #4a8df0;
+  --success: #6fd49b; --success-bg: #14301f; --success-fill: #3bb673;
+  --warning: #f1c24f; --warning-bg: #3a2d10; --warning-fill: #e0a100;
+  --danger: #ff8d86; --danger-bg: #3d1a18; --danger-fill: #e0524d;
+  --neutral-bg: #2a303b; --shadow-pop: 0 8px 28px rgba(0,0,0,.5);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--page);
+  color: var(--text);
+  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+h1, h2, h3, p { margin: 0; }
+i.ti { font-size: 15px; line-height: 1; vertical-align: -2px; }
+
+.app { max-width: 1200px; margin: 20px auto; padding: 0 16px; }
+.shell {
+  background: var(--surface-1);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 152px minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* ---------- Sidebar ---------- */
+.side {
+  background: var(--surface-2);
+  border: .5px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 6px;
+  font-size: 12px;
+  align-self: start;
+}
+.side .grp { padding: 10px 8px 4px; font-size: 11px; color: var(--text-muted); }
+.side .grp:first-child { padding-top: 4px; }
+.side a {
+  display: flex; gap: 6px; align-items: flex-start;
+  padding: 6px 8px; border-radius: 6px;
+  color: var(--text-secondary); text-decoration: none;
+}
+.side a:hover { background: var(--surface-1); }
+.side a.on { background: var(--accent-bg); color: var(--accent); font-weight: 500; }
+.side a i { margin-top: 1px; flex: none; }
+
+/* ---------- Header ---------- */
+.main { min-width: 0; }
+.crumbs { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.crumbs b { font-weight: 500; color: var(--text-secondary); }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.head h1 { font-size: 16px; font-weight: 500; }
+.head p { font-size: 12px; color: var(--text-secondary); }
+.head .acts { display: flex; gap: 6px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 8px;
+  border: .5px solid var(--border-strong);
+  background: var(--surface-2); cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.btn:hover { background: var(--surface-1); }
+.btn:focus-visible, .icon-btn:focus-visible, .seg button:focus-visible, .tab:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent-fill); outline-offset: 1px;
+}
+.btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; font-weight: 500; }
+.btn.primary:hover { filter: brightness(.94); }
+.btn.sm { padding: 4px 9px; }
+.icon-btn {
+  width: 28px; height: 28px; border-radius: 6px; border: .5px solid transparent;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.icon-btn:hover { background: var(--surface-1); border-color: var(--border); color: var(--text); }
+
+/* ---------- Pill tabs + segmented ---------- */
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.tab {
+  padding: 6px 13px; border-radius: 999px; font-size: 12px;
+  border: .5px solid var(--border); background: var(--surface-2); color: var(--text-secondary); cursor: pointer;
+}
+.tab.on { background: var(--accent-bg); border-color: transparent; color: var(--accent); font-weight: 500; }
+.seg {
+  display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px;
+  background: var(--neutral-bg); margin-bottom: 12px; max-width: 100%; overflow-x: auto;
+}
+.seg button {
+  border: 0; background: transparent; padding: 6px 13px; border-radius: 7px;
+  font-size: 12px; color: var(--text-secondary); cursor: pointer; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.seg button.on { background: var(--surface-2); color: var(--text); font-weight: 500; box-shadow: 0 0 0 .5px var(--border); }
+.seg .count { font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--surface-1); color: var(--text-muted); }
+.seg .count.warn { background: var(--warning-bg); color: var(--warning); }
+
+/* ---------- Cards, KPI ---------- */
+.card { background: var(--surface-2); border: .5px solid var(--border); border-radius: 8px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.kpi { padding: 9px 11px; text-align: left; font: inherit; color: inherit; cursor: default; }
+button.kpi { cursor: pointer; }
+button.kpi:hover { border-color: var(--border-strong); }
+.kpi .l { font-size: 11px; color: var(--text-secondary); }
+.kpi .v { font-size: 18px; font-weight: 500; margin-top: 1px; }
+.kpi .s { font-size: 11px; color: var(--text-muted); }
+.kpi.warn .v { color: var(--warning); }
+.kpi.warn .s { color: var(--warning); }
+
+.notice {
+  display: flex; gap: 10px; align-items: center; justify-content: space-between;
+  padding: 9px 12px; border-radius: 8px; margin-bottom: 10px; font-size: 12px;
+  background: var(--warning-bg); color: var(--warning); border: .5px solid transparent;
+}
+.notice .t { display: flex; gap: 8px; align-items: center; }
+.notice .btn { background: transparent; border-color: currentColor; color: inherit; }
+
+/* ---------- Toolbar ---------- */
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px; border-bottom: .5px solid var(--border); }
+.field-search { position: relative; flex: 1 1 180px; min-width: 150px; }
+.field-search i { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+.field-search input { padding-left: 29px; }
+input[type=text], input[type=number], input[type=date], select, textarea {
+  width: 100%; padding: 6px 9px; border-radius: 8px;
+  border: .5px solid var(--border-strong); background: var(--surface-2); font-size: 12px;
+}
+textarea { resize: vertical; min-height: 56px; }
+.toolbar select { width: auto; min-width: 120px; }
+select:disabled, input:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ---------- Table ---------- */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 760px; }
+th { text-align: left; font-weight: 500; color: var(--text-secondary); padding: 8px 10px; border-bottom: .5px solid var(--border); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: .5px solid var(--border); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--surface-1); }
+td .sub { display: block; font-size: 11px; color: var(--text-muted); }
+td .code { font-weight: 500; }
+td.act { white-space: nowrap; text-align: right; }
+.tfoot { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-top: .5px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.empty { padding: 28px 12px; text-align: center; color: var(--text-muted); }
+.empty i { font-size: 22px; display: block; margin-bottom: 6px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 6px; font-size: 11px; white-space: nowrap;
+  background: var(--neutral-bg); color: var(--text-secondary);
+}
+.chip.accent { background: var(--accent-bg); color: var(--accent); }
+.chip.success { background: var(--success-bg); color: var(--success); }
+.chip.warning { background: var(--warning-bg); color: var(--warning); }
+.chip.danger { background: var(--danger-bg); color: var(--danger); }
+.chip.muted { background: transparent; color: var(--text-muted); box-shadow: inset 0 0 0 .5px var(--border-strong); }
+
+.person { display: flex; align-items: center; gap: 9px; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; flex: none; }
+.person .n { font-weight: 500; }
+.ver { display: inline-flex; gap: 4px; align-items: center; color: var(--text-secondary); }
+.ver i { color: var(--text-muted); }
+
+/* ---------- Modal ---------- */
+.overlay {
+  position: fixed; inset: 0; background: rgba(10, 14, 20, .5);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 36px 14px; overflow-y: auto; z-index: 50;
+}
+.modal {
+  width: 100%; max-width: 560px; background: var(--surface-2);
+  border-radius: 12px; border: .5px solid var(--border); box-shadow: var(--shadow-pop);
+}
+.modal.wide { max-width: 640px; }
+.m-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 14px 16px 10px; }
+.m-head h2 { font-size: 15px; font-weight: 500; }
+.m-head p { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.m-body { padding: 4px 16px 6px; display: grid; gap: 12px; }
+.m-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 14px; border-top: .5px solid var(--border); margin-top: 8px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fld label.lb { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.fld label.lb em { color: var(--danger); font-style: normal; }
+.hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.group-title { font-size: 11px; color: var(--text-muted); text-transform: none; margin-bottom: 6px; }
+
+.radios { display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px; background: var(--neutral-bg); width: 100%; }
+.radios label { flex: 1; text-align: center; cursor: pointer; }
+.radios input { position: absolute; opacity: 0; pointer-events: none; }
+.radios span { display: block; padding: 6px 10px; border-radius: 7px; font-size: 12px; color: var(--text-secondary); }
+.radios input:checked + span { background: var(--surface-2); color: var(--text); font-weight: 500; box-shadow: 0 0 0 .5px var(--border); }
+.radios input:focus-visible + span { outline: 2px solid var(--accent-fill); }
+
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; cursor: pointer; }
+.check input { margin-top: 2px; }
+.check .d { display: block; font-size: 11px; color: var(--text-muted); }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.switch .d { display: block; font-size: 11px; color: var(--text-muted); }
+.switch input { appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--border-strong); position: relative; cursor: pointer; flex: none; transition: background .15s; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked { background: var(--accent-fill); }
+.switch input:checked::after { transform: translateX(14px); }
+
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper input { text-align: center; width: 70px; }
+
+.preview { padding: 10px 12px; border-radius: 8px; background: var(--accent-bg); color: var(--accent); font-size: 12px; display: flex; gap: 8px; align-items: flex-start; }
+.preview.warn { background: var(--warning-bg); color: var(--warning); }
+.preview i { margin-top: 1px; }
+.privacy { display: flex; gap: 8px; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+.cl { display: grid; gap: 6px; }
+.cl-item { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 8px; align-items: center; }
+.cl-item .n { font-size: 11px; color: var(--text-muted); text-align: center; }
+.cl-item .tg { display: flex; gap: 5px; align-items: center; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+
+/* ---------- Drawer ---------- */
+.drawer-wrap { position: fixed; inset: 0; background: rgba(10, 14, 20, .4); z-index: 60; display: flex; justify-content: flex-end; }
+.drawer { width: 100%; max-width: 400px; height: 100%; background: var(--surface-2); border-left: .5px solid var(--border); box-shadow: var(--shadow-pop); display: flex; flex-direction: column; }
+.d-head { padding: 14px 16px; border-bottom: .5px solid var(--border); display: flex; justify-content: space-between; gap: 10px; }
+.d-head h2 { font-size: 15px; font-weight: 500; }
+.d-body { padding: 14px 16px; overflow-y: auto; display: grid; gap: 14px; align-content: start; }
+.sum { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sum div { padding: 8px 10px; background: var(--surface-1); border-radius: 8px; }
+.sum .l { font-size: 11px; color: var(--text-muted); }
+.sum .v { font-size: 13px; font-weight: 500; }
+.chain { display: grid; gap: 6px; counter-reset: s; }
+.step { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; border: .5px solid var(--border); font-size: 12px; }
+.step::before { counter-increment: s; content: counter(s); width: 20px; height: 20px; border-radius: 50%; background: var(--neutral-bg); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.step.hit { border-color: var(--accent-fill); background: var(--accent-bg); }
+.step.hit::before { background: var(--accent-fill); color: #fff; }
+.step .sub { display: block; font-size: 11px; color: var(--text-muted); }
+.step.hit .sub { color: var(--accent); }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--text); color: var(--surface-2); padding: 9px 14px; border-radius: 9px;
+  font-size: 12px; opacity: 0; pointer-events: none; transition: .2s; z-index: 80; display: flex; gap: 8px; align-items: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.demo-note { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 10px; }
+
+@media (max-width: 860px) {
+  .shell { grid-template-columns: 1fr; }
+  .side { display: none; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row2 { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+<div class="shell">
+
+  <!-- ===== Sidebar HSE ===== -->
+  <nav class="side" aria-label="Sub-halaman HSE">
+    <div class="grp">Pantau</div>
+    <a href="#"><i class="ti ti-layout-dashboard"></i> Ringkasan</a>
+    <a href="#"><i class="ti ti-chart-line"></i> Laporan dan statistik</a>
+    <div class="grp">Risiko dan insiden</div>
+    <a href="#"><i class="ti ti-alert-triangle"></i> Hazard dan inspeksi</a>
+    <a href="#"><i class="ti ti-first-aid-kit"></i> Insiden dan investigasi</a>
+    <a href="#"><i class="ti ti-file-certificate"></i> Izin kerja</a>
+    <div class="grp">Manusia</div>
+    <a href="#"><i class="ti ti-school"></i> Kompetensi</a>
+    <a href="#"><i class="ti ti-heartbeat"></i> Kesehatan kerja</a>
+    <a href="#"><i class="ti ti-building-store"></i> Kontraktor</a>
+    <div class="grp">Lingkungan dan darurat</div>
+    <a href="#"><i class="ti ti-leaf"></i> Lingkungan</a>
+    <a href="#"><i class="ti ti-flame"></i> Tanggap darurat</a>
+    <a href="#"><i class="ti ti-helmet"></i> APD dan peralatan</a>
+    <div class="grp">Kepatuhan</div>
+    <a href="#"><i class="ti ti-clipboard-check"></i> Audit dan temuan</a>
+    <a href="#"><i class="ti ti-books"></i> Dokumen dan regulasi</a>
+    <div class="grp">Konfigurasi</div>
+    <a href="#" class="on" aria-current="page"><i class="ti ti-settings"></i> Setup master</a>
+  </nav>
+
+  <!-- ===== Konten ===== -->
+  <main class="main">
+    <div class="crumbs"><span>HSE</span><i class="ti ti-chevron-right"></i><span>Setup master</span><i class="ti ti-chevron-right"></i><span>Setup inspeksi</span><i class="ti ti-chevron-right"></i><b id="crumbView">Jenis inspeksi</b></div>
+
+    <div class="head">
+      <div>
+        <h1>Setup master</h1>
+        <p>Konfigurasi HSE · Site JMB-DKC</p>
+      </div>
+      <div class="acts">
+        <button class="icon-btn" id="themeBtn" type="button" aria-label="Ganti tema terang atau gelap"><i class="ti ti-moon"></i></button>
+        <button class="btn" type="button" data-toast="Contoh tampilan: ekspor belum aktif."><i class="ti ti-download"></i> Ekspor</button>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Setup master">
+      <button class="tab" type="button" role="tab" aria-selected="false" data-toast="Contoh tampilan: halaman Area dan sub area tidak disertakan.">Area dan sub area</button>
+      <button class="tab on" type="button" role="tab" aria-selected="true">Setup inspeksi</button>
+    </div>
+
+    <div class="seg" role="tablist" aria-label="Bagian setup inspeksi">
+      <button type="button" role="tab" data-view="jenis" class="on" aria-selected="true"><i class="ti ti-list-details"></i> Jenis inspeksi <span class="count warn" title="Perlu ditinjau">1</span></button>
+      <button type="button" role="tab" data-view="kewajiban" aria-selected="false"><i class="ti ti-users"></i> Kewajiban karyawan <span class="count warn" title="Belum diatur">4</span></button>
+      <button type="button" role="tab" data-view="jadwal" aria-selected="false"><i class="ti ti-calendar-event"></i> Jadwal objek</button>
+    </div>
+
+    <!-- =================== VIEW: JENIS INSPEKSI =================== -->
+    <section class="view" id="view-jenis">
+      <div class="kpis">
+        <div class="card kpi"><div class="l">Jenis aktif</div><div class="v">5</div><div class="s">sudah ditinjau</div></div>
+        <button type="button" class="card kpi warn" data-filter-set="tblJenis|sifat|review"><div class="l">Perlu ditinjau</div><div class="v">1</div><div class="s">data lama, klik untuk lihat</div></button>
+        <div class="card kpi"><div class="l">Terkunci</div><div class="v">3</div><div class="s">sudah dipakai inspeksi</div></div>
+        <div class="card kpi"><div class="l">Total butir checklist</div><div class="v">67</div><div class="s">12 butir kritis</div></div>
+      </div>
+
+      <div class="notice" id="noticeReview">
+        <div class="t"><i class="ti ti-alert-triangle"></i><span>1 template lama belum ditinjau. Tetapkan sifat dan siklusnya agar bisa dipakai pada jadwal dan kuota.</span></div>
+        <button class="btn sm" type="button" data-filter-set="tblJenis|sifat|review">Tinjau sekarang</button>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <button class="btn primary" type="button" data-open="m-jenis"><i class="ti ti-plus"></i> Tambah jenis</button>
+          <select data-filter="tblJenis" data-key="sifat" aria-label="Filter sifat">
+            <option value="">Semua sifat</option><option value="planned">Terencana</option><option value="unplanned">Tidak terencana</option><option value="review">Perlu ditinjau</option>
+          </select>
+          <select data-filter="tblJenis" data-key="siklus" aria-label="Filter siklus">
+            <option value="">Semua siklus</option><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Interval khusus</option><option value="none">Insidental</option>
+          </select>
+          <div class="field-search"><i class="ti ti-search"></i><input type="text" data-filter="tblJenis" placeholder="Cari kode atau nama" aria-label="Cari jenis inspeksi"></div>
+        </div>
+        <div class="tbl-wrap">
+          <table id="tblJenis">
+            <thead><tr><th>Kode dan nama</th><th>Sifat</th><th>Siklus</th><th>Objek</th><th>Butir checklist</th><th>Versi</th><th style="text-align:right">Aksi</th></tr></thead>
+            <tbody>
+              <tr data-sifat="planned" data-siklus="daily">
+                <td><span class="code">TMPL-PIT-01</span><span class="sub">Inspeksi pit harian</span></td>
+                <td><span class="chip">Terencana</span></td><td><span class="chip">Harian</span></td>
+                <td>Area</td><td>14 butir<span class="sub">3 kritis</span></td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci: sudah dipakai inspeksi"></i> v2</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Simpan sebagai versi baru" title="Simpan sebagai versi baru" data-open="m-jenis"><i class="ti ti-copy"></i></button><button class="icon-btn" type="button" aria-label="Nonaktifkan" title="Nonaktifkan" data-toast="Contoh tampilan: template dinonaktifkan, bukan dihapus."><i class="ti ti-archive"></i></button></td>
+              </tr>
+              <tr data-sifat="planned" data-siklus="weekly">
+                <td><span class="code">TMPL-WSHOP-01</span><span class="sub">Inspeksi housekeeping bengkel</span></td>
+                <td><span class="chip">Terencana</span></td><td><span class="chip">Mingguan</span></td>
+                <td>Area</td><td>18 butir<span class="sub">2 kritis</span></td>
+                <td><span class="ver">v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Ubah" title="Ubah" data-open="m-jenis"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" aria-label="Nonaktifkan" title="Nonaktifkan" data-toast="Contoh tampilan: template dinonaktifkan, bukan dihapus."><i class="ti ti-archive"></i></button></td>
+              </tr>
+              <tr data-sifat="planned" data-siklus="monthly">
+                <td><span class="code">TMPL-APAR-01</span><span class="sub">Cek fisik APAR site</span></td>
+                <td><span class="chip">Terencana</span></td><td><span class="chip">Bulanan</span></td>
+                <td>Peralatan pemadam</td><td>8 butir<span class="sub">4 kritis</span></td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci: sudah dipakai inspeksi"></i> v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Simpan sebagai versi baru" title="Simpan sebagai versi baru" data-open="m-jenis"><i class="ti ti-copy"></i></button><button class="icon-btn" type="button" aria-label="Nonaktifkan" title="Nonaktifkan" data-toast="Contoh tampilan: template dinonaktifkan, bukan dihapus."><i class="ti ti-archive"></i></button></td>
+              </tr>
+              <tr data-sifat="planned" data-siklus="custom">
+                <td><span class="code">TMPL-SUMP-01</span><span class="sub">Inspeksi drainase dan sump</span></td>
+                <td><span class="chip">Terencana</span></td><td><span class="chip">Tiap 14 hari</span></td>
+                <td>Area</td><td>11 butir<span class="sub">2 kritis</span></td>
+                <td><span class="ver">v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Ubah" title="Ubah" data-open="m-jenis"><i class="ti ti-pencil"></i></button><button class="icon-btn" type="button" aria-label="Nonaktifkan" title="Nonaktifkan" data-toast="Contoh tampilan: template dinonaktifkan, bukan dihapus."><i class="ti ti-archive"></i></button></td>
+              </tr>
+              <tr data-sifat="unplanned" data-siklus="none">
+                <td><span class="code">TMPL-SDAK-01</span><span class="sub">Sidak kepatuhan K3</span></td>
+                <td><span class="chip">Tidak terencana</span></td><td><span class="chip">Insidental</span></td>
+                <td>Sarana tambang</td><td>10 butir<span class="sub">1 kritis</span></td>
+                <td><span class="ver"><i class="ti ti-lock" title="Terkunci: sudah dipakai inspeksi"></i> v1</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Simpan sebagai versi baru" title="Simpan sebagai versi baru" data-open="m-jenis"><i class="ti ti-copy"></i></button><button class="icon-btn" type="button" aria-label="Nonaktifkan" title="Nonaktifkan" data-toast="Contoh tampilan: template dinonaktifkan, bukan dihapus."><i class="ti ti-archive"></i></button></td>
+              </tr>
+              <tr data-sifat="review" data-siklus="review">
+                <td><span class="code">TMPL-LAMA-07</span><span class="sub">Inspeksi kendaraan ringan (data lama)</span></td>
+                <td><span class="chip warning">Perlu ditinjau</span></td><td><span class="chip warning">Perlu ditinjau</span></td>
+                <td>Kendaraan</td><td>6 butir<span class="sub">1 kritis</span></td>
+                <td><span class="ver">v1</span></td>
+                <td class="act"><button class="btn sm" type="button" data-open="m-jenis"><i class="ti ti-pencil"></i> Tinjau</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="empty" data-empty="tblJenis" hidden><i class="ti ti-search-off"></i>Tidak ada jenis inspeksi yang cocok dengan filter.</div>
+        <div class="tfoot"><span>Menampilkan <b data-count="tblJenis">6</b> dari 6 jenis</span><span>Template terkunci hanya bisa diubah lewat versi baru.</span></div>
+      </div>
+    </section>
+
+    <!-- =================== VIEW: KEWAJIBAN KARYAWAN =================== -->
+    <section class="view" id="view-kewajiban" hidden>
+      <div class="kpis">
+        <div class="card kpi"><div class="l">Total personil</div><div class="v">145</div><div class="s">karyawan aktif</div></div>
+        <div class="card kpi"><div class="l">Wajib inspeksi</div><div class="v">24</div><div class="s">pengawas dan tim HSE</div></div>
+        <div class="card kpi"><div class="l">Bebas kewajiban (0)</div><div class="v">117</div><div class="s">ditetapkan sengaja</div></div>
+        <button type="button" class="card kpi warn" data-filter-set="tblKewajiban|status|belum"><div class="l">Belum diatur</div><div class="v">4</div><div class="s">perlu tindakan, klik untuk lihat</div></button>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <button class="btn primary" type="button" data-open="m-default"><i class="ti ti-plus"></i> Atur default jabatan</button>
+          <button class="btn" type="button" data-open="m-override"><i class="ti ti-user-edit"></i> Override karyawan</button>
+          <select data-filter="tblKewajiban" data-key="dept" aria-label="Filter departemen">
+            <option value="">Semua departemen</option><option value="Produksi">Produksi</option><option value="Plant">Plant</option><option value="SHE">SHE</option><option value="Logistik">Logistik</option>
+          </select>
+          <select data-filter="tblKewajiban" data-key="status" aria-label="Filter status">
+            <option value="">Semua status</option><option value="wajib">Wajib</option><option value="bebas">Bebas</option><option value="belum">Belum diatur</option>
+          </select>
+          <div class="field-search"><i class="ti ti-search"></i><input type="text" data-filter="tblKewajiban" placeholder="Cari nama atau NIK" aria-label="Cari karyawan"></div>
+        </div>
+        <div class="tbl-wrap">
+          <table id="tblKewajiban">
+            <thead><tr><th>Karyawan</th><th>Departemen</th><th>Jabatan</th><th>Kuota</th><th>Status</th><th>Sumber aturan</th><th>Berlaku s/d</th><th style="text-align:right">Aksi</th></tr></thead>
+            <tbody>
+              <tr data-dept="Produksi" data-status="wajib" data-name="Ahmad Fauzi" data-nik="PIM-0192" data-source="role" data-quota="4x / bulan" data-until="Tanpa batas" data-reason="Default jabatan Supervisor Pit">
+                <td><div class="person"><span class="avatar">AF</span><div><div class="n">Ahmad Fauzi</div><span class="sub">PIM-0192</span></div></div></td>
+                <td>Produksi</td><td>Supervisor Pit</td><td>4x / bulan</td><td><span class="chip accent">Wajib</span></td><td>Default jabatan</td><td>Tanpa batas</td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Lihat aturan" title="Lihat aturan" data-rule><i class="ti ti-eye"></i></button><button class="icon-btn" type="button" aria-label="Override karyawan" title="Override karyawan" data-open="m-override" data-emp="fauzi"><i class="ti ti-user-edit"></i></button></td>
+              </tr>
+              <tr data-dept="SHE" data-status="wajib" data-name="Budi Santoso" data-nik="PIM-0105" data-source="individual" data-quota="8x / bulan" data-until="31 Des 2026" data-reason="Penunjukan Koordinator K3 Lapangan">
+                <td><div class="person"><span class="avatar">BS</span><div><div class="n">Budi Santoso</div><span class="sub">PIM-0105</span></div></div></td>
+                <td>SHE</td><td>Safety Officer</td><td>8x / bulan</td><td><span class="chip accent">Wajib</span></td><td>Override individu</td><td>31 Des 2026</td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Lihat aturan" title="Lihat aturan" data-rule><i class="ti ti-eye"></i></button><button class="icon-btn" type="button" aria-label="Ubah override" title="Ubah override" data-open="m-override" data-emp="budi"><i class="ti ti-pencil"></i></button></td>
+              </tr>
+              <tr data-dept="Produksi" data-status="wajib" data-name="Rudi Hartono" data-nik="PIM-0213" data-source="role" data-quota="4x / bulan" data-until="Tanpa batas" data-reason="Default jabatan Foreman">
+                <td><div class="person"><span class="avatar">RH</span><div><div class="n">Rudi Hartono</div><span class="sub">PIM-0213</span></div></div></td>
+                <td>Produksi</td><td>Foreman</td><td>4x / bulan</td><td><span class="chip accent">Wajib</span></td><td>Default jabatan</td><td>Tanpa batas</td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Lihat aturan" title="Lihat aturan" data-rule><i class="ti ti-eye"></i></button><button class="icon-btn" type="button" aria-label="Override karyawan" title="Override karyawan" data-open="m-override" data-emp="rudi"><i class="ti ti-user-edit"></i></button></td>
+              </tr>
+              <tr data-dept="Plant" data-status="wajib" data-name="Siti Aminah" data-nik="PIM-0088" data-source="role" data-quota="2x / minggu" data-until="Tanpa batas" data-reason="Default jabatan Group Leader Plant">
+                <td><div class="person"><span class="avatar">SA</span><div><div class="n">Siti Aminah</div><span class="sub">PIM-0088</span></div></div></td>
+                <td>Plant</td><td>Group Leader</td><td>2x / minggu</td><td><span class="chip accent">Wajib</span></td><td>Default jabatan</td><td>Tanpa batas</td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Lihat aturan" title="Lihat aturan" data-rule><i class="ti ti-eye"></i></button><button class="icon-btn" type="button" aria-label="Override karyawan" title="Override karyawan" data-open="m-override" data-emp="siti"><i class="ti ti-user-edit"></i></button></td>
+              </tr>
+              <tr data-dept="Plant" data-status="bebas" data-name="Hendra Gunawan" data-nik="PIM-0302" data-source="individual" data-quota="0" data-until="20 Okt 2026" data-reason="Cuti/off panjang">
+                <td><div class="person"><span class="avatar">HG</span><div><div class="n">Hendra Gunawan</div><span class="sub">PIM-0302</span></div></div></td>
+                <td>Plant</td><td>Group Leader</td><td>0</td><td><span class="chip">Bebas</span></td><td>Override individu</td>
+                <td>20 Okt 2026 <span class="chip warning">10 hari lagi</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Lihat aturan" title="Lihat aturan" data-rule><i class="ti ti-eye"></i></button><button class="icon-btn" type="button" aria-label="Ubah override" title="Ubah override" data-open="m-override" data-emp="hendra"><i class="ti ti-pencil"></i></button></td>
+              </tr>
+              <tr data-dept="Produksi" data-status="bebas" data-name="Dedi Irawan" data-nik="PIM-0441" data-source="role" data-quota="0" data-until="Tanpa batas" data-reason="Default jabatan Operator Dump Truck">
+                <td><div class="person"><span class="avatar">DI</span><div><div class="n">Dedi Irawan</div><span class="sub">PIM-0441</span></div></div></td>
+                <td>Produksi</td><td>Operator DT</td><td>0</td><td><span class="chip">Bebas</span></td><td>Default jabatan</td><td>Tanpa batas</td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Lihat aturan" title="Lihat aturan" data-rule><i class="ti ti-eye"></i></button><button class="icon-btn" type="button" aria-label="Override karyawan" title="Override karyawan" data-open="m-override" data-emp="dedi"><i class="ti ti-user-edit"></i></button></td>
+              </tr>
+              <tr data-dept="Logistik" data-status="bebas" data-name="Maya Putri" data-nik="PIM-0415" data-source="role" data-quota="0" data-until="Tanpa batas" data-reason="Default jabatan Admin Gudang">
+                <td><div class="person"><span class="avatar">MP</span><div><div class="n">Maya Putri</div><span class="sub">PIM-0415</span></div></div></td>
+                <td>Logistik</td><td>Admin Gudang</td><td>0</td><td><span class="chip">Bebas</span></td><td>Default jabatan</td><td>Tanpa batas</td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Lihat aturan" title="Lihat aturan" data-rule><i class="ti ti-eye"></i></button><button class="icon-btn" type="button" aria-label="Override karyawan" title="Override karyawan" data-open="m-override" data-emp="maya"><i class="ti ti-user-edit"></i></button></td>
+              </tr>
+              <tr data-dept="Logistik" data-status="belum" data-name="Rina Wulandari" data-nik="PIM-0377" data-source="none" data-quota="-" data-until="-" data-reason="">
+                <td><div class="person"><span class="avatar">RW</span><div><div class="n">Rina Wulandari</div><span class="sub">PIM-0377</span></div></div></td>
+                <td>Logistik</td><td>Foreman <span class="chip muted">baru</span></td><td>-</td><td><span class="chip warning">Belum diatur</span></td><td>Tidak ada aturan</td><td>-</td>
+                <td class="act"><button class="btn sm" type="button" data-open="m-default" data-pos="foreman"><i class="ti ti-adjustments"></i> Atur</button></td>
+              </tr>
+              <tr data-dept="Produksi" data-status="belum" data-name="Andri Saputra" data-nik="PIM-0431" data-source="none" data-quota="-" data-until="-" data-reason="">
+                <td><div class="person"><span class="avatar">AS</span><div><div class="n">Andri Saputra</div><span class="sub">PIM-0431</span></div></div></td>
+                <td>Produksi</td><td>Foreman <span class="chip muted">mutasi</span></td><td>-</td><td><span class="chip warning">Belum diatur</span></td><td>Override lama berakhir</td><td>-</td>
+                <td class="act"><button class="btn sm" type="button" data-open="m-default" data-pos="foreman"><i class="ti ti-adjustments"></i> Atur</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="empty" data-empty="tblKewajiban" hidden><i class="ti ti-search-off"></i>Tidak ada karyawan yang cocok dengan filter.</div>
+        <div class="tfoot"><span>Menampilkan <b data-count="tblKewajiban">9</b> dari 145 karyawan (contoh data)</span><span>Override individu selalu diprioritaskan di atas default jabatan.</span></div>
+      </div>
+    </section>
+
+    <!-- =================== VIEW: JADWAL OBJEK =================== -->
+    <section class="view" id="view-jadwal" hidden>
+      <div class="kpis">
+        <div class="card kpi"><div class="l">Jadwal aktif</div><div class="v">62</div><div class="s">objek terjadwal</div></div>
+        <div class="card kpi"><div class="l">Jatuh tempo hari ini</div><div class="v">9</div><div class="s">Sabtu, 10 Okt 2026</div></div>
+        <div class="card kpi warn"><div class="l">Terlambat</div><div class="v">3</div><div class="s">perlu ditindaklanjuti</div></div>
+        <button type="button" class="card kpi warn" data-filter-set="tblJadwal|status|nopj"><div class="l">Tanpa penanggung jawab</div><div class="v">1</div><div class="s">klik untuk lihat</div></button>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <button class="btn primary" type="button" data-open="m-jadwal"><i class="ti ti-plus"></i> Tambah jadwal</button>
+          <select data-filter="tblJadwal" data-key="status" aria-label="Filter status jadwal">
+            <option value="">Semua status</option><option value="today">Hari ini</option><option value="planned">Terjadwal</option><option value="late">Terlambat</option><option value="nopj">Tanpa penanggung jawab</option>
+          </select>
+          <div class="field-search"><i class="ti ti-search"></i><input type="text" data-filter="tblJadwal" placeholder="Cari jenis, objek, atau penanggung jawab" aria-label="Cari jadwal"></div>
+        </div>
+        <div class="tbl-wrap">
+          <table id="tblJadwal">
+            <thead><tr><th>Jenis inspeksi</th><th>Objek</th><th>Penanggung jawab</th><th>Frekuensi</th><th>Jatuh tempo</th><th>Status</th><th style="text-align:right">Aksi</th></tr></thead>
+            <tbody>
+              <tr data-status="today">
+                <td><span class="code">Inspeksi pit harian</span><span class="sub">TMPL-PIT-01</span></td>
+                <td><i class="ti ti-map-pin"></i> Pit 2</td><td>Jabatan: Supervisor Pit</td><td>Harian</td><td>10 Okt 2026</td><td><span class="chip accent">Hari ini</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Ubah jadwal" data-open="m-jadwal"><i class="ti ti-pencil"></i></button></td>
+              </tr>
+              <tr data-status="today">
+                <td><span class="code">Inspeksi pit harian</span><span class="sub">TMPL-PIT-01</span></td>
+                <td><i class="ti ti-map-pin"></i> Pit 1</td><td>Jabatan: Supervisor Pit</td><td>Harian</td><td>10 Okt 2026</td><td><span class="chip accent">Hari ini</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Ubah jadwal" data-open="m-jadwal"><i class="ti ti-pencil"></i></button></td>
+              </tr>
+              <tr data-status="late">
+                <td><span class="code">Housekeeping bengkel</span><span class="sub">TMPL-WSHOP-01</span></td>
+                <td><i class="ti ti-map-pin"></i> Gudang B3</td><td>Jabatan: Foreman</td><td>Mingguan</td><td>07 Okt 2026</td><td><span class="chip danger">Terlambat 3 hari</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Ubah jadwal" data-open="m-jadwal"><i class="ti ti-pencil"></i></button></td>
+              </tr>
+              <tr data-status="planned">
+                <td><span class="code">Cek fisik APAR</span><span class="sub">TMPL-APAR-01</span></td>
+                <td><i class="ti ti-map-pin"></i> Workshop</td><td>Budi Santoso</td><td>Bulanan</td><td>12 Okt 2026</td><td><span class="chip">Terjadwal</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Ubah jadwal" data-open="m-jadwal"><i class="ti ti-pencil"></i></button></td>
+              </tr>
+              <tr data-status="planned">
+                <td><span class="code">Drainase dan sump</span><span class="sub">TMPL-SUMP-01</span></td>
+                <td><i class="ti ti-map-pin"></i> Sump utama Pit 2</td><td>Jabatan: Group Leader</td><td>Tiap 14 hari</td><td>14 Okt 2026</td><td><span class="chip">Terjadwal</span></td>
+                <td class="act"><button class="icon-btn" type="button" aria-label="Ubah jadwal" data-open="m-jadwal"><i class="ti ti-pencil"></i></button></td>
+              </tr>
+              <tr data-status="nopj">
+                <td><span class="code">Cek fisik APAR</span><span class="sub">TMPL-APAR-01</span></td>
+                <td><i class="ti ti-map-pin"></i> Camp</td><td><span class="chip warning">Belum ada</span></td><td>Bulanan</td><td>15 Okt 2026</td><td><span class="chip warning">Tanpa penanggung jawab</span></td>
+                <td class="act"><button class="btn sm" type="button" data-open="m-jadwal"><i class="ti ti-user-plus"></i> Tetapkan</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="empty" data-empty="tblJadwal" hidden><i class="ti ti-search-off"></i>Tidak ada jadwal yang cocok dengan filter.</div>
+        <div class="tfoot"><span>Menampilkan <b data-count="tblJadwal">6</b> dari 62 jadwal (contoh data)</span><span>Frekuensi dibaca dari jenis inspeksi, tidak diatur di sini.</span></div>
+      </div>
+    </section>
+
+    <p class="demo-note">Contoh tampilan dengan data fiktif. Perubahan pada formulir tidak disimpan.</p>
+  </main>
+</div>
+</div>
+
+<!-- =================== MODAL: JENIS INSPEKSI =================== -->
+<div class="overlay" id="m-jenis" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="t-jenis">
+    <div class="m-head">
+      <div><h2 id="t-jenis">Tambah jenis inspeksi</h2><p>Tentukan sifat, siklus, dan butir checklist.</p></div>
+      <button class="icon-btn" type="button" data-close aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="m-body">
+      <div class="row2">
+        <div class="fld"><label class="lb" for="j-kode">Kode templat <em>*</em></label><input type="text" id="j-kode" placeholder="TMPL-PIT-01" style="text-transform:uppercase"></div>
+        <div class="fld"><label class="lb" for="j-nama">Nama inspeksi <em>*</em></label><input type="text" id="j-nama" placeholder="Inspeksi pit harian"></div>
+      </div>
+      <div class="fld">
+        <span class="lb" style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px">Sifat inspeksi <em style="color:var(--danger);font-style:normal">*</em></span>
+        <div class="radios" role="radiogroup" aria-label="Sifat inspeksi">
+          <label><input type="radio" name="sifat" value="planned" checked><span>Terencana</span></label>
+          <label><input type="radio" name="sifat" value="unplanned"><span>Tidak terencana</span></label>
+        </div>
+        <p class="hint" id="j-hint">Terencana: punya siklus rutin dan bisa dijadwalkan ke objek.</p>
+      </div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="j-siklus">Siklus inspeksi</label>
+          <select id="j-siklus"><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Interval khusus</option><option value="none" hidden>Insidental (tanpa jadwal rutin)</option></select>
+        </div>
+        <div class="fld" id="j-interval-wrap" hidden><label class="lb" for="j-interval">Interval hari <em>*</em></label><input type="number" id="j-interval" min="1" value="14"><p class="hint">Mis. 14 untuk tiap dua minggu.</p></div>
+        <div class="fld" id="j-objek-wrap"><label class="lb" for="j-objek">Objek inspeksi <em>*</em></label>
+          <select id="j-objek"><option>Area</option><option>Alat berat</option><option>Kendaraan</option><option>Instalasi listrik</option><option>Peralatan pemadam</option><option>Penyimpanan B3</option><option>Lainnya</option></select>
+        </div>
+      </div>
+
+      <div>
+        <div class="group-title">Aturan inspeksi sah (dihitung ke kuota)</div>
+        <div style="display:grid;gap:8px">
+          <label class="check"><input type="checkbox" checked><span>Jawaban "Tidak" wajib disertai catatan atau foto<span class="d">Butir kritis selalu wajib foto.</span></span></label>
+          <label class="check"><input type="checkbox" checked><span>Satu inspeksi per objek per hari<span class="d">Mencegah kuota terpenuhi dengan inspeksi berulang pada objek yang sama.</span></span></label>
+          <label class="check"><input type="checkbox"><span>Pelaksana harus memenuhi syarat kompetensi<span class="d">Terhubung ke modul Kompetensi, mis. untuk inspeksi listrik.</span></span></label>
+        </div>
+      </div>
+
+      <div>
+        <div class="group-title">Butir checklist</div>
+        <div class="cl" id="cl">
+          <div class="cl-item"><span class="n">1</span><input type="text" value="Rambu dan pembatas area terpasang"><label class="tg"><input type="checkbox" checked> Kritis</label><button class="icon-btn" type="button" data-cl-del aria-label="Hapus butir"><i class="ti ti-x"></i></button></div>
+          <div class="cl-item"><span class="n">2</span><input type="text" value="Kondisi jalan angkut rata dan tidak licin"><label class="tg"><input type="checkbox"> Kritis</label><button class="icon-btn" type="button" data-cl-del aria-label="Hapus butir"><i class="ti ti-x"></i></button></div>
+          <div class="cl-item"><span class="n">3</span><input type="text" value="Penerangan area kerja memadai"><label class="tg"><input type="checkbox"> Kritis</label><button class="icon-btn" type="button" data-cl-del aria-label="Hapus butir"><i class="ti ti-x"></i></button></div>
+        </div>
+        <button class="btn sm" type="button" id="cl-add" style="margin-top:8px"><i class="ti ti-plus"></i> Tambah butir</button>
+      </div>
+
+      <div class="preview"><i class="ti ti-info-circle"></i><span>Template yang sudah dipakai inspeksi akan terkunci. Perubahan berikutnya disimpan sebagai versi baru dan aturan kuota otomatis mengikuti versi terbaru.</span></div>
+    </div>
+    <div class="m-foot"><button class="btn" type="button" data-close>Batal</button><button class="btn primary" type="button" data-save="Jenis inspeksi">Simpan</button></div>
+  </div>
+</div>
+
+<!-- =================== MODAL: DEFAULT JABATAN =================== -->
+<div class="overlay" id="m-default" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="t-default">
+    <div class="m-head">
+      <div><h2 id="t-default">Atur default per jabatan</h2><p>Satu aturan berlaku untuk semua karyawan di jabatan tersebut.</p></div>
+      <button class="icon-btn" type="button" data-close aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="m-body">
+      <div class="row2">
+        <div class="fld"><label class="lb" for="d-dept">Departemen</label><select id="d-dept"><option>Semua departemen</option><option>Produksi</option><option>Plant</option><option>SHE</option><option>Logistik</option></select></div>
+        <div class="fld"><label class="lb" for="d-pos">Jabatan <em>*</em></label>
+          <select id="d-pos"><option value="spvpit">Supervisor Pit</option><option value="foreman">Foreman</option><option value="gl">Group Leader</option><option value="safety">Safety Officer</option><option value="mekanik">Mekanik</option><option value="opdt">Operator Dump Truck</option></select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="d-tpl">Jenis inspeksi</label><select id="d-tpl"><option>Semua jenis</option><option>Inspeksi pit harian</option><option>Housekeeping bengkel</option><option>Cek fisik APAR</option><option>Drainase dan sump</option></select></div>
+        <div class="fld"><label class="lb" for="d-cycle">Siklus periode <em>*</em></label><select id="d-cycle"><option value="hari">Harian</option><option value="minggu">Mingguan</option><option value="bulan" selected>Bulanan</option></select></div>
+      </div>
+      <div class="fld">
+        <label class="lb" for="d-quota">Target kuota <em>*</em></label>
+        <div class="stepper">
+          <button class="icon-btn" type="button" id="d-minus" aria-label="Kurangi" style="border-color:var(--border-strong)"><i class="ti ti-minus"></i></button>
+          <input type="number" id="d-quota" min="0" value="4">
+          <button class="icon-btn" type="button" id="d-plus" aria-label="Tambah" style="border-color:var(--border-strong)"><i class="ti ti-plus"></i></button>
+          <span class="hint" style="margin:0" id="d-quota-hint">inspeksi per bulan</span>
+        </div>
+        <p class="hint">Isi 0 untuk bebas kewajiban (disengaja). Jabatan tanpa aturan tercatat sebagai "Belum diatur".</p>
+      </div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="d-from">Berlaku dari <em>*</em></label><input type="date" id="d-from" value="2026-10-10"></div>
+        <div class="fld"><label class="lb" for="d-to">Berlaku sampai</label><input type="date" id="d-to"><p class="hint">Kosongkan jika tanpa batas.</p></div>
+      </div>
+      <label class="switch"><span>Sesuaikan dengan hari kerja efektif<span class="d">Kuota dikurangi otomatis saat cuti atau off panjang (dari absensi atau roster).</span></span><input type="checkbox" id="d-prorata"></label>
+      <div class="fld"><label class="lb" for="d-note">Dasar atau catatan</label><input type="text" id="d-note" placeholder="Mis. Mengacu SOP pengawasan harian"></div>
+      <div class="preview" id="d-preview"><i class="ti ti-users"></i><span></span></div>
+    </div>
+    <div class="m-foot"><button class="btn" type="button" data-close>Batal</button><button class="btn primary" type="button" data-save="Aturan jabatan">Simpan aturan</button></div>
+  </div>
+</div>
+
+<!-- =================== MODAL: OVERRIDE =================== -->
+<div class="overlay" id="m-override" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="t-override">
+    <div class="m-head">
+      <div><h2 id="t-override">Override khusus karyawan</h2><p>Mengesampingkan default jabatan untuk satu orang, dengan alasan dan masa berlaku.</p></div>
+      <button class="icon-btn" type="button" data-close aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="m-body">
+      <div class="fld"><label class="lb" for="o-emp">Karyawan <em>*</em></label>
+        <select id="o-emp"><option value="fauzi">Ahmad Fauzi · PIM-0192 · Supervisor Pit [Produksi]</option><option value="budi">Budi Santoso · PIM-0105 · Safety Officer [SHE]</option><option value="rudi">Rudi Hartono · PIM-0213 · Foreman [Produksi]</option><option value="siti">Siti Aminah · PIM-0088 · Group Leader [Plant]</option><option value="hendra">Hendra Gunawan · PIM-0302 · Group Leader [Plant]</option><option value="dedi">Dedi Irawan · PIM-0441 · Operator DT [Produksi]</option><option value="maya">Maya Putri · PIM-0415 · Admin Gudang [Logistik]</option></select>
+      </div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="o-tpl">Jenis inspeksi</label><select id="o-tpl"><option>Semua jenis</option><option>Inspeksi pit harian</option><option>Housekeeping bengkel</option><option>Cek fisik APAR</option></select></div>
+        <div class="fld"><label class="lb" for="o-cycle">Siklus <em>*</em></label><select id="o-cycle"><option value="hari">Harian</option><option value="minggu">Mingguan</option><option value="bulan" selected>Bulanan</option></select></div>
+      </div>
+      <div class="fld"><label class="lb" for="o-quota">Target kuota khusus <em>*</em></label><input type="number" id="o-quota" min="0" value="6"><p class="hint">Isi 0 untuk dispensasi.</p></div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="o-from">Berlaku dari <em>*</em></label><input type="date" id="o-from" value="2026-10-10"></div>
+        <div class="fld"><label class="lb" for="o-to">Berlaku sampai</label><input type="date" id="o-to" value="2026-12-31"></div>
+      </div>
+      <label class="switch"><span>Tanpa batas waktu<span class="d">Akan diingatkan untuk ditinjau tiap 90 hari.</span></span><input type="checkbox" id="o-open"></label>
+      <div class="fld"><label class="lb" for="o-reason">Alasan <em>*</em></label>
+        <select id="o-reason"><option>Penunjukan Safety Champion atau koordinator</option><option>Tugas khusus</option><option>Cuti atau off panjang</option><option>Lainnya</option></select>
+        <input type="text" id="o-note" placeholder="Catatan singkat (opsional)" style="margin-top:6px">
+        <p class="privacy"><i class="ti ti-lock"></i><span>Jangan menulis detail medis atau data pribadi sensitif di catatan. Cukup alasan umum.</span></p>
+      </div>
+      <div class="preview" id="o-preview"><i class="ti ti-arrow-right"></i><span></span></div>
+    </div>
+    <div class="m-foot"><button class="btn" type="button" data-close>Batal</button><button class="btn primary" type="button" data-save="Override">Simpan override</button></div>
+  </div>
+</div>
+
+<!-- =================== MODAL: JADWAL =================== -->
+<div class="overlay" id="m-jadwal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="t-jadwal">
+    <div class="m-head">
+      <div><h2 id="t-jadwal">Tambah jadwal objek</h2><p>Pasangkan jenis inspeksi dengan objek dan penanggung jawab.</p></div>
+      <button class="icon-btn" type="button" data-close aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="m-body">
+      <div class="fld"><label class="lb" for="s-tpl">Jenis inspeksi <em>*</em></label>
+        <select id="s-tpl">
+          <option value="daily" data-label="Harian">Inspeksi pit harian</option>
+          <option value="weekly" data-label="Mingguan">Housekeeping bengkel</option>
+          <option value="monthly" data-label="Bulanan">Cek fisik APAR</option>
+          <option value="custom" data-label="Tiap 14 hari">Drainase dan sump</option>
+        </select>
+        <p class="hint">Hanya jenis terencana. Frekuensi mengikuti jenis inspeksi (versi terbaru).</p>
+      </div>
+      <div class="row2">
+        <div class="fld"><label class="lb" for="s-obj">Objek <em>*</em></label><select id="s-obj"><option>Pit 1</option><option>Pit 2</option><option>Workshop</option><option>Gudang B3</option><option>Camp</option></select></div>
+        <div class="fld"><label class="lb" for="s-freq">Frekuensi</label><input type="text" id="s-freq" disabled value="Harian"></div>
+      </div>
+      <div class="fld">
+        <span class="lb" style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px">Penanggung jawab <em style="color:var(--danger);font-style:normal">*</em></span>
+        <div class="radios" role="radiogroup" aria-label="Tipe penanggung jawab">
+          <label><input type="radio" name="pj" value="pos" checked><span>Berdasarkan jabatan</span></label>
+          <label><input type="radio" name="pj" value="emp"><span>Karyawan tertentu</span></label>
+        </div>
+        <select id="s-pj-pos" style="margin-top:6px"><option>Supervisor Pit</option><option>Foreman</option><option>Group Leader</option><option>Safety Officer</option></select>
+        <select id="s-pj-emp" style="margin-top:6px" hidden><option>Ahmad Fauzi · PIM-0192</option><option>Budi Santoso · PIM-0105</option><option>Rudi Hartono · PIM-0213</option></select>
+      </div>
+      <div class="fld"><label class="lb" for="s-start">Tanggal mulai <em>*</em></label><input type="date" id="s-start" value="2026-10-11"></div>
+      <div class="preview" id="s-preview"><i class="ti ti-calendar"></i><span></span></div>
+    </div>
+    <div class="m-foot"><button class="btn" type="button" data-close>Batal</button><button class="btn primary" type="button" data-save="Jadwal">Simpan jadwal</button></div>
+  </div>
+</div>
+
+<!-- =================== DRAWER: LIHAT ATURAN =================== -->
+<div class="drawer-wrap" id="drawer" hidden>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-title">
+    <div class="d-head">
+      <div><h2 id="dr-title">Aturan yang berlaku</h2><p id="dr-sub" style="font-size:12px;color:var(--text-secondary)"></p></div>
+      <button class="icon-btn" type="button" data-close-drawer aria-label="Tutup"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="d-body" id="dr-body"></div>
+  </aside>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"><i class="ti ti-info-circle"></i><span></span></div>
+
+<script>
+(function () {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+  /* ---------- Tema ---------- */
+  const root = document.documentElement;
+  const isDark = () => (root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+  const syncThemeIcon = () => { $('#themeBtn i').className = 'ti ' + (isDark() ? 'ti-sun' : 'ti-moon'); };
+  $('#themeBtn').addEventListener('click', () => { root.dataset.theme = isDark() ? 'light' : 'dark'; syncThemeIcon(); });
+  syncThemeIcon();
+
+  /* ---------- Toast ---------- */
+  let tt;
+  function toast(msg) {
+    const t = $('#toast'); $('span', t).textContent = msg; t.classList.add('show');
+    clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 2600);
+  }
+
+  /* ---------- Tampilan (segmented) ---------- */
+  const titles = { jenis: 'Jenis inspeksi', kewajiban: 'Kewajiban karyawan', jadwal: 'Jadwal objek' };
+  function showView(v) {
+    if (!titles[v]) v = 'jenis';
+    $$('.view').forEach(el => { el.hidden = el.id !== 'view-' + v; });
+    $$('.seg button').forEach(b => { const on = b.dataset.view === v; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    $('#crumbView').textContent = titles[v];
+    try { history.replaceState(null, '', '#' + v); } catch (e) {}
+  }
+  $$('.seg button').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+  showView((location.hash || '').replace('#', ''));
+
+  /* ---------- Filter tabel ---------- */
+  function applyFilter(id) {
+    const q = (($(`input[data-filter="${id}"]`) || {}).value || '').toLowerCase();
+    const sels = $$(`select[data-filter="${id}"]`);
+    let n = 0;
+    $$(`#${id} tbody tr`).forEach(tr => {
+      let ok = tr.textContent.toLowerCase().includes(q);
+      sels.forEach(s => { if (s.value && tr.dataset[s.dataset.key] !== s.value) ok = false; });
+      tr.hidden = !ok; if (ok) n++;
+    });
+    const c = $(`[data-count="${id}"]`); if (c) c.textContent = n;
+    const e = $(`[data-empty="${id}"]`); if (e) e.hidden = n !== 0;
+  }
+  $$('[data-filter]').forEach(el => el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => applyFilter(el.dataset.filter)));
+  $$('[data-filter-set]').forEach(el => el.addEventListener('click', () => {
+    const [id, key, val] = el.dataset.filterSet.split('|');
+    const s = $(`select[data-filter="${id}"][data-key="${key}"]`);
+    if (s) { s.value = val; applyFilter(id); }
+    const view = id === 'tblJenis' ? 'jenis' : id === 'tblKewajiban' ? 'kewajiban' : 'jadwal';
+    showView(view);
+  }));
+
+  /* ---------- Modal ---------- */
+  function openModal(id) {
+    const m = $('#' + id); m.hidden = false; document.body.style.overflow = 'hidden';
+    const f = m.querySelector('input:not([type=radio]):not([disabled]), select'); if (f) f.focus();
+  }
+  function closeAll() { $$('.overlay').forEach(m => { m.hidden = true; }); $('#drawer').hidden = true; document.body.style.overflow = ''; }
+  document.addEventListener('click', e => {
+    const o = e.target.closest('[data-open]');
+    if (o) {
+      if (o.dataset.pos) { $('#d-pos').value = o.dataset.pos; syncDefault(); }
+      if (o.dataset.emp) { $('#o-emp').value = o.dataset.emp; syncOverride(); }
+      openModal(o.dataset.open); return;
+    }
+    if (e.target.closest('[data-close]') || e.target.classList.contains('overlay')) { closeAll(); return; }
+    if (e.target.closest('[data-close-drawer]') || e.target.id === 'drawer') { closeAll(); return; }
+    const sv = e.target.closest('[data-save]');
+    if (sv) { closeAll(); toast('Contoh tampilan: ' + sv.dataset.save + ' tidak benar-benar disimpan.'); return; }
+    const tg = e.target.closest('[data-toast]');
+    if (tg) toast(tg.dataset.toast);
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+
+  /* ---------- Form jenis inspeksi ---------- */
+  function syncJenis() {
+    const planned = $('input[name="sifat"]:checked').value === 'planned';
+    const sel = $('#j-siklus');
+    if (!planned) { sel.value = 'none'; sel.disabled = true; }
+    else { sel.disabled = false; if (sel.value === 'none') sel.value = 'daily'; }
+    $('#j-interval-wrap').hidden = !(planned && sel.value === 'custom');
+    $('#j-hint').textContent = planned
+      ? 'Terencana: punya siklus rutin dan bisa dijadwalkan ke objek.'
+      : 'Tidak terencana: dipakai insidental (sidak, spot check). Siklus dikunci ke tanpa jadwal rutin.';
+  }
+  $$('input[name="sifat"]').forEach(r => r.addEventListener('change', syncJenis));
+  $('#j-siklus').addEventListener('change', syncJenis);
+  syncJenis();
+
+  function renumber() { $$('#cl .cl-item').forEach((it, i) => { $('.n', it).textContent = i + 1; }); }
+  $('#cl-add').addEventListener('click', () => {
+    const d = document.createElement('div'); d.className = 'cl-item';
+    d.innerHTML = '<span class="n"></span><input type="text" placeholder="Tulis butir pemeriksaan"><label class="tg"><input type="checkbox"> Kritis</label><button class="icon-btn" type="button" data-cl-del aria-label="Hapus butir"><i class="ti ti-x"></i></button>';
+    $('#cl').appendChild(d); renumber(); $('input[type=text]', d).focus();
+  });
+  $('#cl').addEventListener('click', e => {
+    const b = e.target.closest('[data-cl-del]'); if (!b) return;
+    if ($$('#cl .cl-item').length > 1) { b.closest('.cl-item').remove(); renumber(); } else toast('Minimal satu butir checklist.');
+  });
+
+  /* ---------- Form default jabatan ---------- */
+  const POS = { spvpit: { n: 6, ov: 1 }, foreman: { n: 9, ov: 0 }, gl: { n: 8, ov: 0 }, safety: { n: 5, ov: 1 }, mekanik: { n: 22, ov: 1 }, opdt: { n: 48, ov: 2 } };
+  function syncDefault() {
+    const p = POS[$('#d-pos').value], q = parseInt($('#d-quota').value || '0', 10);
+    const cyc = $('#d-cycle').selectedOptions[0].textContent.toLowerCase();
+    $('#d-quota-hint').textContent = 'inspeksi per ' + ({ harian: 'hari', mingguan: 'minggu', bulanan: 'bulan' }[cyc] || 'periode');
+    const pv = $('#d-preview'); pv.classList.toggle('warn', q === 0);
+    $('span', pv).textContent = (q === 0
+      ? 'Kuota 0: ' + p.n + ' karyawan akan berstatus Bebas (disengaja). '
+      : 'Berlaku untuk ' + p.n + ' karyawan (Wajib ' + q + 'x per ' + cyc.replace('an', '') + '). ')
+      + (p.ov ? p.ov + ' di antaranya punya override individu yang tetap diprioritaskan.' : 'Tidak ada override individu yang terdampak.');
+  }
+  ['d-pos', 'd-cycle', 'd-quota'].forEach(id => $('#' + id).addEventListener('input', syncDefault));
+  $('#d-plus').addEventListener('click', () => { $('#d-quota').value = (+$('#d-quota').value || 0) + 1; syncDefault(); });
+  $('#d-minus').addEventListener('click', () => { $('#d-quota').value = Math.max(0, (+$('#d-quota').value || 0) - 1); syncDefault(); });
+  syncDefault();
+
+  /* ---------- Form override ---------- */
+  const EMP = {
+    fauzi: ['4x / bulan', 'default jabatan'], budi: ['8x / bulan', 'override individu'], rudi: ['4x / bulan', 'default jabatan'],
+    siti: ['2x / minggu', 'default jabatan'], hendra: ['Bebas (0)', 'override individu'], dedi: ['Bebas (0)', 'default jabatan'], maya: ['Bebas (0)', 'default jabatan']
+  };
+  function syncOverride() {
+    const e = EMP[$('#o-emp').value], q = parseInt($('#o-quota').value || '0', 10);
+    const cyc = $('#o-cycle').selectedOptions[0].textContent.toLowerCase();
+    const per = { harian: 'hari', mingguan: 'minggu', bulanan: 'bulan' }[cyc] || 'periode';
+    $('#o-to').disabled = $('#o-open').checked;
+    $('span', $('#o-preview')).textContent = 'Saat ini: ' + e[0] + ' (' + e[1] + '). Setelah override: ' + (q === 0 ? 'Bebas (0)' : q + 'x per ' + per) + ($('#o-open').checked ? ', tanpa batas waktu (ditinjau tiap 90 hari).' : '.');
+  }
+  ['o-emp', 'o-cycle', 'o-quota', 'o-open'].forEach(id => $('#' + id).addEventListener('input', syncOverride));
+  syncOverride();
+
+  /* ---------- Form jadwal ---------- */
+  const fmt = d => d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+  function syncJadwal() {
+    const o = $('#s-tpl').selectedOptions[0], c = o.value;
+    $('#s-freq').value = o.dataset.label;
+    const start = $('#s-start').valueAsDate || new Date(); const d = new Date(start); const out = [];
+    for (let i = 0; i < 5; i++) {
+      out.push(fmt(d));
+      if (c === 'daily') d.setDate(d.getDate() + 1);
+      else if (c === 'weekly') d.setDate(d.getDate() + 7);
+      else if (c === 'monthly') d.setMonth(d.getMonth() + 1);
+      else d.setDate(d.getDate() + 14);
+    }
+    $('span', $('#s-preview')).textContent = 'Jatuh tempo berikutnya: ' + out.join(', ') + '.';
+  }
+  ['s-tpl', 's-start'].forEach(id => $('#' + id).addEventListener('input', syncJadwal));
+  $$('input[name="pj"]').forEach(r => r.addEventListener('change', () => {
+    const emp = $('input[name="pj"]:checked').value === 'emp';
+    $('#s-pj-emp').hidden = !emp; $('#s-pj-pos').hidden = emp;
+  }));
+  syncJadwal();
+
+  /* ---------- Drawer: lihat aturan ---------- */
+  function ruleDrawer(tr) {
+    const d = tr.dataset, src = d.source;
+    const steps = [
+      ['Individu + jenis tertentu', 'Aturan khusus karyawan untuk satu jenis inspeksi'],
+      ['Individu + semua jenis', 'Override khusus karyawan untuk semua jenis'],
+      ['Jabatan + jenis tertentu', 'Aturan jabatan untuk satu jenis inspeksi'],
+      ['Jabatan + semua jenis', 'Default jabatan untuk semua jenis']
+    ];
+    const hit = src === 'individual' ? 1 : src === 'role' ? 3 : -1;
+    const status = d.status === 'wajib' ? ['Wajib', 'accent'] : d.status === 'bebas' ? ['Bebas', ''] : ['Belum diatur', 'warning'];
+    $('#dr-sub').textContent = d.name + ' · ' + d.nik;
+    $('#dr-body').innerHTML =
+      '<div class="sum"><div><div class="l">Status</div><div class="v"><span class="chip ' + status[1] + '">' + status[0] + '</span></div></div>' +
+      '<div><div class="l">Kuota berlaku</div><div class="v">' + d.quota + '</div></div>' +
+      '<div><div class="l">Berlaku s/d</div><div class="v">' + d.until + '</div></div>' +
+      '<div><div class="l">Alasan / dasar</div><div class="v" style="font-weight:400">' + (d.reason || '-') + '</div></div></div>' +
+      '<div><div class="group-title">Rantai prioritas (aturan pertama yang cocok dipakai)</div><div class="chain">' +
+      steps.map((s, i) => '<div class="step' + (i === hit ? ' hit' : '') + '"><div>' + s[0] + '<span class="sub">' + (i === hit ? 'Aturan ini yang dipakai' : s[1]) + '</span></div>' +
+        (i === hit ? '<span class="chip accent">Dipakai</span>' : '<span class="chip muted">Tidak ada</span>') + '</div>').join('') + '</div></div>' +
+      (hit === -1 ? '<div class="preview warn"><i class="ti ti-alert-triangle"></i><span>Tidak ada aturan yang cocok. Karyawan ini berstatus Belum diatur, bukan Bebas. Tetapkan default jabatan atau override.</span></div>' : '');
+    $('#drawer').hidden = false; document.body.style.overflow = 'hidden';
+  }
+  $$('[data-rule]').forEach(b => b.addEventListener('click', () => ruleDrawer(b.closest('tr'))));
+})();
+</script>
+</body>
+</html>

@@ -64,8 +64,6 @@ test('P1 Input Data, Fuel, Standby, Breakdown, dan Ritase memakai shared save fe
     "getElementById('formMaintenanceEvent').addEventListener",
     "getElementById('formInputBreakdown').addEventListener",
     "getElementById('formUpdateBreakdownStatus').addEventListener",
-    "getElementById('formReadyVerification').addEventListener",
-    "getElementById('formReadyReconciliation').addEventListener",
     "getElementById('formAddBreakdownPart').addEventListener",
     "getElementById('formEditBreakdownSegment').addEventListener",
     'async function simpanAlokasiJarak',

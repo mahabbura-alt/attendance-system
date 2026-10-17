@@ -11,6 +11,8 @@
     scope: 'month',
     activeWeek: 1,
     activeDay: 1,
+    rangeStart: '',
+    rangeEnd: '',
     weeklyModel: 'week-of-year',
     weekStartDay: 1,
     search: '',
@@ -51,7 +53,11 @@
   const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
   const dateAt = (year, month, day) => new Date(year, month - 1, day);
   const toDatePart = date => ({ year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() });
+  const planningReferenceForRange = (start, end) => /^\d{4}-\d{2}-\d{2}$/.test(String(end || ''))
+    ? String(end) : /^\d{4}-\d{2}-\d{2}$/.test(String(start || '')) ? String(start) : '';
   function planningReferenceDate() {
+    const rangeReference = planningReferenceForRange(state.rangeStart, state.rangeEnd);
+    if (rangeReference) return rangeReference;
     let day = state.activeDay;
     if (state.scope === 'week') day = weekGroups(state.activeYear, state.activeMonth)[state.activeWeek - 1]?.days?.[0] || 1;
     else if (state.scope === 'month') day = 1;
@@ -81,18 +87,30 @@
   }
 
   function parsePlans(payload, type) {
-    const structured = Array.isArray(payload?.planningData?.fleetCatalog) ? payload.planningData.fleetCatalog : [];
+    const planningData = payload?.planningData || {};
+    const structured = Array.isArray(planningData.loaderCatalog) && planningData.loaderCatalog.length
+      ? planningData.loaderCatalog
+      : Array.isArray(planningData.scenarios)
+        ? planningData.scenarios.flatMap((scenario, index) => {
+          const jobs = Array.isArray(scenario.jobCodes) && scenario.jobCodes.length ? scenario.jobCodes : [scenario.jobCode || ''];
+          return jobs.map(jobCode => ({ ...scenario, tableId: scenario.id || `${type}-${index + 1}`, jobCode,
+            fleetProductivity: scenario.loaderProductivity, targetSource: 'loader_productivity' }));
+        }) : Array.isArray(planningData.fleetCatalog)
+          ? planningData.fleetCatalog.filter(entry => Number(entry.loaderProductivity) > 0)
+            .map(entry => ({ ...entry, fleetProductivity: entry.loaderProductivity, targetSource: 'legacy_loader_productivity' }))
+          : [];
     if (structured.length) return structured.map((entry, index) => ({
       id: entry.tableId || `${type}-${index}-${entry.loaderCode}`,
       type,
       values: entry,
       loaderCode: entry.loaderCode,
-      dumpTruckCode: entry.dumpTruckCode || entry.dumpTruckCodes?.[0] || '',
-      dumpTruckIds: Array.isArray(entry.dumpTruckIds) ? entry.dumpTruckIds.map(String) : [],
-      dumpTruckClasses: Array.isArray(entry.dumpTruckClasses) ? entry.dumpTruckClasses.map(normalize) : [],
-      requiredTrucks: Array.isArray(entry.dumpTruckIds) ? entry.dumpTruckIds.length : Math.max(0, Math.round(Number(entry.numberOfTruck) || 0)),
+      dumpTruckCode: '',
+      dumpTruckIds: [],
+      dumpTruckClasses: [],
+      requiredTrucks: 0,
       jobCode: entry.jobCode || '',
-      computed: { loaderProductivity: Number(entry.loaderProductivity), truckProductivity: Number(entry.truckProductivity), fleetProductivity: Number(entry.fleetProductivity) },
+      computed: { loaderProductivity: Number(entry.loaderProductivity), truckProductivity: null,
+        fleetProductivity: Number(entry.loaderProductivity ?? entry.fleetProductivity) },
     })).filter(plan => plan.loaderCode);
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<div>${payload?.contentHtml || ''}</div>`, 'text/html');
@@ -174,7 +192,20 @@
     return Array.from({ length: daysInMonth(year, month) }, (_, index) => ({ year, month, day: index + 1 }));
   }
 
+  function buildRangeDays(start, end) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(start || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(end || '')) || start > end) return [];
+    const result = [];
+    const cursor = new Date(`${start}T12:00:00`);
+    const last = new Date(`${end}T12:00:00`);
+    while (cursor <= last) {
+      result.push(toDatePart(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return result;
+  }
+
   function targetDays() {
+    if (state.rangeStart && state.rangeEnd) return buildRangeDays(state.rangeStart, state.rangeEnd);
     return buildTargetDays(state.activeYear, state.activeMonth, state.scope, state.activeWeek, state.activeDay);
   }
 
@@ -212,25 +243,23 @@
     return findActiveFleetInstances(plans, periodicSelections, pitAssignments, targetDays());
   }
 
-  function strictDumpTruckCompatibility(unit, plan, assignedJob = jobOfUnit(unit)) {
+  function strictDumpTruckCompatibility(unit, plan) {
     if (!isDumpTruck(unit)) return { ok: false, reason: 'Hanya Dump Truck yang dapat ditempatkan ke fleet.' };
-    if (plan?.dumpTruckIds?.length && !plan.dumpTruckIds.includes(unitId(unit))) {
-      return { ok: false, reason: `Unit ${unit.kode_alat || '—'} tidak termasuk checklist Dump Truck scenario ini.` };
-    }
     const allowedClasses = plan?.dumpTruckClasses?.length ? plan.dumpTruckClasses : (plan?.dumpTruckClass ? [plan.dumpTruckClass] : []);
-    if (!plan?.dumpTruckIds?.length && !allowedClasses.length) return { ok: false, reason: 'Class Dump Truck pada Fleet Planning belum tersedia.' };
-    if (!plan?.dumpTruckIds?.length && !allowedClasses.includes(normalize(unit.class_unit))) {
-      return { ok: false, reason: `Class ${unit.class_unit || '—'} tidak sesuai class scenario.` };
-    }
-    if (!plan.job || normalize(assignedJob) !== normalize(plan.job)) {
-      return { ok: false, reason: `JOB unit ${assignedJob || 'belum diisi'} tidak sesuai ${plan.job || 'JOB fleet belum tersedia'}.` };
-    }
     const modelWarning = Boolean(plan.dumpTruckModel && normalize(unit.tipe_alat) !== plan.dumpTruckModel);
+    const classWarning = Boolean(allowedClasses.length && !allowedClasses.includes(normalize(unit.class_unit)));
+    const selectionWarning = Boolean(plan?.dumpTruckIds?.length && !plan.dumpTruckIds.includes(unitId(unit)));
+    const notes = [];
+    if (selectionWarning) notes.push('unit di luar komposisi DT planning');
+    if (classWarning) notes.push(`class ${unit.class_unit || '—'} berbeda dari referensi planning`);
+    if (modelWarning) notes.push(`model ${unit.tipe_alat || '—'} berbeda dari referensi planning`);
     return {
       ok: true,
       reason: '',
       modelWarning,
-      warning: modelWarning ? `Model ${unit.tipe_alat || '—'} berbeda dari rencana ${plan.dumpTruckUnit?.tipe_alat || '—'}.` : '',
+      classWarning,
+      selectionWarning,
+      warning: notes.length ? `Plotting diizinkan; ${notes.join(', ')}.` : '',
     };
   }
 
@@ -238,8 +267,8 @@
     if (plan?.dumpTruckUnits?.length) return `Unit terpilih: ${plan.dumpTruckUnits.map(unit => unit.kode_alat).join(', ')}`;
     const model = String(plan?.dumpTruckUnit?.tipe_alat || '').trim();
     const unitClass = String(plan?.dumpTruckUnit?.class_unit || '').trim();
-    if (!model && !unitClass) return 'Class Dump Truck belum diatur di Fleet Planning';
-    return `Class wajib: ${unitClass || '—'}${model ? ` • Model rencana: ${model}` : ''}`;
+    if (!model && !unitClass) return 'Semua Dump Truck dapat diplot ke fleet ini';
+    return `Referensi planning: ${unitClass || 'semua class'}${model ? ` • ${model}` : ''} • tidak membatasi plotting`;
   }
 
   function assignmentStore(id) {
@@ -373,7 +402,7 @@
 
   function dozerReference(instance) {
     const fleetRate = Number(instance.plan?.computed?.fleetProductivity);
-    if (!Number.isFinite(fleetRate) || fleetRate <= 0) return { label: 'Fleet productivity belum tersedia', tone: 'muted' };
+    if (!Number.isFinite(fleetRate) || fleetRate <= 0) return { label: 'Loader productivity belum tersedia', tone: 'muted' };
     const scopedInstances = activeInstances();
     let shareTotal = 0;
     let measuredDays = 0;
@@ -561,7 +590,7 @@
       <div class="um-loader-anchor">${unitCard(plan.loaderUnit || { kode_alat: plan.loaderCode }, null, { locked: true })}</div>
       <div class="um-drop-zone um-drop-zone--fleet ${shortage ? 'needs-unit' : ''}" data-unit-drop="fleet" data-instance-key="${escapeHtml(instance.key)}">
         <div class="um-drop-zone__label">Dump Truck Composition <small>${instance.dayKeys.length} hari aktif</small></div>
-        <div class="um-card-list">${assigned.map(item => unitCard(item.unit, item.summary, item.compatibility.modelWarning ? { badge: { label: 'Model beda', tone: 'warning' } } : {})).join('') || `<small class="um-empty um-empty--guide">Drop Dump Truck dengan Class yang kompatibel di sini<strong>${escapeHtml(truckGuidance)}</strong></small>`}</div>
+        <div class="um-card-list">${assigned.map(item => unitCard(item.unit, item.summary, item.compatibility.warning ? { badge: { label: 'Di luar referensi', tone: 'warning' } } : {})).join('') || `<small class="um-empty um-empty--guide">Drop Dump Truck di sini<strong>${escapeHtml(truckGuidance)}</strong></small>`}</div>
       </div>
       ${isObRemoval(plan) ? `<div class="um-drop-zone um-drop-zone--dozer" data-unit-drop="fleet" data-instance-key="${escapeHtml(instance.key)}">
         <div class="um-drop-zone__label">Dozer Support <small>${reference?.note || 'Acuan kemampuan, tidak memengaruhi produksi'}</small></div>
@@ -667,7 +696,7 @@
       rows.push({ code: instance.plan.loaderCode, role: 'Fleet Loader', fleet: planLabel, note: instance.plan.values.material || 'Material belum diisi' });
       assignedUnitsForInstance(instance).forEach(item => rows.push({
         code: item.unit.kode_alat,
-        role: item.compatibility.modelWarning ? 'Dump Truck • Model beda' : 'Dump Truck',
+        role: item.compatibility.warning ? 'Dump Truck • Di luar referensi' : 'Dump Truck',
         fleet: planLabel,
         note: item.unit.class_unit || 'Class belum diisi',
       }));
@@ -690,7 +719,7 @@
         { code: instance.plan.loaderCode, role: 'Fleet Loader', note: `${fleet} • ${instance.plan.values.material || 'Material belum diisi'}` },
         ...assignedUnitsForInstance(instance).map(item => ({
           code: item.unit.kode_alat,
-          role: item.compatibility.modelWarning ? 'Dump Truck • Model beda' : 'Dump Truck',
+          role: item.compatibility.warning ? 'Dump Truck • Di luar referensi' : 'Dump Truck',
           note: `${fleet} • ${item.unit.class_unit || 'Class belum diisi'}`,
         })),
       ];
@@ -702,15 +731,13 @@
         type: instance.plan.type,
         code: instance.plan.loaderCode,
         label: fleetLabel,
-        items: [
-          { id: unitId(instance.plan.loaderUnit) || instance.plan.loaderCode, code: instance.plan.loaderCode, role: 'Fleet Loader', note: `${fleetLabel} • Loader Anchor`, locked: true },
-          ...assignedUnitsForInstance(instance).map(item => ({
-            id: unitId(item.unit),
-            code: item.unit.kode_alat,
-            role: item.compatibility.modelWarning ? 'Dump Truck • Model beda' : 'Dump Truck',
-            note: `${instance.plan.loaderCode} • ${item.unit.class_unit || 'Class belum diisi'}`,
-          })),
-        ],
+        loaderItem: { id: unitId(instance.plan.loaderUnit) || instance.plan.loaderCode, code: instance.plan.loaderCode, role: 'Fleet Loader', note: `${fleetLabel} • Loader Anchor`, locked: true },
+        truckItems: assignedUnitsForInstance(instance).map(item => ({
+          id: unitId(item.unit),
+          code: item.unit.kode_alat,
+          role: item.compatibility.warning ? 'Dump Truck • Di luar referensi' : 'Dump Truck',
+          note: `${instance.plan.loaderCode} • ${item.unit.class_unit || 'Class belum diisi'}`,
+        })),
         dozerItems: assignedDozersForInstance(instance).map(item => ({
           id: unitId(item.unit),
           code: item.unit.kode_alat,
@@ -764,13 +791,18 @@
       const fleetLane = group => {
         const tone = group.type === 'coal' ? 'cg' : 'ob';
         const jobLabel = group.type === 'coal' ? 'Fleet CG' : 'Fleet OB';
+        const truckDrop = `<div class="um-truck-drop-pocket" data-unit-drop="fleet" data-instance-key="${escapeHtml(group.instanceKey)}" data-accept="dump-truck">
+          <div><strong>Dump Truck</strong><small>${group.truckItems.length} unit dialokasikan</small></div>
+          <div class="um-allocation-lane__list">${group.truckItems.map(unitItem).join('') || '<small class="um-allocation-lane__empty">Drag Dump Truck ke kolom ini</small>'}</div>
+        </div>`;
         const dozerPocket = group.type === 'coal' ? '' : `<div class="um-dozer-drop-pocket" data-unit-drop="fleet" data-instance-key="${escapeHtml(group.instanceKey)}" data-accept="dozer">
           <div><strong>Dozer Support</strong><small>Acuan dukungan • tidak mengubah produksi</small></div>
           <div class="um-dozer-drop-pocket__list">${group.dozerItems.map(unitItem).join('') || '<small>Drop Dozer di sini</small>'}</div>
         </div>`;
-        return `<section class="um-allocation-lane is-${tone}" data-unit-drop="fleet" data-instance-key="${escapeHtml(group.instanceKey)}" data-accept="dump-truck">
-          <header><div><small>${jobLabel}</small><strong>${escapeHtml(`${group.code} • ${group.label}`)}</strong></div><span>${group.items.length + group.dozerItems.length}</span></header>
-          <div class="um-allocation-lane__list">${group.items.map(unitItem).join('') || '<small class="um-allocation-lane__empty">Drop Dump Truck di sini</small>'}</div>
+        return `<section class="um-allocation-lane is-${tone}">
+          <header><div><small>${jobLabel}</small><strong>${escapeHtml(`${group.code} • ${group.label}`)}</strong></div><span>${1 + group.truckItems.length + group.dozerItems.length}</span></header>
+          <div class="um-loader-anchor"><strong>Loader</strong>${unitItem(group.loaderItem)}</div>
+          ${truckDrop}
           ${dozerPocket}
         </section>`;
       };
@@ -926,7 +958,7 @@
     }));
     if (!allocated) {
       restoreAssignments(before);
-      setStatus('Tidak ada DT kompatibel yang dapat dialokasikan', 'warning');
+      setStatus('Tidak ada DT tersedia yang dapat dialokasikan', 'warning');
       return;
     }
     state.undoStack.push(before);
@@ -1006,7 +1038,7 @@
   }
 
   function bindOnce() {
-    const panel = document.getElementById('tab-prodUnitMapping');
+    const panel = document.getElementById('fleetUnitMappingView') || document.getElementById('tab-prodUnitMapping');
     if (!panel || panel.dataset.unitMappingBound) return;
     panel.dataset.unitMappingBound = 'true';
     panel.addEventListener('change', async event => {
@@ -1155,10 +1187,32 @@
     return loadingPromise;
   }
 
-  const publicApi = { init, refresh: init };
+  async function setRange(start, end) {
+    const normalizedStart = /^\d{4}-\d{2}-\d{2}$/.test(String(start || '')) ? String(start) : '';
+    const normalizedEnd = /^\d{4}-\d{2}-\d{2}$/.test(String(end || '')) ? String(end) : '';
+    if (normalizedStart && normalizedEnd && normalizedStart > normalizedEnd) throw new Error('Range Unit Mapping tidak valid.');
+    if (state.rangeStart === normalizedStart && state.rangeEnd === normalizedEnd) return;
+    state.rangeStart = normalizedStart;
+    state.rangeEnd = normalizedEnd;
+    if (normalizedStart) {
+      const [year, month, day] = normalizedStart.split('-').map(Number);
+      state.activeYear = year;
+      state.activeMonth = month;
+      state.activeDay = day;
+      state.scope = 'range';
+    }
+    if (equipment.length) {
+      await reloadProductivityPlans();
+      render();
+    }
+  }
+
+  const publicApi = { init, refresh: init, setRange };
   if (typeof module !== 'undefined' && module.exports) module.exports = {
     normalize,
     buildTargetDays,
+    buildRangeDays,
+    planningReferenceForRange,
     summarizeAssignments,
     findActiveFleetInstances,
     classifyQueueUnit,

@@ -2,6 +2,15 @@
 
 Project: **OMOS — One Mining Operating System**.
 
+## Start here (all agents, all platforms)
+
+Before any non-trivial task, read `docs/OMOS_WORKING_CONTEXT_AND_HANDOVER.md`
+first — it holds verified implementation status, completed work, known issues,
+and prior owner decisions, so you don't re-screen the whole directory. After
+completing a task, update that file (context summary, new/edited files and
+scripts, new features). The repository stays the source of truth; the handover
+guides, it never replaces verification.
+
 OMOS is evolving from an operational mining application into a configurable,
 secure, auditable, offline-aware, multi-client operating platform. Treat the
 repository as the source of truth for current implementation; architecture
@@ -55,6 +64,22 @@ follow the `omos-mining-validation` skill. If the requested unit or formula is
 ambiguous/anomalous, present the discrepancy to the project owner before
 implementation.
 
+## UI/UX and Frontend Design Standard (Taste Skill & Awesome DESIGN.md)
+
+Setiap agen yang mengerjakan tugas dalam hal generate tampilan, desain UI/UX, styling, layout, redesign, mockup visual, atau pembuatan komponen frontend (baik Web maupun Mobile) **WAJIB** membaca dan menerapkan panduan dari:
+1. **Taste Skill** (`.codex/skills/taste-skill/SKILL.md` atau varian terkait di `.codex/skills/`):
+   - **Anti-Slop Guard**: Mencegah output UI generic, monoton, atau template AI slop.
+   - **Craftsmanship**: Menerapkan visual hierarchy yang tegas, tipografi berkarakter dan proporsional, rhythm spacing yang konsisten, micro-interactions yang halus, serta contrast ratio yang nyaman untuk operasional mining.
+   - **Tuning Dial**: Sesuaikan tiga parameter dial (`DESIGN_VARIANCE`, `MOTION_INTENSITY`, `VISUAL_DENSITY`) sesuai konteks enterprise dashboard/mobile lapangan.
+   - **Pilihan Varian Sesuai Kebutuhan**:
+     - `taste-skill` (`.codex/skills/taste-skill/SKILL.md`): Standar frontend UI & layout utama.
+     - `redesign-skill` (`.codex/skills/redesign-skill/SKILL.md`): Audit dan pembaruan antarmuka eksisting.
+     - `image-to-code-skill` (`.codex/skills/image-to-code-skill/SKILL.md`): Implementasi frontend dari referensi desain visual.
+     - `imagegen-frontend-web` / `imagegen-frontend-mobile` (`.codex/skills/`): Desain visual mockup web/mobile.
+2. **Awesome DESIGN.md Systems** (`.codex/design-md/`):
+   - **74+ Curated Brand Design Systems**: Memanfaatkan analisis design tokens, palet warna (`canvas`, `surface`, `primary`, `hairline`), skala tipografi, border radius, shadow, dan pola komponen dari brand ternama (`linear.app`, `supabase`, `vercel`, `stripe`, `sentry`, `posthog`, `raycast`, `apple`, dll.).
+   - **Kesesuaian Desain**: Bila pengguna meminta gaya desain atau tema tertentu, gunakan acuan token dan aturan spesifik dari `.codex/design-md/<brand>/DESIGN.md`.
+
 ## How to work
 
 For non-trivial tasks:
@@ -71,14 +96,6 @@ For non-trivial tasks:
 Do not claim that a history or handover document proves implementation status.
 Verify implementation against the repository and deployed environment.
 
-## UI/Frontend browser review (wajib)
-
-Setiap selesai mengubah UI/frontend, buka browser preview localhost, tampilkan
-halaman yang berubah, cek layout dan console error, lalu laporkan hasil visual
-review sebelum menyatakan task selesai. Review visual ini wajib selesai sebelum
-deploy ke server; jangan deploy perubahan frontend yang belum lolos review
-browser.
-
 ## Dynamic context map
 
 Load only what is relevant to the task:
@@ -89,6 +106,7 @@ Load only what is relevant to the task:
 | AI/LiteLLM design | `OMOS_LITELLM_PROJECT_HANDOVER.md` and `Litellm/AGENTS.md` |
 | Migration history or production handover | `HISTORI_CHAT_MIGRASI.md`, `OMOS_handoff_2026-09-05.md` |
 | Mining formula/KPI | `omos-mining-validation` skill |
+| UI/UX design, frontend styling, redesign, visual mockups, brand systems | Taste Skill (`.codex/skills/taste-skill/SKILL.md`) dan Awesome DESIGN.md (`.codex/design-md/`) |
 | Backend/API/database | `backend/AGENTS.md` |
 | Admin dashboard | `admin-dashboard/AGENTS.md` |
 | Mobile web | `mobile-web/AGENTS.md` |

@@ -213,6 +213,6 @@ test('JPEG report renders bold conditional cells and keeps hourly dump-truck gro
 
 test('Input Ritase exposes the red 3D Lapor action and loads its report module', () => {
   assert.match(dashboardHtml, /class="tombol ritase-report-button" onclick="bukaLaporanRitase\(\)"/);
-  assert.match(loaderSource, /'ritaseReport\.js\?v=7'/);
+  assert.match(loaderSource, /'ritaseReport\.js\?v=8'/);
   assert.match(loaderSource, /html2canvas\.min\.js/);
 });

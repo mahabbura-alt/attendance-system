@@ -3,15 +3,17 @@
   const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
   const num = (value, digits = 2) => value == null ? '—' : Number(value).toLocaleString('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  const s = { report: null, request: 0, initialized: false, selectedArea: '', draft: null, bulk: null, busy: false };
+  const s = { report: null, request: 0, renderToken: 0, initialized: false, selectedArea: '', fuelJobFilter: '', draft: null, bulk: null, manualDraft: {}, busy: false };
   const root = () => document.getElementById('productionDataRoot');
   const metrics = [ ['fuel','FUEL CONSUMPT','L',2], ['fuelRatio','FUEL RATIO','L/BCM',3],
     ['rainMm','INTENSITAS HUJAN','mm',1], ['rainMinutes','DURASI HUJAN','jam',2], ['slipperyMinutes','SLIPPERY','jam',2] ];
   const metricValue = (cell, field) => field.endsWith('Minutes') && cell[field] != null ? cell[field] / 60 : cell[field];
 
   async function api(path, options = {}) {
+    const method = String(options.method || 'GET').toUpperCase();
     const response = await fetch(getProdApiUrl(`/api/admin/production${path}`), {
-      ...options, headers: { ...getProdAuthHeaders(), 'Content-Type': 'application/json' }, cache: 'no-store'
+      ...options, headers: { ...getProdAuthHeaders(), 'Content-Type': 'application/json' },
+      cache: method === 'GET' ? 'no-cache' : 'no-store'
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Permintaan gagal.');
@@ -26,10 +28,10 @@
     root().innerHTML = `<header class="pd-toolbar"><div><h2>Data Produksi</h2><p>Rekap bulanan per area, JOB, material, dan shift operasional.</p></div>
       <div class="pd-controls"><label>Tahun<input id="pdYear" type="number" min="2000" max="2100" value="${date.getFullYear()}"></label>
       <label>Bulan<select id="pdMonth">${months.map((m, i) => `<option value="${i + 1}" ${i === date.getMonth() ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
-      <label>Area<select id="pdArea"><option value="">Semua area</option></select></label>
-      <button class="tombol" data-pd-action="reload">Perbarui</button><button class="tombol" data-pd-action="export" disabled>Ekspor Excel</button>
-      <button class="tombol tombol--utama" data-pd-action="density" disabled>Kunci acuan density</button></div></header>
-      <div id="pdStatus" role="status" aria-live="polite"></div><div id="pdSummary" class="pd-summary"></div>
+<button class="tombol" data-pd-action="reload">Perbarui</button><button class="tombol" data-pd-action="export" disabled>Ekspor Excel</button>
+       <button class="tombol tombol--utama pd-save-manual" data-pd-action="save-manual" disabled>Simpan</button>
+       <span id="pdManualSaveState" class="pd-save-state" aria-live="polite">Tersimpan</span></div></header>
+      <div id="pdStatus" role="status" aria-live="polite"></div><nav id="pdTabs" class="pd-tabs" aria-label="Area Data Produksi"></nav><div id="pdSummary" class="pd-summary"></div>
       <div id="pdTables"></div><div id="pdQueue"></div><dialog id="pdDialog" class="pd-dialog"></dialog>`;
   }
   function options(items, selected, isJob = false) {
@@ -38,9 +40,14 @@
       return `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(value)}${isJob ? ` · ${esc(item.jobDescription)}` : ''}</option>`;
     }).join('');
   }
-  function header(jobs) {
+  function manualSource(areaIndex, jobCode) {
+    const src = s.report?.manualSources?.find(x => x.area === s.report.tables[areaIndex].area && x.jobCode === jobCode);
+    return src ? src.source : 'ritase';
+  }
+  function header(jobs, areaIndex) {
     return `<thead><tr><th rowspan="2" class="pd-date">Tanggal</th><th rowspan="2" class="pd-shift">Shift</th>
-      ${jobs.map(j => `<th class="pd-job" colspan="${j.materials.length + 2}">${esc(j.jobCode)} · ${esc(j.jobDescription)}</th>`).join('')}
+      ${jobs.map(j => `<th class="pd-job" colspan="${j.materials.length + 2}">${esc(j.jobCode)} · ${esc(j.jobDescription)}
+        <button class="pd-gear ${manualSource(areaIndex, j.jobCode) === 'manual' ? 'pd-gear--manual' : ''}" data-pd-source="${esc(j.jobCode)}" data-pd-source-area="${areaIndex}" title="Pilih sumber data ${esc(j.jobCode)}" aria-label="Pilih sumber data ${esc(j.jobCode)}">⚙</button></th>`).join('')}
       ${metrics.map((m, i) => `<th colspan="${jobs.length + (i < 2 ? 1 : 0)}">${m[1]} (${m[2]})</th>`).join('')}<th rowspan="2">Keterangan</th></tr><tr>
       ${jobs.map(j => `${j.materials.map(m => `<th>${esc(m.name)}<small>${esc(m.unit)}</small></th>`).join('')}<th>Total ${esc(j.unit)}</th><th>Jarak (km)</th>`).join('')}
       ${metrics.map((m, i) => jobs.map(j => `<th>${esc(j.jobCode)}</th>`).join('') + (i < 2 ? '<th>ALL</th>' : '')).join('')}</tr></thead>`;
@@ -62,8 +69,20 @@
     const content = [];
     for (const job of jobs) {
       const c = values[job.jobCode];
-      for (const m of job.materials) content.push(`<td class="pd-production">${num(c.materials[m.name])}</td>`);
-      content.push(`<td class="pd-total">${context ? `<button class="pd-cell-button" data-pd-detail="${esc(JSON.stringify({ ...context, job: job.jobCode }))}" title="Lihat sumber perhitungan">${job.unit === 'mixed' ? '—' : num(c.production)}</button>` : num(job.unit === 'mixed' ? null : c.production)}</td><td>${num(c.distanceKm, 3)}</td>`);
+      const editable = context && manualSource(context.area, job.jobCode) === 'manual';
+      for (const m of job.materials) {
+        content.push(editable
+          ? `<td class="pd-production">${manualCellInput(context, job.jobCode, m.name, c.materials[m.name])}</td>`
+          : `<td class="pd-production">${num(c.materials[m.name])}</td>`);
+      }
+      if (context) {
+        const totalHtml = editable
+          ? manualTotalInput(context, job.jobCode)
+          : `<button class="pd-cell-button" data-pd-detail="${esc(JSON.stringify({ ...context, job: job.jobCode }))}" title="Lihat sumber perhitungan">${job.unit === 'mixed' ? '—' : num(c.production)}</button>`;
+        content.push(`<td class="pd-total">${totalHtml}</td><td>${num(c.distanceKm, 3)}</td>`);
+      } else {
+        content.push(`<td class="pd-total">${num(job.unit === 'mixed' ? null : c.production)}</td><td>${num(c.distanceKm, 3)}</td>`);
+      }
     }
     for (const [field, , , digits] of metrics) {
       jobs.forEach(j => content.push(`<td>${num(metricValue(values[j.jobCode], field), digits)}</td>`));
@@ -73,27 +92,75 @@
     content.push(`<td class="pd-notes">${esc(notes.join('; ')) || '—'}</td>`);
     return content.join('');
   }
+  function tableMarkup(table, r) {
+    const index = r.tables.indexOf(table);
+    return `<article class="pd-area"><header><h3>${esc(table.area)}</h3><span>${months[r.period.month - 1]} ${r.period.year} · ${r.jobs.length} JOB</span></header>
+      <div class="pd-scroll" tabindex="0" aria-label="Tabel Data Produksi ${esc(table.area)}. Geser untuk melihat semua kolom."><table class="pd-table">${header(r.jobs, index)}
+      <tbody>${table.rows.map((row, rowIndex) => `<tr><th class="pd-date">${esc(row.date.slice(8))} ${months[r.period.month - 1].slice(0, 3)}</th><th class="pd-shift">${esc(row.shift.replace(/^Shift\s*/i, ''))}</th>${dataCells(row.values, r.jobs, { area: index, row: rowIndex }, row.all)}</tr>`).join('')}</tbody>
+      <tfoot><tr><th colspan="2">TOTAL BULAN</th>${dataCells(table.totals, r.jobs, null, table.totalAll)}</tr></tfoot></table></div></article>`;
+  }
+  function renderTabs() {
+    const tabs = [...s.report.areas.map(area => ({ id: area, label: area })), { id: 'fuel', label: 'ALOKASI FUEL' }];
+    document.getElementById('pdTabs').innerHTML = tabs.map(tab => `<button type="button" data-pd-tab="${esc(tab.id)}" class="${s.selectedArea === tab.id ? 'is-active' : ''} ${tab.id === 'fuel' ? 'is-fuel' : ''}" aria-selected="${s.selectedArea === tab.id}">${esc(tab.label)}${tab.id !== 'fuel' && manualDirtyCount(tab.id) ? `<small>${manualDirtyCount(tab.id)}</small>` : ''}</button>`).join('');
+  }
+  function summaryCards(cards) {
+    const tones = ['blue', 'cyan', 'amber', 'green', 'violet', 'rose'];
+    return cards.map(([label, value, unit], index) => `<div class="pd-summary-card pd-summary-card--${tones[index % tones.length]}"><span>${esc(label)}</span><strong>${num(value, unit === 'isu' || unit === 'transaksi' ? 0 : unit === '%' ? 1 : 2)}</strong><small>${esc(unit)}</small></div>`).join('');
+  }
+  function fuelJobAllocations() {
+    return (s.report?.jobs || []).map(job => {
+      const matching = (s.report?.allocated || []).map(item => {
+        const parts = (item.allocations || []).filter(part => part.jobCode === job.jobCode);
+        const liters = parts.reduce((sum, part) => sum + Number(part.liters || 0), 0);
+        return liters > 0 ? { ...item, allocations: parts, displayLiters: liters } : null;
+      }).filter(Boolean);
+      return { jobCode: job.jobCode, liters: matching.reduce((sum, item) => sum + item.displayLiters, 0),
+        units: new Set(matching.map(item => item.equipmentId || item.unit)).size, transactions: matching.length, items: matching };
+    });
+  }
+  function fuelJobCards() {
+    return `<section class="pd-fuel-job-summary"><header><div><h3>Alokasi Fuel per JOB</h3><span>Klik indikator untuk melihat unit yang dialokasikan.</span></div>${s.fuelJobFilter ? '<button type="button" class="pd-clear-job-filter" data-pd-fuel-job="">Tampilkan Semua</button>' : ''}</header><div>${fuelJobAllocations().map((job, index) => `<button type="button" class="pd-fuel-job-card pd-summary-card--${['blue','cyan','amber','green','violet','rose'][index % 6]} ${s.fuelJobFilter === job.jobCode ? 'is-active' : ''}" data-pd-fuel-job="${esc(job.jobCode)}" aria-pressed="${s.fuelJobFilter === job.jobCode}"><span>${esc(job.jobCode)}</span><strong>${num(job.liters)}</strong><small>L · ${job.units} unit · ${job.transactions} transaksi</small></button>`).join('')}</div></section>`;
+  }
+  function renderSummary() {
+    const target = document.getElementById('pdSummary');
+    if (s.selectedArea === 'fuel') {
+      const q = s.report.fuelQuality;
+      const cards = [['Fuel periode', s.report.fuelSummary.total, 'L'], ['Teralokasi', s.report.fuelSummary.allocated, 'L'], ['Allocation rate', q.allocationPercent, '%'], ['Menunggu alokasi', s.report.fuelSummary.pending, 'L'], ['Antrean', s.report.queue.length, 'transaksi'], ['Rekonsiliasi', q.reconciled ? 0 : q.reconciliationDifference, q.reconciled ? 'Seimbang' : 'L']];
+      target.innerHTML = `${summaryCards(cards)}${fuelJobCards()}`; return;
+    }
+    const table = s.report.tables.find(item => item.area === s.selectedArea); const summary = table?.summary;
+    if (!summary) { target.innerHTML = ''; return; }
+    const cards = [...summary.jobs.map(job => [job.jobCode, job.production, job.unit]), ['Fuel consumption', summary.fuel, 'L'], ['Fuel ratio', summary.fuelRatio, 'L/BCM'], ['Data quality', summary.qualityIssueCount, 'isu']];
+    target.innerHTML = summaryCards(cards);
+  }
   function renderTables() {
     const r = s.report;
+    const token = ++s.renderToken;
+    const container = document.getElementById('pdTables');
     if (!r.jobs.length) {
-      document.getElementById('pdTables').innerHTML = '<p class="tabel__kosong">Belum ada JOB. Generate dan deploy tabel JOB di SPO untuk menampilkan rekap.</p>';
+      container.innerHTML = '<p class="tabel__kosong">Belum ada JOB. Generate dan deploy tabel JOB di SPO untuk menampilkan rekap.</p>';
       return;
     }
-    document.getElementById('pdTables').innerHTML = r.tables.filter(t => !s.selectedArea || t.area === s.selectedArea).map((table) => {
-      const index = r.tables.indexOf(table);
-      return `<article class="pd-area"><header><h3>${esc(table.area)}</h3><span>${months[r.period.month - 1]} ${r.period.year} · ${r.jobs.length} JOB</span></header>
-        <div class="pd-scroll" tabindex="0" aria-label="Tabel Data Produksi ${esc(table.area)}. Geser untuk melihat semua kolom."><table class="pd-table">${header(r.jobs)}
-        <tbody>${table.rows.map((row, rowIndex) => `<tr><th class="pd-date">${esc(row.date.slice(8))} ${months[r.period.month - 1].slice(0, 3)}</th><th class="pd-shift">${esc(row.shift.replace(/^Shift\s*/i, ''))}</th>${dataCells(row.values, r.jobs, { area: index, row: rowIndex }, row.all)}</tr>`).join('')}</tbody>
-        <tfoot><tr><th colspan="2">TOTAL BULAN</th>${dataCells(table.totals, r.jobs, null, table.totalAll)}</tr></tfoot></table></div></article>`;
-    }).join('') || '<p class="tabel__kosong">Belum ada area. Atur lokasi pada List Equipment.</p>';
+    const tables = r.tables.filter(t => t.area === s.selectedArea);
+    if (!tables.length) { container.innerHTML = '<p class="tabel__kosong">Belum ada area. Atur lokasi pada List Equipment.</p>'; return; }
+    if (token === s.renderToken) container.innerHTML = tableMarkup(tables[0], r);
+  }
+  function renderActiveTab() {
+    if (!s.report) return;
+    renderTabs(); renderSummary();
+    if (s.selectedArea === 'fuel') { document.getElementById('pdTables').innerHTML = ''; renderQueue(); }
+    else { document.getElementById('pdQueue').innerHTML = ''; renderTables(); }
+    refreshManualSave();
   }
   function renderQueue() {
     const r = s.report;
+    const jobAllocation = fuelJobAllocations().find(job => job.jobCode === s.fuelJobFilter);
+    const allocatedItems = jobAllocation ? jobAllocation.items : r.allocated;
     const shiftName = id => r.shifts.find(shift => shift.id === id)?.nama_shift || id;
     const modeLabel = mode => ({ manual: 'Manual', automatic: 'Input Data', rule: 'Aturan efektif unit' }[mode] || 'Otomatis');
     const markup = items => items.map(item => {
       const suggestions = (item.suggestions || []).map(value => `${value.area} / ${value.jobCode}`).join(', ');
-      return `<tr><td>${esc(item.tanggal)}</td><td>${esc(shiftName(item.shiftId))}</td><td>${esc(item.unit)}</td><td>${num(item.liters)}</td>
+      return `<tr><td>${esc(item.tanggal)}</td><td>${esc(shiftName(item.shiftId))}</td><td>${esc(item.unit)}</td><td>${num(item.displayLiters ?? item.liters)}</td>
       <td>${esc(item.reason || `${modeLabel(item.mode)}: ${item.allocations.map(a => `${a.area} / ${a.jobCode} (${num(a.liters)} L)`).join(', ')}`)}
       ${suggestions ? `<small class="pd-suggestion">Saran ${esc(item.suggestionSource)}: ${esc(suggestions)}</small>` : ''}</td>
       <td><button class="tombol" data-pd-allocate="${esc(item.id)}">${item.allocations.length ? 'Ubah alokasi' : 'Alokasikan'}</button></td></tr>`;
@@ -111,29 +178,31 @@
     document.getElementById('pdQueue').innerHTML = `${quality}<details class="pd-area" ${r.queue.length ? 'open' : ''}><summary>Antrean Alokasi Fuel · ${r.queue.length} transaksi · ${num(r.fuelSummary.pending)} L</summary>
       <div class="pd-queue-intro"><p>Transaksi dalam antrean belum dihitung pada fuel ratio area/JOB. Perbaiki Input Data atau tentukan alokasi di sini.</p>
       ${r.queue.length ? '<button class="tombol tombol--utama" data-pd-action="quick-allocation">⚡ Alokasi Cepat</button>' : ''}</div>${r.queue.length ? table(r.queue) : '<p>Tidak ada transaksi menunggu alokasi.</p>'}</details>
-      <details class="pd-area"><summary>Fuel teralokasi · ${r.allocated.length} transaksi</summary>${table(r.allocated)}</details>`;
+      <details class="pd-area" ${s.fuelJobFilter ? 'open' : ''}><summary>Fuel teralokasi${s.fuelJobFilter ? ` · JOB ${esc(s.fuelJobFilter)} · ${num(jobAllocation?.liters || 0)} L · ${jobAllocation?.units || 0} unit` : ` · ${r.allocated.length} transaksi`}</summary>
+      ${allocatedItems.length ? table(allocatedItems) : '<p>Belum ada unit dengan fuel teralokasi pada JOB ini.</p>'}</details>`;
   }
-  async function load() {
+  async function load({ preserveManualDraft = false } = {}) {
     const sequence = ++s.request;
     const year = document.getElementById('pdYear').value; const month = document.getElementById('pdMonth').value;
     s.report = null;
-    document.getElementById('pdTables').innerHTML = '';
+    if (!preserveManualDraft) s.manualDraft = {};
+    s.renderToken += 1;
+    document.getElementById('pdTables').innerHTML = '<div class="pd-loading" aria-label="Memuat tabel Data Produksi"><span></span><span></span><span></span></div>';
     document.getElementById('pdQueue').innerHTML = '';
     document.getElementById('pdSummary').innerHTML = '';
     root().querySelector('[data-pd-action="export"]').disabled = true;
-    root().querySelector('[data-pd-action="density"]').disabled = true;
+    refreshManualSave();
     setStatus('Memuat rekap bulanan…', 'loading');
     try {
       const report = await api(`/production-data?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`);
       if (sequence !== s.request) return;
       s.report = report;
-      if (!report.areas.includes(s.selectedArea)) s.selectedArea = '';
-      document.getElementById('pdArea').innerHTML = '<option value="">Semua area</option>' + report.areas.map(a => `<option ${a === s.selectedArea ? 'selected' : ''}>${esc(a)}</option>`).join('');
-      document.getElementById('pdSummary').innerHTML = [['Fuel periode (L)', report.fuelSummary.total], ['Teralokasi (L)', report.fuelSummary.allocated], ['Menunggu alokasi (L)', report.fuelSummary.pending]].map(([label, value]) => `<div><span>${label}</span><strong>${num(value)}</strong></div>`).join('');
-      renderTables(); renderQueue();
+      if (s.fuelJobFilter && !report.jobs.some(job => job.jobCode === s.fuelJobFilter)) s.fuelJobFilter = '';
+      if (![...report.areas, 'fuel'].includes(s.selectedArea)) s.selectedArea = report.areas[0] || 'fuel';
+      renderActiveTab();
       root().querySelector('[data-pd-action="export"]').disabled = false;
-      root().querySelector('[data-pd-action="density"]').disabled = !report.densityCandidates.length;
-      setStatus(`Diperbarui ${new Date(report.generatedAt).toLocaleString('id-ID')} · Fuel = volume pengisian. Tanda — berarti data belum tersedia. ${report.densityCandidates.length ? `${report.densityCandidates.length} acuan density belum dikunci.` : ''}`);
+      setStatus(`Diperbarui ${new Date(report.generatedAt).toLocaleString('id-ID')} · Jenis material dan formula density mengikuti SPO ter-deploy. Tanda — berarti data belum tersedia.`);
+      return report;
     } catch (error) { if (sequence === s.request) setStatus(error.message, 'error'); }
   }
   function openAllocation(id) {
@@ -317,10 +386,196 @@
       <p>Coal BCM = ton ÷ density. Fuel ratio = liter teralokasi ÷ BCM. Jarak dibobotkan berdasarkan produksi.</p><button class="tombol" data-pd-action="close">Tutup</button>`;
     dialog.showModal();
   }
+  function manualKey(area, row, job, material) { return `${area}|${row}|${job}|${material}`; }
+  function manualCellInput(context, job, material, value, cls) {
+    const id = manualKey(context.area, context.row, job, material);
+    const draftValue = id in s.manualDraft ? s.manualDraft[id] : (value == null ? '' : value);
+    return `<input class="pd-manual-input ${cls || ''}" type="number" min="0" step="any" inputmode="decimal"
+      data-pd-manual-area="${context.area}" data-pd-manual-row="${context.row}" data-pd-manual-job="${esc(job)}" data-pd-manual-material="${esc(material)}"
+      value="${esc(draftValue)}" aria-label="${esc(job)} ${esc(material)} manual">`;
+  }
+  function manualRowTotal(context, job) {
+    const table = s.report?.tables[context.area];
+    const row = table?.rows[context.row];
+    const jobDefinition = s.report?.jobs.find(item => item.jobCode === job);
+    if (!row || !jobDefinition || jobDefinition.unit === 'mixed') return null;
+    let total = 0; let hasValue = false;
+    for (const material of jobDefinition.materials) {
+      const id = manualKey(context.area, context.row, job, material.name);
+      const raw = id in s.manualDraft ? s.manualDraft[id] : row.values[job]?.materials[material.name];
+      if (raw === '' || raw == null) continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0) return null;
+      total += value; hasValue = true;
+    }
+    return hasValue ? total : null;
+  }
+  function manualTotalInput(context, job) {
+    const total = manualRowTotal(context, job);
+    return `<input class="pd-manual-input pd-total-input" type="number" value="${total == null ? '' : esc(total)}" readonly aria-readonly="true"
+      data-pd-manual-total-area="${context.area}" data-pd-manual-total-row="${context.row}" data-pd-manual-total-job="${esc(job)}"
+      aria-label="Total ${esc(job)} otomatis">`;
+  }
+  function refreshManualRowTotal(context, job) {
+    const total = manualRowTotal(context, job);
+    const target = [...root().querySelectorAll('.pd-total-input')].find(input =>
+      Number(input.dataset.pdManualTotalArea) === Number(context.area)
+      && Number(input.dataset.pdManualTotalRow) === Number(context.row)
+      && input.dataset.pdManualTotalJob === job);
+    if (target) target.value = total == null ? '' : total;
+  }
+  // Segmen pertama id draf adalah INDEX tabel (lihat tableMarkup), bukan nama
+  // area — konsumen wajib mengonversinya sebelum membandingkan.
+  function manualTableIndex(areaSegment) {
+    const index = Number(areaSegment);
+    if (!Number.isInteger(index) || !s.report?.tables[index]) return -1;
+    return index;
+  }
+  function manualDirtyCount(areaName = '') {
+    let count = 0;
+    for (const [id, value] of Object.entries(s.manualDraft)) {
+      const [area, row, job, material] = id.split('|');
+      if (material === 'TOTAL') continue;
+      const tableIndex = manualTableIndex(area);
+      if (tableIndex < 0 || manualSource(tableIndex, job) !== 'manual') continue;
+      if (areaName && s.report.tables[tableIndex]?.area !== areaName) continue;
+      const cell = s.report.tables[tableIndex].rows[Number(row)].values[job];
+      const current = material === 'TOTAL' ? cell.production : cell.materials[material];
+      const draftNum = value === '' ? null : Number(value);
+      if (draftNum !== current) count++;
+    }
+    return count;
+  }
+  function refreshManualSave() {
+    const btn = root().querySelector('[data-pd-action="save-manual"]');
+    const status = document.getElementById('pdManualSaveState');
+    const n = manualDirtyCount();
+    if (btn) { btn.disabled = s.busy || n === 0; btn.textContent = n ? `Simpan (${n})` : 'Simpan'; }
+    if (status) {
+      status.classList.toggle('is-dirty', n > 0);
+      status.textContent = n ? `Data belum disimpan · ${n} perubahan` : 'Tersimpan';
+    }
+  }
+  function onManualInput(event) {
+    const el = event.target;
+    if (!el.classList.contains('pd-manual-input')) return;
+    const id = manualKey(el.dataset.pdManualArea, Number(el.dataset.pdManualRow), el.dataset.pdManualJob, el.dataset.pdManualMaterial);
+    s.manualDraft[id] = el.value;
+    refreshManualRowTotal({ area: Number(el.dataset.pdManualArea), row: Number(el.dataset.pdManualRow) }, el.dataset.pdManualJob);
+    refreshManualSave(); renderTabs();
+  }
+  function manualSnapshotMatches(report, group) {
+    const actual = new Map((report?.manualOverrides || [])
+      .filter(row => row.area === group.area && row.jobCode === group.jobCode)
+      .map(row => [`${row.tanggal}|${row.shiftId}|${row.material}`, Number(row.value)]));
+    if (actual.size !== group.overrides.length) return false;
+    return group.overrides.every(row => actual.get(`${row.tanggal}|${row.shiftId}|${row.material}`) === Number(row.value));
+  }
+  function openManualSource(areaIndex, jobCode) {
+    const table = s.report.tables[areaIndex];
+    const job = s.report.jobs.find(j => j.jobCode === jobCode);
+    if (!table || !job) return;
+    const current = manualSource(areaIndex, jobCode);
+    const dialog = document.getElementById('pdDialog');
+    dialog.innerHTML = `<form id="pdManualSourceForm" data-area="${esc(table.area)}" data-job="${esc(jobCode)}"><h3>Sumber Data · ${esc(jobCode)} · ${esc(table.area)}</h3>
+      <p>Pilih sumber data untuk kolom <strong>${esc(jobCode)} · ${esc(job.jobDescription)}</strong> pada area <strong>${esc(table.area)}</strong>.</p>
+      <div class="pd-source-options">
+        <label class="pd-source-option"><input type="radio" name="pdSource" value="ritase" ${current === 'ritase' ? 'checked' : ''}>
+          <span><strong>Input Ritase</strong><small>Sumber default dari sistem (agregasi otomatis Input Ritase).</small></span></label>
+        <label class="pd-source-option"><input type="radio" name="pdSource" value="manual" ${current === 'manual' ? 'checked' : ''}>
+          <span><strong>Manual</strong><small>Ketik nilai produksi per tanggal/shift dan material. Kolom Total dijumlahkan otomatis.</small></span></label>
+      </div>
+      <p class="pd-source-note">Mode Manual menggantikan nilai Input Ritase pada rekap bulanan (TOTAL bulan dan fuel ratio). Setelah memilih Manual, ketik nilai pada tabel lalu klik <strong>Simpan</strong>.</p>
+      <p id="pdAllocationError" role="alert"></p>
+      <footer><button type="button" class="tombol" data-pd-action="close">Batal</button><button type="submit" class="tombol tombol--utama">Terapkan Sumber</button></footer></form>`;
+    dialog.showModal();
+  }
+  async function saveManualSource(event) {
+    event.preventDefault(); if (s.busy) return;
+    const form = event.target; const button = event.submitter; const error = document.getElementById('pdAllocationError'); error.textContent = '';
+    const source = form.querySelector('input[name="pdSource"]:checked')?.value;
+    const area = form.dataset.area; const jobCode = form.dataset.job;
+    if (!source) { error.textContent = 'Pilih sumber data terlebih dahulu.'; return; }
+    s.busy = true;
+    try {
+      await global.OMOSActionFeedback.run(button, async () => {
+        Array.from(form.elements).filter(el => el !== button).forEach(el => { el.disabled = true; });
+        await api('/production-data/manual-source', { method: 'PUT', body: JSON.stringify({
+          year: s.report.period.year, month: s.report.period.month, area, jobCode, source }) });
+      });
+      if (source === 'ritase') Object.keys(s.manualDraft).forEach(id => {
+        const [a, , j] = id.split('|');
+        const table = s.report?.tables[manualTableIndex(a)];
+        if (table && table.area === area && j === jobCode) delete s.manualDraft[id];
+      });
+      document.getElementById('pdDialog').close(); await load();
+      setStatus(`Sumber data ${jobCode} · ${area} diterapkan: ${source === 'manual' ? 'Manual' : 'Input Ritase'}.`);
+    } catch (errorValue) { error.textContent = errorValue.message; }
+    finally { s.busy = false; Array.from(form.elements).forEach(el => { el.disabled = false; }); }
+  }
+  async function saveManualValues(button) {
+    if (s.busy) return;
+    const changedGroups = new Map();
+    for (const [id] of Object.entries(s.manualDraft)) {
+      const [area, , job] = id.split('|');
+      const tableIndex = manualTableIndex(area);
+      if (tableIndex < 0 || manualSource(tableIndex, job) !== 'manual') continue;
+      const table = s.report.tables[tableIndex];
+      const k = `${table.area}|${job}`;
+      changedGroups.set(k, { tableIndex, area: table.area, jobCode: job });
+    }
+    const groups = [];
+    let invalidMessage = '';
+    for (const group of changedGroups.values()) {
+      const table = s.report.tables[group.tableIndex];
+      const job = s.report.jobs.find(item => item.jobCode === group.jobCode);
+      if (!job) continue;
+      const snapshot = new Map((s.report.manualOverrides || [])
+        .filter(row => row.area === group.area && row.jobCode === group.jobCode && row.material !== 'TOTAL')
+        .map(row => [`${row.tanggal}|${row.shiftId}|${row.material}`, { tanggal: row.tanggal, shiftId: row.shiftId, material: row.material, value: Number(row.value) }]));
+      Object.entries(s.manualDraft).forEach(([id, raw]) => {
+        const [areaSegment, rowSegment, jobCode, material] = id.split('|');
+        if (manualTableIndex(areaSegment) !== group.tableIndex || jobCode !== group.jobCode) return;
+        if (material === 'TOTAL') return;
+        const rowObj = table.rows[Number(rowSegment)];
+        if (!rowObj) return;
+        const key = `${rowObj.date}|${rowObj.shiftId}|${material}`;
+        if (raw === '') { snapshot.delete(key); return; }
+        const value = Number(raw);
+        if (!Number.isFinite(value) || value < 0) { invalidMessage = `Nilai ${group.jobCode} harus berupa angka nol atau lebih.`; return; }
+        snapshot.set(key, { tanggal: rowObj.date, shiftId: rowObj.shiftId, material, value });
+      });
+      const overrides = [...snapshot.values()];
+      groups.push({ ...group, overrides });
+    }
+    if (invalidMessage) { setStatus(invalidMessage, 'error'); return refreshManualSave(); }
+    if (!groups.length || manualDirtyCount() === 0) return refreshManualSave();
+    s.busy = true;
+    try {
+      await global.OMOSActionFeedback.run(button, async () => {
+        for (const { area, jobCode, overrides } of groups) {
+          const result = await api('/production-data/manual-source', { method: 'PUT', body: JSON.stringify({
+            year: s.report.period.year, month: s.report.period.month, area, jobCode, source: 'manual',
+            overrides }) });
+          if (!result?.saved || Number(result.overrides) !== overrides.length) {
+            throw new Error(`Server belum mengonfirmasi seluruh nilai manual ${jobCode} · ${area}. Draf tetap disimpan di layar.`);
+          }
+        }
+      });
+      const refreshed = await load({ preserveManualDraft: true });
+      if (!refreshed || groups.some(group => !manualSnapshotMatches(refreshed, group))) {
+        throw new Error('Verifikasi setelah simpan gagal. Draf tetap disimpan di layar; silakan coba lagi.');
+      }
+      s.manualDraft = {};
+      renderActiveTab();
+      setStatus('Perubahan data produksi manual tersimpan.');
+    } catch (error) { setStatus(error.message, 'error'); }
+    finally { s.busy = false; refreshManualSave(); }
+  }
   async function exportExcel() {
     const report = s.report; if (!report) return;
     const XLSX = await global.OMOSLoadLibrary('xlsx'); const book = XLSX.utils.book_new();
-    report.tables.filter(t => !s.selectedArea || t.area === s.selectedArea).forEach((table, index) => {
+    report.tables.filter(t => s.selectedArea !== 'fuel' && t.area === s.selectedArea).forEach((table, index) => {
       const top = ['Tanggal', 'Shift']; const second = ['', '']; const merges = [];
       const group = (name, labels) => { const start = top.length; top.push(name, ...labels.slice(1).map(() => '')); second.push(...labels); if (labels.length > 1) merges.push({ s: { r: 0, c: start }, e: { r: 0, c: top.length - 1 } }); };
       for (const job of report.jobs) group(job.jobCode, [...job.materials.map(m => `${m.name} (${m.unit})`), `Total (${job.unit})`, 'Jarak (km)']);
@@ -337,17 +592,24 @@
       sheet['!merges'] = merges; sheet['!cols'] = top.map((_, i) => ({ wch: i === top.length - 1 ? 60 : 18 }));
       XLSX.utils.book_append_sheet(book, sheet, `${index + 1} ${table.area}`.replace(/[\\/?*\[\]:]/g, ' ').slice(0, 31));
     });
+    if (s.selectedArea === 'fuel') {
+      const rows = [...report.queue, ...report.allocated].map(item => [item.tanggal, item.unit, item.liters,
+        item.allocations.length ? item.allocations.map(a => `${a.area} / ${a.jobCode}`).join('; ') : 'Menunggu alokasi', item.reason || item.mode || '']);
+      const sheet = XLSX.utils.aoa_to_sheet([['Tanggal','Unit','Fuel (L)','Tujuan','Status'], ...rows]);
+      sheet['!cols'] = [{wch:14},{wch:22},{wch:14},{wch:38},{wch:42}];
+      XLSX.utils.book_append_sheet(book, sheet, 'Alokasi Fuel');
+    }
     if (book.SheetNames.length) XLSX.writeFile(book, `OMOS_Data_Produksi_${report.period.year}_${String(report.period.month).padStart(2, '0')}.xlsx`);
   }
   function init() {
     if (!s.initialized) {
-      toolbar(); s.initialized = true;
+      toolbar(); s.selectedArea = global.sessionStorage?.getItem('omos.productionData.tab') || ''; s.initialized = true;
       root().addEventListener('change', event => {
         if (['pdYear', 'pdMonth'].includes(event.target.id)) load();
-        if (event.target.id === 'pdArea') { s.selectedArea = event.target.value; if (s.report) renderTables(); }
       });
       root().addEventListener('input', event => {
         if (s.busy) return;
+        if (event.target.classList.contains('pd-manual-input')) { onManualInput(event); return; }
         if (s.draft) {
           if (event.target.dataset.part != null) s.draft.parts[Number(event.target.dataset.part)][event.target.dataset.field] = event.target.value;
           if (event.target.id === 'pdReason') s.draft.reason = event.target.value;
@@ -387,6 +649,7 @@
       root().addEventListener('submit', event => {
         if (event.target.id === 'pdAllocationForm') save(event);
         if (event.target.id === 'pdRuleForm') saveRule(event);
+        if (event.target.id === 'pdManualSourceForm') saveManualSource(event);
       });
       document.getElementById('pdDialog').addEventListener('cancel', event => { if (s.busy) event.preventDefault(); });
       document.getElementById('pdDialog').addEventListener('close', () => {
@@ -396,10 +659,18 @@
         const button = event.target.closest('button'); if (!button || s.busy) return;
         try {
           if (button.dataset.pdAllocate) return openAllocation(button.dataset.pdAllocate);
+          if (button.dataset.pdFuelJob != null) {
+            s.fuelJobFilter = button.dataset.pdFuelJob === s.fuelJobFilter ? '' : button.dataset.pdFuelJob;
+            renderSummary(); renderQueue();
+            document.getElementById('pdQueue')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return;
+          }
+          if (button.dataset.pdTab) { s.selectedArea = button.dataset.pdTab; global.sessionStorage?.setItem('omos.productionData.tab', s.selectedArea); renderActiveTab(); return; }
           if (button.dataset.pdDetail) return detail(JSON.parse(button.dataset.pdDetail));
+          if (button.dataset.pdSource) return openManualSource(Number(button.dataset.pdSourceArea), button.dataset.pdSource);
           if (button.dataset.pdRemove != null && s.draft.parts.length > 1) { s.draft.parts.splice(Number(button.dataset.pdRemove), 1); return drawAllocation(); }
           switch (button.dataset.pdAction) {
             case 'reload': return load();
+            case 'save-manual': return saveManualValues(button);
             case 'close': document.getElementById('pdDialog').close(); document.getElementById('pdDialog').classList.remove('pd-dialog--wide'); s.draft = null; s.bulk = null; break;
             case 'quick-allocation': return openBulkAllocation();
             case 'rules': return openRules();
@@ -421,16 +692,35 @@
             case 'save-bulk': await runBulk(button, false); break;
             case 'add-part': if (s.draft.parts.length < 100) { s.draft.parts.push({ area: '', jobCode: '', liters: '' }); drawAllocation(); } break;
             case 'export': await exportExcel(); break;
-            case 'density': {
-              const p = s.report.period;
-              await global.OMOSActionFeedback.run(button, () => api('/production-data/density-snapshots', { method: 'POST', body: JSON.stringify({ year: p.year, month: p.month }) }));
-              await load(); break;
-            }
           }
         } catch (error) { setStatus(error.message, 'error'); }
       });
     }
     return load();
   }
-  global.ProductionData = { init };
+  async function openIssue({ code, year, month, area } = {}) {
+    if (!s.initialized) await init();
+    const yearInput = document.getElementById('pdYear');
+    const monthInput = document.getElementById('pdMonth');
+    if (yearInput && year) yearInput.value = String(year);
+    if (monthInput && month) monthInput.value = String(month);
+    s.selectedArea = code === 'FUEL_UNALLOCATED' ? 'fuel' : String(area || '');
+    await load();
+    await new Promise(resolve => global.requestAnimationFrame(resolve));
+    if (s.selectedArea && s.report?.areas.includes(s.selectedArea)) renderActiveTab();
+    let target;
+    if (code === 'FUEL_UNALLOCATED') target = document.getElementById('pdQueue');
+    else {
+      const pattern = code === 'MISSING_DENSITY' ? /density/i
+        : code === 'MISSING_DISTANCE' ? /jarak/i
+          : code === 'MANUAL_SOURCE_INCOMPLETE' ? /Produksi manual belum lengkap/i : null;
+      const note = pattern ? [...root().querySelectorAll('.pd-notes')].find(node => pattern.test(node.textContent || '')) : null;
+      target = note?.closest('tr') || document.getElementById('pdTables');
+    }
+    if (!target) return;
+    target.classList.add('pd-deeplink-focus');
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    global.setTimeout(() => target.classList.remove('pd-deeplink-focus'), 5000);
+  }
+  global.ProductionData = { init, openIssue };
 })(window);

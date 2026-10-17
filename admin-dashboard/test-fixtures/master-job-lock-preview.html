@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Preview Master JOB Terkunci</title>
+  <link rel="stylesheet" href="../style.css" />
+  <style>
+    body { padding: 28px; background: #f8fafc; color: #0f172a; }
+    .preview-card { max-width: 920px; background:#fff; border:1px solid #dbe5f1; border-radius:14px; padding:20px; }
+    .preview-card table { width:100%; border-collapse:collapse; }
+    .preview-card th, .preview-card td { padding:12px; border-bottom:1px solid #e2e8f0; text-align:left; }
+    .preview-card th { background:#f8fafc; font-size:12px; color:#475569; }
+    .preview-card input { box-sizing:border-box; }
+  </style>
+</head>
+<body>
+  <section class="preview-card" aria-label="Preview Master JOB">
+    <h2 style="margin:0;font-size:20px;">Master JOB</h2>
+    <p style="margin:4px 0 16px;color:#64748b;font-size:13px;">Kode sistem OB, CG, dan DW terkunci; deskripsi tetap dapat disesuaikan.</p>
+    <table>
+      <thead><tr><th>JOB</th><th>JOB DESC</th><th>AKSI</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><input class="input-filter" value="OB" readonly aria-readonly="true" style="background:#eef2ff;color:#3730a3;font-weight:800;" /></td>
+          <td><input class="input-filter" value="Overburden Removal" /></td>
+          <td><button class="tombol tombol--kecil">Simpan</button> <span class="standby-system-lock">🔒 Kode sistem</span></td>
+        </tr>
+        <tr>
+          <td><input class="input-filter" value="CG" readonly aria-readonly="true" style="background:#eef2ff;color:#3730a3;font-weight:800;" /></td>
+          <td><input class="input-filter" value="Coal Getting" /></td>
+          <td><button class="tombol tombol--kecil">Simpan</button> <span class="standby-system-lock">🔒 Kode sistem</span></td>
+        </tr>
+        <tr>
+          <td><input class="input-filter" value="DW" readonly aria-readonly="true" style="background:#eef2ff;color:#3730a3;font-weight:800;" /></td>
+          <td><input class="input-filter" value="Dewatering" /></td>
+          <td><button class="tombol tombol--kecil">Simpan</button> <span class="standby-system-lock">🔒 Kode sistem</span></td>
+        </tr>
+        <tr>
+          <td><input class="input-filter" value="FOT" style="font-weight:800;" /></td>
+          <td><input class="input-filter" value="Fuel Overburden Transport" /></td>
+          <td><button class="tombol tombol--kecil">Simpan</button> <button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;">Hapus</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</body>
+</html>

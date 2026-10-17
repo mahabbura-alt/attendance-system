@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview Delegator Departemen</title>
+<link rel="stylesheet" href="../hse.css">
+<style>body{margin:0;padding:16px;background:var(--hse-surface-0,#f9f9f7);font-family:system-ui,sans-serif}</style>
+</head>
+<body>
+<!-- Fixture lokal (API tiruan) untuk review visual tab Setup Master → Delegator Departemen. -->
+<div class="hse-root" id="root"></div>
+<script>
+  window.OMOSActionFeedback = { run: async (btn, task) => { btn.disabled = true; try { return await task(); } finally { btn.disabled = false; } } };
+</script>
+<script src="../hse-delegators.js"></script>
+<script>
+  const rows = [
+    { department_id: 'd1', department_name: 'Produksi', delegator_user_id: 'u3', delegator_name: 'Dedi Superintendent', delegator_jabatan: 'Superintendent Produksi', backup_user_id: 'u2', backup_name: 'Pita Foreman', valid_from: '2026-10-14', valid_to: null, open_pic_actions: 4 },
+    { department_id: 'd2', department_name: 'Engineering', delegator_user_id: null, open_pic_actions: 2 },
+    { department_id: 'd3', department_name: 'HSE', delegator_user_id: null, open_pic_actions: 0 },
+    { department_id: 'd4', department_name: 'Plant / Maintenance', delegator_user_id: 'u7', delegator_name: 'Bayu Plant', delegator_jabatan: 'Plant Manager', valid_from: '2026-10-01', valid_to: '2026-12-31', open_pic_actions: 1 },
+  ];
+  const employees = [
+    { id: 'u2', nama: 'Pita Foreman', departemen: 'Produksi', jabatan: 'Foreman Produksi' },
+    { id: 'u3', nama: 'Dedi Superintendent', departemen: 'Produksi', jabatan: 'Superintendent Produksi' },
+    { id: 'u5', nama: 'Eko Engineer', departemen: 'Engineering', jabatan: 'Engineer' },
+    { id: 'u6', nama: 'Eva Manager', departemen: 'Engineering', jabatan: 'Engineering Manager' },
+  ];
+  async function api(path, opts = {}) {
+    await new Promise(r => setTimeout(r, 300));
+    if (path === '/delegators' && !opts.method) return rows;
+    if (path === '/masters') return { employees };
+    if (opts.method === 'PUT') {
+      const id = decodeURIComponent(path.split('/').pop());
+      const r = rows.find(x => x.department_id === id);
+      const e = employees.find(x => x.id === opts.body.delegator_user_id);
+      Object.assign(r, { delegator_user_id: e.id, delegator_name: e.nama, delegator_jabatan: e.jabatan, valid_from: opts.body.valid_from });
+      return r;
+    }
+    if (opts.method === 'DELETE') {
+      const r = rows.find(x => x.department_id === decodeURIComponent(path.split('/').pop()));
+      Object.assign(r, { delegator_user_id: null, delegator_name: null });
+      return { ok: true };
+    }
+    throw new Error('tidak dikenal');
+  }
+  const root = document.getElementById('root');
+  const render = () => { root.innerHTML = window.OMOSHseDelegators.renderSetup(); window.OMOSHseDelegators.bindSetup(root, { api, rerender: render }); };
+  window.OMOSHseDelegators.loadSetup(api).then(render);
+</script>
+</body>
+</html>

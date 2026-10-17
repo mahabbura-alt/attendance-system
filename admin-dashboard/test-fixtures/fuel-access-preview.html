@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Akses Fuel — Preview (API tiruan)</title>
+  <!-- Fixture visual panel Akses Fuel & ID equipment dengan fetch tiruan. Tidak memanggil server. -->
+  <link rel="stylesheet" href="../style.css" />
+  <style>body{padding:20px;background:#f1f5f9;font-family:Inter,system-ui,sans-serif}.bar{display:flex;gap:8px;flex-wrap:wrap}</style>
+</head>
+<body>
+  <div class="bar">
+    <button class="tombol" onclick="FuelAccessUi.open('validasi')">Validasi APK</button>
+    <button class="tombol" onclick="FuelAccessUi.open('shift')">Tutup shift</button>
+    <button class="tombol" onclick="FuelAccessUi.open('akun')">Akun</button>
+    <button class="tombol" onclick="FuelAccessUi.open('perangkat')">Perangkat</button>
+    <button class="tombol" onclick="FuelAccessUi.open('lokasi')">Lokasi & label</button>
+    <button class="tombol" onclick="FuelAccessUi.open('pengaturan')">Pengaturan</button>
+    <button class="tombol" onclick="FuelAccessUi.openEquipmentId('eq-1')">ID unit HD-012</button>
+  </div>
+  <div id="modalOverlay" class="modal-overlay" hidden><div class="modal" id="modalKonten"></div></div>
+
+  <script>
+    const QR = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"><rect width="21" height="21" fill="#fff"/><path d="M1 1h7v7H1zM13 1h7v7h-7zM1 13h7v7H1zM10 10h2v2h-2zM14 14h3v3h-3zM10 2h2v4h-2zM2 10h4v2H2z" fill="#000"/></svg>';
+    const L1 = 'a1111111-1111-4111-8111-111111111111', L2 = 'a2222222-2222-4222-8222-222222222222';
+    const data = {
+      '/api/admin/production/fuel-inventory/locations': [{ id: L1, location_code: 'FT-BEI', storage_type: 'tank' }, { id: L2, location_code: 'FTR-01', storage_type: 'fuel_truck' }],
+      '/api/admin/fuel-access/pending-validations': [
+        { id: 't1', kind: 'receipt', transaction_type: 'receipt', transaction_number: 'FI-20261017-0213', document_number: 'DO-88213', supplier_reference: 'PT Patra Niaga', destination_code: 'FT-BEI', quantity_liter: 16000, attachment_count: 3, mobile_flags: [], created_by_nama: 'Rudi', device_code: 'DV-4Q8TXA', created_at: '2026-10-17T07:22:00Z' },
+        { id: 't2', kind: 'transfer', transaction_type: 'transfer_out', transfer_group_id: 'g1', transaction_number: 'FI-20261017-0214', document_number: null, reason: 'TRF-0414', source_code: 'FT-BEI', transfer_to_code: 'FTR-01', quantity_liter: 12000, attachment_count: 2, mobile_flags: ['late_entry'], created_by_nama: 'Andi', device_code: 'DV-NXC5YE', created_at: '2026-10-17T03:07:00Z' },
+        { id: 't3', kind: 'issue_short', transaction_type: 'issue_equipment', transaction_number: 'FI-20261017-0220', source_code: 'FTR-01', kode_alat: 'HD-031', quantity_liter: 610, attachment_count: 0, mobile_flags: ['ledger_stock_short'], created_by_nama: 'Andi', device_code: 'DV-NXC5YE', created_at: '2026-10-16T22:58:00Z' },
+      ],
+      '/api/admin/fuel-access/shift-sessions': [
+        { id: 's1', operational_date: '2026-10-16', nama_shift: 'Shift Malam', location_code: 'FTR-01', opened_by_nama: 'Andi', closed_by_nama: 'Andi', totalizer_open: 1284530, totalizer_close: 1292680, meter_delta_liter: 8150, recorded_out_liter: 8060, variance_liter: 90, variance_pct: 1.104, threshold_liter: 40.75, status: 'investigation', close_reason: '1 pengisian LV belum dicatat' },
+      ],
+      '/api/admin/fuel-access/accounts': [
+        { user_id: 'u1', nama: 'Andi Saputra', employee_id: 'PIM-02117', jabatan: 'Fuelman', allowed_functions: ['fill', 'transfer', 'shift'], allowed_location_ids: [L2], is_active: true, must_change_pin: false, last_device_code: 'DV-NXC5YE', last_seen_at: '2026-10-17T00:40:00Z' },
+        { user_id: 'u2', nama: 'Rudi Hartono', employee_id: 'PIM-01990', jabatan: 'Admin Gudang', allowed_functions: ['receipt', 'opname'], allowed_location_ids: [L1], is_active: true, must_change_pin: true, locked_at: null },
+        { user_id: 'u3', nama: 'Joko Prasetyo', employee_id: 'PIM-02240', jabatan: 'Fuelman', allowed_functions: ['fill'], allowed_location_ids: [], is_active: true, locked_at: '2026-10-16T10:00:00Z' },
+      ],
+      '/api/admin/fuel-access/candidates': [{ id: 'c1', nama: 'Sapto Wibowo', employee_id: 'PIM-02301', jabatan: 'Fuelman' }],
+      '/api/admin/fuel-access/devices': [
+        { id: 'd1', device_code: 'DV-4Q8TXA', device_name: 'Samsung A15', model: 'SM-A155F', app_version: '1.0.0', status: 'pending', registered_by_nama: 'Sapto', created_at: '2026-10-17T05:00:00Z' },
+        { id: 'd2', device_code: 'DV-NXC5YE', device_name: 'Redmi 13', model: '23129RN51X', app_version: '1.0.0', status: 'approved', registered_by_nama: 'Andi', last_user_nama: 'Andi', last_seen_at: '2026-10-17T00:40:00Z' },
+      ],
+      '/api/admin/fuel-access/settings': { hm_gap_tolerance_hours: 1, totalizer_tolerance_pct: 0.5, totalizer_tolerance_liter: 20, late_entry_grace_hours: 2, offline_pin_days: 7, pin_max_attempts: 5 },
+      '/api/admin/fuel-access/labels': [
+        { id: L1, kode: 'FT-BEI', nama: 'Fuel tank utama', kelas: 'tank', scan_id: 'LOC-2M8VXA', qr_payload: 'OMOS:LOC:LOC-2M8VXA', qr_svg: QR },
+      ],
+    };
+    window.fetch = async (url, opts = {}) => {
+      const path = String(url).split('?')[0];
+      let body = data[path];
+      if (path.endsWith('/labels') && String(url).includes('target_type=equipment')) {
+        body = [{ id: 'eq-1', kode: 'HD-012', nama: 'HD785-7', kelas: 'Dump Truck', class_unit: 'HD785', scan_id: 'EQ-7K3M9Q', qr_payload: 'OMOS:EQ:EQ-7K3M9Q', qr_svg: QR }];
+      }
+      if (opts.method && opts.method !== 'GET') body = { ok: true, temp_pin: '482915' };
+      if (body === undefined) body = [];
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    // eslint-disable-next-line no-unused-vars
+    let masterProdData = { equipment: [{ id: 'eq-1', kode_alat: 'HD-012', fuel_tank_capacity_liter: 1100 }] };
+  </script>
+  <script src="../ui-action-feedback.js"></script>
+  <script src="../fuelEvidence.ui.js"></script>
+  <script src="../fuelAccess.ui.js"></script>
+  <script>FuelAccessUi.open('validasi');</script>
+</body>
+</html>

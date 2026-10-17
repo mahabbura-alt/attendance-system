@@ -1,11 +1,15 @@
 const bcrypt = require('bcrypt');
 const { pool } = require('../config/db');
-const { uploadFoto, getUrlFoto, hapusFoto } = require('../services/storage');
-const { daftarkanWajahReferensi, hapusSubjectWajah } = require('../services/compreface');
+const { uploadFoto, getUrlFoto } = require('../services/storage');
+const { daftarkanWajahReferensi, cariWajahSerupa } = require('../services/compreface');
+const People = require('../services/peopleEmployees');
+const { kirimEmailUndangan } = require('../services/email');
 const {
   ensureEmployeeIdAvailable,
   isEmployeeIdUniqueViolation,
 } = require('../services/employeeIdentity');
+const Workforce = require('../services/workforce');
+const { generateTemporaryPassword, ensurePasswordResetSchema } = require('../services/passwordReset');
 
 /** GET /api/admin/karyawan — daftar semua karyawan (tanpa password) */
 async function daftarKaryawan(req, res, next) {
@@ -36,52 +40,32 @@ async function daftarKaryawan(req, res, next) {
 }
 
 /**
- * POST /api/admin/karyawan
- * body: { employee_id, nama, email, password, shift_id, lokasi_kantor_id }
- * Membuat akun karyawan baru oleh Admin.
+ * POST /api/admin/karyawan — kompatibilitas: diteruskan ke People v2
+ * (satu-satunya pintu tambah karyawan; jabatan harus dari master, NRP otomatis).
+ * Bentuk lama { employee_id, jabatan, departemen, lokasi_kantor_id } diterjemahkan.
  */
 async function buatKaryawan(req, res, next) {
   try {
-    const { employee_id, nama, email, password, jabatan, departemen, shift_id, lokasi_kantor_id } = req.body;
-
-    if (!nama || !email || !password) {
-      return res.status(400).json({
-        error: 'nama, email, dan password wajib diisi',
-      });
+    const body = req.body || {};
+    const input = {
+      ...body,
+      nrp: body.nrp || body.employee_id || null,
+      department: body.department || body.departemen,
+      position: body.position || body.jabatan,
+      lokasi_ids: body.lokasi_ids || (body.lokasi_kantor_id ? [body.lokasi_kantor_id] : []),
+    };
+    const result = await People.createEmployee(pool, Workforce.scopeFromUser(req.user), req.user, input, { source: 'UI' });
+    if (result.invite) {
+      await kirimEmailUndangan(result.invite.email, result.invite.nama, result.invite.token, { nrp: result.nrp })
+        .catch(e => console.warn('[People] Gagal kirim undangan:', e.message));
     }
-
-    const isUuid = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-    // Lokasi kantor bersifat opsional saat pembuatan akun; dapat ditetapkan kemudian.
-    const cleanLokasiId = isUuid(lokasi_kantor_id) ? lokasi_kantor_id : null;
-
-    const normalizedEmployeeId = await ensureEmployeeIdAvailable(pool, employee_id);
-    const passwordHash = await bcrypt.hash(password, 12);
-
-    const { rows } = await pool.query(
-      `INSERT INTO users (employee_id, nama, email, password_hash, role, jabatan, departemen, shift_id, lokasi_kantor_id)
-       VALUES ($1, $2, $3, $4, 'karyawan', $5, $6, $7, $8)
-       RETURNING id, employee_id, nama, email, role, jabatan, departemen, shift_id, lokasi_kantor_id, created_at`,
-      [normalizedEmployeeId, nama, email, passwordHash, jabatan || null, departemen || null, shift_id || null, cleanLokasiId]
-    );
-
-    // Audit Log
-    const logText = `${req.user?.nama || 'Admin Utama'} - [DB KARYAWAN] Menambah karyawan baru "${nama}" (${email}), NRP: ${employee_id || '-'}, Jabatan: ${jabatan || '-'}`;
-    await pool.query(
-      `INSERT INTO audit_log (admin_id, absensi_id, alasan, data_sesudah) VALUES ($1, NULL, $2, $3)`,
-      [req.user?.id || null, logText, JSON.stringify({ employee_id, nama, email, jabatan, departemen })]
-    ).catch(e => console.warn('Gagal simpan audit log karyawan:', e.message));
-
     res.status(201).json({
       message: 'Karyawan berhasil dibuat. Selanjutnya upload foto referensi wajahnya.',
-      karyawan: rows[0],
+      karyawan: { id: result.user_id, employee_id: result.nrp, email: result.email },
     });
   } catch (err) {
-    if (isEmployeeIdUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Employee ID sudah digunakan oleh karyawan lain' });
-    }
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'Email sudah terdaftar' });
-    }
+    if (err.statusCode && err.statusCode < 500) return res.status(err.statusCode).json({ error: err.message, code: err.code });
+    if (err.code === '23505') return res.status(409).json({ error: 'Email atau NRP sudah terdaftar' });
     next(err);
   }
 }
@@ -115,6 +99,24 @@ async function uploadFotoReferensi(req, res, next) {
 
     const subject = id; // pakai user.id sebagai subject id CompreFace, konsisten & unik
 
+    // 0. Cegah satu orang punya dua akun: cari wajah serupa milik karyawan aktif lain.
+    const allowDuplicate = String(req.body?.allow_duplicate || req.query?.allow_duplicate || '') === 'true';
+    const mirip = await cariWajahSerupa(req.file.buffer);
+    const lain = (mirip || []).filter(m => m.subject && m.subject !== subject);
+    if (lain.length) {
+      const { rows: pemilik } = await pool.query(
+        `SELECT id, nama, employee_id FROM users WHERE id::text = ANY($1) AND is_active = TRUE`,
+        [lain.map(m => m.subject)]
+      );
+      if (pemilik.length && !allowDuplicate) {
+        return res.status(409).json({
+          code: 'FACE_DUPLICATE',
+          error: `Wajah ini mirip dengan karyawan aktif: ${pemilik.map(p => `${p.nama}${p.employee_id ? ` (${p.employee_id})` : ''}`).join(', ')}. Pastikan bukan akun ganda.`,
+          matches: pemilik.map(p => ({ id: p.id, nama: p.nama, nrp: p.employee_id })),
+        });
+      }
+    }
+
     // 1. Daftarkan wajah ke CompreFace
     await daftarkanWajahReferensi(req.file.buffer, subject);
 
@@ -138,6 +140,12 @@ async function updateKaryawan(req, res, next) {
   try {
     const { id } = req.params;
     const { employee_id, nama, email, password, jabatan, departemen, shift_id, lokasi_kantor_id, is_active } = req.body;
+    if (jabatan !== undefined || departemen !== undefined || is_active !== undefined) {
+      return res.status(409).json({
+        code: 'WORKFORCE_MOVEMENT_REQUIRED',
+        error: 'Jabatan, departemen, dan status aktif hanya dapat diubah melalui Pergerakan Karyawan.',
+      });
+    }
     const updates = [];
     const values = [];
     const add = (column, value) => {
@@ -156,18 +164,12 @@ async function updateKaryawan(req, res, next) {
       if (typeof email !== 'string' || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Email tidak valid' });
       add('email', email.trim().toLowerCase());
     }
-    if (jabatan !== undefined) add('jabatan', jabatan ? jabatan.trim() : null);
-    if (departemen !== undefined) add('departemen', departemen ? departemen.trim() : null);
     if (password !== undefined) {
       if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password minimal 8 karakter' });
       add('password_hash', await bcrypt.hash(password, 12));
     }
     if (shift_id !== undefined) add('shift_id', shift_id);
     if (lokasi_kantor_id !== undefined) add('lokasi_kantor_id', lokasi_kantor_id);
-    if (is_active !== undefined) {
-      if (typeof is_active !== 'boolean') return res.status(400).json({ error: 'is_active harus bernilai true atau false' });
-      add('is_active', is_active);
-    }
     if (!updates.length) return res.status(400).json({ error: 'Tidak ada perubahan yang dikirim' });
 
     values.push(id);
@@ -197,125 +199,15 @@ async function updateKaryawan(req, res, next) {
   }
 }
 
-/** DELETE /api/admin/karyawan/:id — Menghapus data karyawan secara permanen & bersih beserta seluruh data turunannya. */
-async function hapusKaryawan(req, res, next) {
-  const client = await pool.connect();
-  try {
-    const { id } = req.params;
-
-    // 1. Cari data karyawan
-    const { rows } = await client.query(
-      `SELECT id, employee_id, nama, email, compreface_subject, foto_referensi_url FROM users WHERE id = $1 AND role = 'karyawan'`,
-      [id]
-    );
-
-    const user = rows[0];
-    if (!user) {
-      client.release();
-      return res.status(404).json({ error: 'Karyawan tidak ditemukan' });
-    }
-
-    // 2. Hapus subject dari CompreFace (jika terdaftar)
-    if (user.compreface_subject) {
-      await hapusSubjectWajah(user.compreface_subject).catch(e => console.warn('[CompreFace Delete Warning]:', e.message));
-    }
-
-    // 3. Cari & hapus file foto dari Supabase Storage (foto_referensi, foto absensi, foto registrasi_pending)
-    const photosToDelete = [];
-    if (user.foto_referensi_url) {
-      photosToDelete.push(user.foto_referensi_url);
-    }
-
-    // Cari foto absensi karyawan ini
-    const { rows: absensiPhotos } = await client.query(
-      `SELECT foto_datang_url, foto_pulang_url FROM absensi WHERE user_id = $1`,
-      [id]
-    );
-    absensiPhotos.forEach((a) => {
-      if (a.foto_datang_url) photosToDelete.push(a.foto_datang_url);
-      if (a.foto_pulang_url) photosToDelete.push(a.foto_pulang_url);
-    });
-
-    // Cari foto registrasi_pending dengan email sama
-    const { rows: regPhotos } = await client.query(
-      `SELECT foto_referensi_1_url, foto_referensi_2_url, foto_referensi_3_url FROM registrasi_pending WHERE email = $1`,
-      [user.email]
-    );
-    regPhotos.forEach((r) => {
-      if (r.foto_referensi_1_url) photosToDelete.push(r.foto_referensi_1_url);
-      if (r.foto_referensi_2_url) photosToDelete.push(r.foto_referensi_2_url);
-      if (r.foto_referensi_3_url) photosToDelete.push(r.foto_referensi_3_url);
-    });
-
-    // Hapus file foto dari Supabase Storage
-    for (const photoKey of photosToDelete) {
-      try {
-        await hapusFoto(photoKey);
-      } catch (e) {
-        console.warn(`[Delete Storage Fallback] Gagal hapus foto ${photoKey}:`, e.message);
-      }
-    }
-
-    // 4. Hapus data dari Database PostgreSQL secara transactional (termasuk seluruh data turunan)
-    await client.query('BEGIN');
-
-    // Hapus audit_log turunan absensi
-    await client.query(
-      `DELETE FROM audit_log WHERE absensi_id IN (SELECT id FROM absensi WHERE user_id = $1)`,
-      [id]
-    );
-
-    // Hapus absensi
-    await client.query(`DELETE FROM absensi WHERE user_id = $1`, [id]);
-
-    // Hapus keterangan_presensi
-    await client.query(`DELETE FROM keterangan_presensi WHERE user_id = $1`, [id]);
-
-    // Hapus password_reset_tokens
-    await client.query(`DELETE FROM password_reset_tokens WHERE user_id = $1`, [id]);
-
-    // Hapus registrasi_pending yang terkait dengan email karyawan ini
-    await client.query(`DELETE FROM registrasi_pending WHERE email = $1`, [user.email]);
-
-    // Hapus database_hm terkait (by user_id or employee_id)
-    if (user.employee_id) {
-      await client.query(`DELETE FROM database_hm WHERE user_id = $1 OR employee_id = $2`, [id, user.employee_id]);
-    } else {
-      await client.query(`DELETE FROM database_hm WHERE user_id = $1`, [id]);
-    }
-
-    // Hapus database payroll terkait (by employee_id or nama_karyawan)
-    if (user.employee_id) {
-      await client.query(`DELETE FROM payroll WHERE employee_id = $1 OR LOWER(nama_karyawan) = LOWER($2)`, [user.employee_id, user.nama]);
-    } else {
-      await client.query(`DELETE FROM payroll WHERE LOWER(nama_karyawan) = LOWER($1)`, [user.nama]);
-    }
-
-    // Hapus user
-    await client.query(`DELETE FROM users WHERE id = $1`, [id]);
-
-    await client.query('COMMIT');
-    client.release();
-
-    // Log Audit Hapus Karyawan
-    let adminId = req.user?.id || null;
-    if (adminId) {
-      const adminCheck = await pool.query(`SELECT id FROM users WHERE id = $1`, [adminId]);
-      if (!adminCheck.rows.length) adminId = null;
-    }
-
-    const logText = `${req.user?.nama || 'Admin Utama'} - [DB KARYAWAN] Menghapus permanen karyawan "${user.nama}" (${user.email}), NRP: ${user.employee_id || '-'}`;
-    await pool.query(
-      `INSERT INTO audit_log (admin_id, absensi_id, alasan, data_sebelum) VALUES ($1, NULL, $2, $3)`,
-      [adminId, logText, JSON.stringify({ id: user.id, nama: user.nama, email: user.email, employee_id: user.employee_id })]
-    ).catch(e => console.warn('Gagal simpan audit log hapus karyawan:', e.message));
-
-    res.json({ message: `Data karyawan ${user.nama} (Email: ${user.email}) beserta seluruh data turunannya berhasil dihapus permanen` });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    client.release();
-    next(err);
-  }
+/**
+ * DELETE /api/admin/karyawan/:id — hapus permanen DIHENTIKAN (People v2).
+ * Salah input sebelum ada transaksi → Void; karyawan keluar → Pergerakan Keluar.
+ */
+async function hapusKaryawan(req, res) {
+  return res.status(410).json({
+    code: 'EMPLOYEE_DELETE_REMOVED',
+    error: 'Hapus permanen tidak tersedia lagi. Gunakan Void (salah input, belum ada transaksi) atau Pergerakan Keluar.',
+  });
 }
 
 /** GET /api/admin/karyawan/audit-log — Audit log perubahan database karyawan */
@@ -335,4 +227,83 @@ async function daftarAuditLogKaryawan(req, res, next) {
   }
 }
 
-module.exports = { daftarKaryawan, buatKaryawan, uploadFotoReferensi, updateKaryawan, hapusKaryawan, daftarAuditLogKaryawan };
+/** GET /api/admin/karyawan/reset-requests — permintaan reset sandi yang menunggu admin */
+async function daftarPermintaanReset(req, res, next) {
+  try {
+    await ensurePasswordResetSchema(pool);
+    const { rows } = await pool.query(
+      `SELECT r.id, r.user_id, r.source, r.requested_at,
+              u.employee_id, u.nama, u.jabatan, u.departemen
+       FROM password_reset_requests r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.status = 'pending' AND u.is_active = TRUE
+       ORDER BY r.requested_at ASC`
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/admin/karyawan/:id/reset-password — admin membuat sandi sementara.
+ * Sandi sementara hanya dikembalikan sekali di respons ini (tidak disimpan/di-log)
+ * dan karyawan wajib menggantinya setelah login.
+ */
+async function resetPasswordKaryawan(req, res, next) {
+  const client = await pool.connect();
+  try {
+    await ensurePasswordResetSchema(pool);
+    const tempPassword = generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `UPDATE users SET password_hash = $1, must_change_password = TRUE
+       WHERE id = $2 AND role = 'karyawan' AND is_active = TRUE
+       RETURNING id, employee_id, nama`,
+      [passwordHash, req.params.id]
+    );
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Karyawan aktif tidak ditemukan' });
+    }
+    await client.query(
+      `UPDATE password_reset_requests
+       SET status = 'done', handled_by = $2, handled_at = now()
+       WHERE user_id = $1 AND status = 'pending'`,
+      [rows[0].id, req.user?.id || null]
+    );
+    await client.query(
+      `INSERT INTO audit_log (admin_id, absensi_id, alasan, data_sesudah) VALUES ($1, NULL, $2, $3)`,
+      [
+        req.user?.id || null,
+        `${req.user?.nama || 'Admin'} - [DB KARYAWAN] Reset sandi karyawan "${rows[0].nama}", NRP: ${rows[0].employee_id || '-'}`,
+        JSON.stringify({ id: rows[0].id, employee_id: rows[0].employee_id, must_change_password: true }),
+      ]
+    );
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Sandi sementara dibuat. Sampaikan langsung ke karyawan; karyawan wajib menggantinya setelah login.',
+      karyawan: rows[0],
+      temp_password: tempPassword,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = {
+  daftarKaryawan,
+  buatKaryawan,
+  uploadFotoReferensi,
+  updateKaryawan,
+  hapusKaryawan,
+  daftarAuditLogKaryawan,
+  daftarPermintaanReset,
+  resetPasswordKaryawan,
+};

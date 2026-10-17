@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Input Data Flat Table Preview</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    body{margin:0;background:#f6f5f2;color:#0f172a;font-family:Arial,sans-serif}
+    main{max-width:1500px;margin:auto;padding:28px}
+    .preview-card{padding:16px;background:#fff;border:1px solid #dbe4ef;border-radius:12px}
+    .preview-title{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+    .preview-title h2{margin:0;font-size:22px}.preview-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.preview-counter{padding:5px 10px;border-radius:999px;background:#e2e8f0;font-size:12px;font-weight:700}.preview-status{font-size:11px;font-weight:800;color:#15803d}
+    .tabel-wrap{overflow:auto;max-height:650px}.prod-input-table{min-width:1380px}
+  </style>
+</head>
+<body>
+<main id="tab-prodInputData">
+  <div class="preview-title"><div><h2>📝 Input Data Produksi (Daily Work Log)</h2><p style="margin:4px 0 0;color:#64748b;font-size:12px">Baris baru diisi langsung pada tabel lalu disimpan bersama perubahan lainnya.</p></div><div class="preview-actions"><span id="counter" class="preview-counter">Total Work Log: 3</span><button id="save" class="tombol" disabled style="background:#0f766e;color:#fff;border-color:#0f766e">Simpan Perubahan</button><span id="status" class="preview-status">Tersimpan</span><button id="insert" class="tombol tombol--utama">+ Insert Data</button></div></div>
+  <div class="preview-card">
+    <div class="tabel-wrap tabel-wrap-sticky">
+      <table class="tabel tabel-sticky prod-input-table">
+        <thead><tr><th rowspan="2">Tanggal</th><th rowspan="2">Shift</th><th rowspan="2">Kode Unit</th><th rowspan="2">Class</th><th rowspan="2">Operator</th><th rowspan="2">PIT / Area</th><th colspan="3" class="prod-input-hm-group">HM</th><th rowspan="2">JOB</th><th rowspan="2">Job Description</th></tr><tr><th>Start</th><th>Akhir</th><th>Total</th></tr></thead>
+        <tbody id="rows">
+          <tr data-input-log-row><td><input type="date" value="2026-09-24"></td><td><select><option>Siang</option></select></td><td><select><option>DT30 130 (6-92)</option></select></td><td><select><option>DT 30 T</option></select></td><td><select><option>Andri Handani — Driver DT</option></select></td><td><select><option>BEI</option></select></td><td><input type="number" value="6201.70"></td><td><input type="number" value="6208.40"></td><td><input type="number" value="6.70" readonly></td><td><select><option>OB — Overburden Removal</option></select></td><td><input value="Overburden Removal"></td></tr>
+          <tr data-input-log-row><td><input type="date" value="2026-09-24"></td><td><select><option>Siang</option></select></td><td><select><option>DT30 130 (6-92)</option></select></td><td><select><option>DT 30 T</option></select></td><td><select><option>Agus Erdi — Driver DT</option></select></td><td><select><option>DKC</option></select></td><td><input type="number" value="6208.40"></td><td><input type="number" value="6210.20"></td><td><input type="number" value="1.80" readonly></td><td><select><option>CG — Coal Getting</option></select></td><td><input value="Coal Getting"></td></tr>
+          <tr data-input-log-row><td><input type="date" value="2026-09-24"></td><td><select><option>Siang</option></select></td><td><select><option>EX30 350-15</option></select></td><td><select><option>EX 30 T</option></select></td><td><select><option>M Salim — Operator</option></select></td><td><select><option>BEI</option></select></td><td><input type="number" value="9062.80"></td><td><input type="number" value="9063.60"></td><td><input type="number" value="0.80" readonly></td><td><select><option>OB — Overburden Removal</option></select></td><td><input value="Overburden Removal"></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<script>
+window.__previewErrors=[];window.addEventListener('error',event=>window.__previewErrors.push(event.message));
+const rows=document.getElementById('rows'),save=document.getElementById('save'),status=document.getElementById('status'),counter=document.getElementById('counter');
+const previousDay=()=>{const value=new Date();value.setDate(value.getDate()-1);return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`};
+document.getElementById('insert').addEventListener('click',()=>{const row=document.createElement('tr');row.dataset.inputLogRow='';row.dataset.inputLogNew='true';row.dataset.saveState='dirty';row.innerHTML=`<td><input type="date" value="${previousDay()}"></td><td><select><option value="">Pilih Shift</option><option>Siang</option><option>Malam</option></select></td><td><select><option>Pilih Kode Unit</option></select></td><td><select><option>Semua Class</option></select></td><td><select><option>Pilih Operator / Driver DT</option></select></td><td><select><option>Pilih PIT / Area</option></select></td><td><input type="number" placeholder="HM Start"></td><td><input type="number" placeholder="HM Akhir"></td><td><input type="number" readonly></td><td><select><option>Pilih JOB</option></select></td><td><input placeholder="Job Description"></td>`;rows.prepend(row);save.disabled=false;save.textContent='Simpan Perubahan (1)';status.textContent='Data belum disimpan · 1 baris';status.style.color='#b45309';counter.textContent=`Total Work Log: ${rows.children.length}`;row.querySelector('select').focus();});
+</script>
+</body>
+</html>

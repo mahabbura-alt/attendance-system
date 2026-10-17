@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Survey Report Preview</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>body{margin:0;background:#f8fafc;font:14px system-ui,sans-serif;color:#172033}.preview{max-width:1480px;margin:24px auto;padding:0 20px}.preview>header{margin-bottom:16px}.preview h1{margin:0;font-size:24px}.preview p{color:#64748b}.tombol{border:0;border-radius:8px;padding:9px 14px;font-weight:800;cursor:pointer}.tombol--utama{background:#0f766e;color:#fff}.tombol--ghost{background:#fff;border:1px solid #cbd5e1}.input-filter{height:34px;border:1px solid #cbd5e1;border-radius:7px;padding:0 8px;background:#fff}</style>
+</head>
+<body>
+  <main class="preview">
+    <header><h1>Survey Report</h1><p>Preview struktur tabel PIT dan material produksi.</p></header>
+    <div id="surveyReportRoot"></div>
+  </main>
+  <script>
+    window.getProdApiUrl = path => path;
+    window.getProdAuthHeaders = () => ({});
+    const main = {
+      year: 2026, month: 10,
+      pits: ['BEI', 'DKC'],
+      jobs: [
+        { jobCode: 'OB', productionMode: 'prod', materialType: 'ob' },
+        { jobCode: 'CG', productionMode: 'prod', materialType: 'coal' },
+        { jobCode: 'FOT', productionMode: 'prod', materialType: 'coal' }
+      ],
+      materials: { ob: ['CLAY', 'TOP SOIL'], coal: ['SEAM 1', 'SEAM 3'] },
+      volumes: [
+        { tanggal:'2026-10-01', pit_area:'BEI', planning_type:'ob', material:'CLAY', volume:1240 },
+        { tanggal:'2026-10-01', pit_area:'BEI', planning_type:'coal', material:'SEAM 3', volume:642 },
+        { tanggal:'2026-10-02', pit_area:'BEI', planning_type:'ob', material:'TOP SOIL', volume:800 },
+        { tanggal:'2026-10-01', pit_area:'DKC', planning_type:'coal', material:'SEAM 1', volume:320 }
+      ]
+    };
+    const comparison = { rows: [{ tanggal:'2026-10-01', pit_area:'BEI', material:'CLAY', survey:1240, production:1200, selisih:40 }] };
+    window.fetch = async url => ({ ok:true, json: async () => String(url).includes('/comparison') ? comparison : main });
+  </script>
+  <script src="../surveyReport.js"></script>
+  <script>window.SurveyReport.open();</script>
+</body>
+</html>

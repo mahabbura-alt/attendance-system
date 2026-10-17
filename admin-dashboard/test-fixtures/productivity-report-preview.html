@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Leader Board Preview</title>
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="../productivityReport.css?v=2">
+  <style>
+    body { margin: 0; background: #f4f6f8; color: #0f172a; font-family: Arial, sans-serif; }
+    main { max-width: 1440px; margin: 0 auto; padding: 24px; }
+    .input-filter { min-height: 34px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 0 9px; background: #fff; }
+    .tombol { min-height: 34px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 0 12px; background: #fff; font-weight: 700; cursor: pointer; }
+    .tombol--utama { color: #fff; border-color: #0f766e; background: #0f766e; }
+    .tombol--ghost { background: #f8fafc; }
+    .fuel-loading-state { padding: 18px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <main><section id="tab-prodProductivityReport"></section></main>
+  <script>
+    window.__previewErrors = [];
+    window.addEventListener('error', event => window.__previewErrors.push(event.message));
+    window.getProdApiUrl = path => path;
+    window.getProdAuthHeaders = () => ({ Authorization: 'Bearer preview' });
+
+    const cards = {
+      excavators: [{ rank: 1, entity_code: 'EX30 350-15', entity_name: 'EX30 350-15', job: 'OB', material: 'CLAY', achievement_percentage: 112.4, actual_productivity: 169.4, weighted_plan_productivity: 150.7, net_productivity: 161.2, gross_volume: 1355.2, hm_hours: 8 }],
+      dumpTrucks: [{ rank: 1, entity_code: 'DT30 126', entity_name: 'DT30 126', parent_unit_code: 'EX30 350-15', job: 'OB', material: 'CLAY', achievement_percentage: 96.8, actual_productivity: 53.2, weighted_plan_productivity: 55, net_productivity: 50.1, gross_volume: 425.6, hm_hours: 8 }],
+      excavatorOperators: [{ rank: 1, entity_code: 'B230309820', entity_name: 'Dedek Almasrum', parent_unit_code: 'EX30 350-15', job: 'OB', material: 'CLAY', achievement_percentage: 104.3, actual_productivity: 157.2, weighted_plan_productivity: 150.7, net_productivity: 151.4, gross_volume: 1257.6, hm_hours: 8 }],
+      dumpTruckDrivers: [{ rank: 1, entity_code: 'B25050922', entity_name: 'Agus Erdi', parent_unit_code: 'DT30 126', job: 'OB', material: 'CLAY', achievement_percentage: 91.7, actual_productivity: 50.4, weighted_plan_productivity: 55, net_productivity: 47.9, gross_volume: 403.2, hm_hours: 8 }],
+      lowExcavatorOperators: [{ rank: 1, entity_code: 'B230309899', entity_name: 'Operator Low', parent_unit_code: 'EX30 350-14', job: 'OB', material: 'CLAY', achievement_percentage: 68.4, actual_productivity: 103.1, weighted_plan_productivity: 150.7, net_productivity: 99.8, gross_volume: 824.8, hm_hours: 8 }],
+      lowDumpTruckDrivers: [{ rank: 1, entity_code: 'B25050988', entity_name: 'Driver Low', parent_unit_code: 'DT30 127', job: 'OB', material: 'CLAY', achievement_percentage: 72.2, actual_productivity: 39.7, weighted_plan_productivity: 55, net_productivity: 37.1, gross_volume: 317.6, hm_hours: 8 }],
+    };
+    const ranking = {
+      meta: { formula_version: 'productivity-ranking-gross-v1', operator_share_version: 'operator-volume-hm-share-v1', production_basis: 'gross', unit: 'BCM/Hr', generated_at: '2026-09-24T10:00:00.000Z' },
+      rankings: cards,
+      controlHighlights: [
+        { key: 'ready', label: 'Siap Ranking', count: 28, impact_value: 3441.2, impact_unit: 'BCM', filter: { control_status: 'ready' } },
+        { key: 'incomplete', label: 'Plan/HM Belum Lengkap', count: 3, filter: { control_status: 'incomplete' } },
+        { key: 'excluded', label: 'Dikecualikan', count: 2, impact_value: 12, impact_unit: 'HM', filter: { control_status: 'excluded' } },
+        { key: 'excluded_dw', label: 'JOB DW Dikecualikan', count: 2, impact_value: 12, impact_unit: 'HM', filter: { control_status: 'excluded', reason_code: 'NON_PRODUCTION_JOB_DW' } },
+      ],
+    };
+    const fuelRanking = {
+      meta: { formula_version: 'fuel-ratio-ranking-mixed-basis-v2', production_basis: 'excavator=net_productive_bcm; dumptruck=validated_odometer_distance_km', unit: 'L/BCM (Excavator) · L/Km (Dump Truck)', generated_at: '2026-09-24T10:00:00.000Z' },
+      rankings: {
+        excavators: [{ rank: 1, entity_code: 'EX30 350-15', job: 'OB', material: 'CLAY', actual_fuel_ratio: 0.285, liters: 365, net_bcm: 1280, denominator_value: 1280, denominator_unit: 'BCM', gross_bcm: 1355, hm_hours: 8, unit: 'L/BCM' }],
+        dumpTrucks: [{ rank: 1, entity_code: 'DT30 126', parent_unit_code: 'EX30 350-15', job: 'OB', material: 'CLAY', actual_fuel_ratio: 2.2, liters: 88, distance_km: 40, denominator_value: 40, denominator_unit: 'Km', gross_bcm: 440, hm_hours: 8, unit: 'L/Km' }],
+        excavatorOperators: [{ rank: 1, entity_code: 'B230309820', entity_name: 'Dedek Almasrum', parent_unit_code: 'EX30 350-15', job: 'OB', material: 'CLAY', actual_fuel_ratio: 0.285, liters: 365, net_bcm: 1280, denominator_value: 1280, denominator_unit: 'BCM', gross_bcm: 1355, hm_hours: 8, unit: 'L/BCM' }],
+        dumpTruckDrivers: [{ rank: 1, entity_code: 'B25050922', entity_name: 'Agus Erdi', parent_unit_code: 'DT30 126', job: 'OB', material: 'CLAY', actual_fuel_ratio: 2.2, liters: 88, distance_km: 40, denominator_value: 40, denominator_unit: 'Km', gross_bcm: 440, hm_hours: 8, unit: 'L/Km' }],
+      },
+      controlHighlights: [
+        { key: 'readiness', label: 'Kesiapan Data', count: 91.7, suffix: '%', filter: {} },
+        { key: 'ready', label: 'Siap Ranking', count: 22, impact_value: 5820, impact_unit: 'L', filter: { control_status: 'ready' } },
+        { key: 'fuel_unallocated', label: 'Fuel Belum Dialokasikan', count: 2, filter: { reason_code: 'MISSING_FUEL_ALLOCATION' } },
+        { key: 'fuel_without_production', label: 'Fuel Tanpa Produksi', count: 1, filter: { reason_code: 'FUEL_WITHOUT_PRODUCTION' } },
+        { key: 'production_without_fuel', label: 'Produksi Tanpa Fuel', count: 3, filter: { reason_code: 'PRODUCTION_WITHOUT_FUEL' } },
+        { key: 'density', label: 'Density Hilang', count: 1, filter: { reason_code: 'MISSING_DENSITY' } },
+        { key: 'material', label: 'Material Ambigu', count: 1, filter: { reason_code: 'FUEL_AMBIGUOUS_MATERIAL' } },
+      ],
+    };
+    const control = {
+      meta: { page: 1, page_size: 50, total_rows: 1, formula_version: 'productivity-ranking-gross-v1', operator_share_version: 'operator-volume-hm-share-v1', generated_at: '2026-09-24T10:00:00.000Z' },
+      summary: { ready: 28, incomplete: 3, ambiguous: 0, excluded: 2, readiness_percentage: 90.3, excludedDwSegments: 2, excludedDwHmHours: 12 },
+      rows: [{ control_key: 'preview-1', control_status: 'ready', tanggal: '2026-09-24', shift: 'Shift Siang', entity_code: 'EX30 350-15', entity_name: 'EX30 350-15', area: 'BEI', job: 'OB', material: 'CLAY', plan_productivity: 150.7, actual_productivity: 169.4, hm_hours: 8, achievement_percentage: 112.4, reason_codes: [], unit: 'BCM/Hr', gross_volume: 1355.2, net_volume: 1289.6, expected_production: 1205.6, net_achievement_percentage: 106.96, lineage: { formula_version: 'productivity-ranking-gross-v1', calculated_at: '2026-09-24T10:00:00.000Z', fleet_ids: ['preview-fleet'], segment_ids: ['preview-segment'] }, source_counts: { ritaseRows: 8, workLogSegments: 1, truckFactors: 1 } }],
+    };
+    const fuelControl = {
+      meta: { page: 1, page_size: 50, total_rows: 1, formula_version: 'fuel-ratio-ranking-mixed-basis-v2', generated_at: '2026-09-24T10:00:00.000Z', metric: 'fuel_ratio' },
+      summary: { ready: 22, incomplete: 6, ambiguous: 1, excluded: 0, readiness_percentage: 75.9, missingFuelAllocation: 2, fuelWithoutProduction: 1, productionWithoutFuel: 3, missingDensity: 1, ambiguousMaterial: 1 },
+      rows: [{ control_key: 'fuel-preview-1', control_status: 'ready', tanggal: '2026-09-24', shift: 'Shift Siang', entity_code: 'EX30 350-15', area: 'BEI', job: 'OB', material: 'CLAY', liters: 365, gross_bcm: 1355, net_bcm: 1280, denominator_value: 1280, denominator_unit: 'BCM', hm_hours: 8, actual_fuel_ratio: 0.285, reason_codes: [], unit: 'L/BCM', lineage: { formula_version: 'fuel-ratio-ranking-mixed-basis-v2', calculated_at: '2026-09-24T10:00:00.000Z', fuel_log_ids: ['fuel-preview'] } }],
+    };
+    window.fetch = async url => {
+      const u = String(url);
+      const isFuel = u.includes('/fuel-ratio');
+      const isControl = u.includes('/data-control');
+      return { ok: true, json: async () => isFuel ? (isControl ? fuelControl : fuelRanking) : (isControl ? control : ranking) };
+    };
+  </script>
+  <script src="../productivityReport.js?v=6"></script>
+  <script>window.ProductivityRankingUI.open();</script>
+</body>
+</html>

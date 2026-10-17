@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Preview Breakdown Direct Release</title>
+  <link rel="stylesheet" href="../style.css?v=55" />
+  <style>
+    body{margin:0;padding:24px;background:#f8fafc;color:#0f172a;font-family:Arial,sans-serif}.preview-shell{max-width:1440px;margin:auto}.tombol{padding:9px 12px;border:1px solid #cbd5e1;border-radius:7px;background:#fff}.tombol--utama{background:#0f766e;color:#fff;border-color:#0f766e}.breakdown-page-actions select,.breakdown-filter-panel select,.breakdown-filter-panel input{padding:8px;border:1px solid #cbd5e1;border-radius:7px;background:#fff}.status-badge{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:700}.status-active{background:#fef3c7;color:#92400e}.status-ready{background:#dcfce7;color:#166534}.action-row{display:flex;gap:6px;flex-wrap:wrap}.action-row button{padding:6px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-weight:700}.action-row .release{background:#0f766e;color:#fff;border-color:#0f766e}
+  </style>
+</head>
+<body>
+<main class="preview-shell">
+  <div class="breakdown-page-header">
+    <div><h2>🛠️ Unit Breakdown Control</h2><p>Monitoring BD, durasi proses mekanik, waktu tunggu, PIC, part dan nomor PO per unit.</p></div>
+    <div class="breakdown-page-actions"><label>Tahun <select><option>2026</option></select></label><label>Bulan <select><option>September</option></select></label><button class="tombol">📚 Breakdown History</button><button class="tombol">📈 Unit Performance</button><button class="tombol tombol--utama">+ Breakdown Baru</button></div>
+  </div>
+  <div class="breakdown-filter-panel"><label class="breakdown-filter-search"><span>⌕</span><input placeholder="Cari unit, kerusakan, reporter, PIC, part atau PO…" /></label><label>Status <select><option>Semua Status</option><option>Semua Aktif</option><option>Progres Mekanik</option><option>Waiting Part</option><option>Ready to Operate</option></select></label><button class="tombol-tautan">Reset Filter</button><span class="breakdown-filter-count">2 unit</span></div>
+  <div class="breakdown-kpi-grid"><article><span>Calendar PA</span><strong>94,8%</strong><small>Basis periode</small></article><article><span>MTBF Kalender</span><strong>126 Jam</strong><small>Uptime kalender / BD</small></article><article><span>MTTR Selesai</span><strong>4,5 Jam</strong><small>Rata-rata BD selesai</small></article><article class="is-danger"><span>Breakdown Aktif</span><strong>1</strong><small>BD belum selesai</small></article><article><span>Total Downtime</span><strong>27,5 Jam</strong><small>Dalam periode</small></article><article><span>Unit Terdampak</span><strong>2</strong><small>Unit unik dalam periode</small></article></div>
+  <div class="breakdown-table-stack">
+    <section class="breakdown-table-section is-active-breakdown"><header><div><h3>🛠️ Breakdown Aktif</h3><p>Unit masih dalam proses perbaikan atau menunggu resource.</p></div><strong>1 BD</strong></header><div class="tabel-wrap breakdown-table-wrap"><table class="tabel breakdown-unit-table"><thead><tr><th>Unit</th><th>Tanggal / Shift</th><th>Jenis Kerusakan</th><th>Mulai</th><th>Status</th><th>Total BD</th><th>Report By</th><th>PIC</th><th>Detail Part / PO</th><th>Aksi</th></tr></thead><tbody><tr><td><strong>EX30 350-14</strong><br><small>Excavator</small></td><td>24 Sep 2026<br><small>Shift Siang</small></td><td>Hydraulic System</td><td>08:15</td><td><span class="status-badge status-active">Progres Mekanik</span></td><td><strong>4,50 Jam</strong></td><td>Dispatcher</td><td>Mekanik A</td><td>Seal kit / PO-091</td><td><div class="action-row"><button>Update</button><button>Detail</button><button class="release">Release Unit Ready</button></div></td></tr></tbody></table></div></section>
+    <section class="breakdown-table-section is-ready-check"><header><div><h3>✅ Unit Ready / Riwayat Release</h3><p>Breakdown yang telah ditutup dan unit dilepas kembali ke status Ready to Operate.</p></div><strong>1 BD</strong></header><div class="tabel-wrap breakdown-table-wrap"><table class="tabel breakdown-unit-table"><thead><tr><th>Unit</th><th>Tanggal / Shift</th><th>Jenis Kerusakan</th><th>Mulai</th><th>Status</th><th>Total BD</th><th>Report By</th><th>PIC</th><th>Detail Part / PO</th><th>Aksi</th></tr></thead><tbody><tr><td><strong>DT30 126</strong><br><small>Dump Truck</small></td><td>23 Sep 2026<br><small>Shift Malam</small></td><td>Electrical</td><td>22:00</td><td><span class="status-badge status-ready">Ready to Operate</span></td><td><strong>3,25 Jam</strong></td><td>Dispatcher</td><td>Mekanik B</td><td>Relay / PO-088</td><td><div class="action-row"><button>Detail</button></div></td></tr></tbody></table></div></section>
+  </div>
+</main>
+</body>
+</html>

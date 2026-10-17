@@ -1,0 +1,1560 @@
+﻿<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OMOS â€” One Mining System Operation</title>
+  <style>
+/* ==========================================================================
+   OMOS (One Mining System Operation) â€” Futuristic Enterprise Landing Showcase
+   Design Read: B2B Enterprise Mining Operating Platform Landing Page
+   Aesthetic: Industrial Obsidian (Dark) & Crisp Slate-Ivory (Light),
+              Mining Gold (#F59E0B), Emerald (#10B981), Telemetry Cyan (#38BDF8)
+   Dials: DESIGN_VARIANCE: 7 | MOTION_INTENSITY: 5 | VISUAL_DENSITY: 4
+   ========================================================================== */
+
+:root {
+  --omos-bg: #060913;
+  --omos-surface-1: #0B1120;
+  --omos-surface-2: #0F172A;
+  --omos-surface-3: #16223B;
+  --omos-border: rgba(255, 255, 255, 0.08);
+  --omos-border-subtle: rgba(255, 255, 255, 0.05);
+  --omos-border-strong: rgba(245, 158, 11, 0.42);
+  --omos-ink: #F8FAFC;
+  --omos-ink-secondary: #CBD5E1;
+  --omos-ink-muted: #94A3B8;
+  --omos-ink-subtle: #64748B;
+  --omos-gold: #F59E0B;
+  --omos-gold-bright: #FBBF24;
+  --omos-emerald: #10B981;
+  --omos-emerald-bright: #34D399;
+  --omos-cyan: #38BDF8;
+  --omos-danger: #EF4444;
+  --omos-radius-lg: 16px;
+  --omos-radius-md: 14px;
+  --omos-radius-sm: 9px;
+
+  --omos-navbar-bg: rgba(6, 9, 19, 0.84);
+  --omos-card-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.82) 0%, rgba(10, 15, 29, 0.94) 100%);
+  --omos-cockpit-bg: linear-gradient(165deg, rgba(15, 23, 42, 0.92), rgba(10, 15, 29, 0.96));
+  --omos-arch-bg: linear-gradient(90deg, rgba(15, 23, 42, 0.9), rgba(11, 17, 32, 0.85));
+  --omos-input-bg: rgba(6, 9, 19, 0.9);
+  --omos-modal-bg: #0B1120;
+  --omos-subcard-bg: rgba(255, 255, 255, 0.03);
+  --omos-shadow-card: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 14px 32px -10px rgba(4, 7, 16, 0.55);
+  --omos-shadow-cockpit: 0 1px 0 rgba(255, 255, 255, 0.08) inset, 0 24px 48px -12px rgba(3, 6, 15, 0.72), 0 0 0 1px rgba(245, 158, 11, 0.10);
+}
+
+/* ================= LIGHT MODE THEME OVERRIDES ================= */
+[data-theme="light"] {
+  --omos-bg: #F4F7FB;
+  --omos-surface-1: #FFFFFF;
+  --omos-surface-2: #F8FAFC;
+  --omos-surface-3: #EEF2F6;
+  --omos-border: rgba(15, 23, 42, 0.10);
+  --omos-border-subtle: rgba(15, 23, 42, 0.06);
+  --omos-border-strong: rgba(217, 119, 6, 0.45);
+  --omos-ink: #0F172A;
+  --omos-ink-secondary: #334155;
+  --omos-ink-muted: #475569;
+  --omos-ink-subtle: #94A3B8;
+  --omos-gold: #D97706;
+  --omos-gold-bright: #B45309;
+  --omos-emerald: #059669;
+  --omos-emerald-bright: #047857;
+  --omos-cyan: #0284C7;
+
+  --omos-navbar-bg: rgba(255, 255, 255, 0.88);
+  --omos-card-bg: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  --omos-cockpit-bg: linear-gradient(165deg, #FFFFFF, #F1F5F9);
+  --omos-arch-bg: linear-gradient(90deg, #FFFFFF, #F8FAFC);
+  --omos-input-bg: #FFFFFF;
+  --omos-modal-bg: #FFFFFF;
+  --omos-subcard-bg: #F8FAFC;
+  --omos-shadow-card: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 10px 26px -8px rgba(15, 23, 42, 0.08);
+  --omos-shadow-cockpit: 0 1px 0 #FFFFFF inset, 0 20px 44px -12px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(217, 119, 6, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--omos-bg);
+  background-image:
+    radial-gradient(circle at 14% 6%, rgba(245, 158, 11, 0.10), transparent 34%),
+    radial-gradient(circle at 86% 14%, rgba(16, 185, 129, 0.08), transparent 36%),
+    radial-gradient(circle at 50% 55%, rgba(56, 189, 248, 0.05), transparent 45%),
+    linear-gradient(180deg, var(--omos-border-subtle) 1px, transparent 1px),
+    linear-gradient(90deg, var(--omos-border-subtle) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+  color: var(--omos-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  transition: background-color 0.22s ease, color 0.22s ease;
+}
+
+/* Sticky Navbar */
+.lp-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 24px;
+  background: var(--omos-navbar-bg);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--omos-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  transition: background-color 0.22s ease, border-color 0.22s ease;
+}
+
+.lp-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--omos-ink);
+}
+
+.lp-brand__logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #FAF8F5;
+  padding: 2px;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.22);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+}
+
+.lp-brand__title {
+  font-size: 16.5px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.2;
+}
+
+.lp-brand__badge {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.14);
+  color: var(--omos-emerald-bright);
+  border: 1px solid rgba(16, 185, 129, 0.32);
+}
+
+.lp-brand__sub {
+  font-size: 11px;
+  color: var(--omos-ink-muted);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.lp-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.lp-nav-links a {
+  color: var(--omos-ink-muted);
+  text-decoration: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: color 0.18s ease;
+  white-space: nowrap;
+}
+
+.lp-nav-links a:hover {
+  color: var(--omos-gold-bright);
+}
+
+.lp-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Theme Toggle Button (Sun & Moon) */
+.lp-theme-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--omos-radius-sm);
+  border: 1px solid var(--omos-border);
+  background: var(--omos-subcard-bg);
+  color: var(--omos-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.18s ease,
+              background-color 0.18s ease,
+              color 0.18s ease;
+  position: relative;
+}
+
+.lp-theme-toggle:hover {
+  border-color: var(--omos-border-strong);
+  color: var(--omos-gold-bright);
+  transform: translateY(-1px);
+}
+
+.lp-theme-toggle:active {
+  transform: scale(0.95);
+}
+
+.lp-theme-toggle svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
+}
+
+/* In dark mode (default): show Sun icon to switch to Light; hide Moon */
+.lp-theme-toggle .icon-sun {
+  display: block;
+  color: #FBBF24;
+}
+.lp-theme-toggle .icon-moon {
+  display: none;
+}
+
+/* In light mode: show Moon icon to switch to Dark; hide Sun */
+[data-theme="light"] .lp-theme-toggle .icon-sun {
+  display: none;
+}
+[data-theme="light"] .lp-theme-toggle .icon-moon {
+  display: block;
+  color: #0F172A;
+}
+
+/* Interactive Buttons */
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: var(--omos-radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.18s ease,
+              background-color 0.18s ease,
+              border-color 0.18s ease;
+  white-space: nowrap;
+}
+
+.lp-btn:active {
+  transform: scale(0.98) translateY(1px);
+}
+
+.lp-btn:focus-visible {
+  outline: 2px solid var(--omos-gold-bright);
+  outline-offset: 2px;
+}
+
+.lp-btn--gold {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  color: #050811;
+  font-weight: 700;
+  box-shadow: 0 4px 18px rgba(245, 158, 11, 0.28), 0 1px 0 rgba(255, 255, 255, 0.28) inset;
+}
+
+.lp-btn--gold:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(245, 158, 11, 0.42), 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 100%);
+}
+
+.lp-btn--ghost {
+  background: var(--omos-subcard-bg);
+  color: var(--omos-ink);
+  border-color: var(--omos-border);
+}
+
+.lp-btn--ghost:hover {
+  border-color: var(--omos-border-strong);
+}
+
+.lp-btn--emerald {
+  background: rgba(16, 185, 129, 0.14);
+  color: var(--omos-emerald-bright);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.lp-btn--emerald:hover {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+/* Container */
+.lp-container {
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Hero Section */
+.lp-hero {
+  padding: 36px 0 40px;
+  display: grid;
+  grid-template-columns: 1.08fr 0.92fr;
+  gap: 32px;
+  align-items: center;
+}
+
+@media (max-width: 920px) {
+  .lp-hero {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .lp-nav-links {
+    display: none;
+  }
+}
+
+.lp-hero__brand-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: var(--omos-card-bg);
+  border: 1px solid var(--omos-border-strong);
+  box-shadow: var(--omos-shadow-card);
+  border-radius: var(--omos-radius-md);
+  margin-bottom: 20px;
+}
+
+.lp-hero__brand-card img {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: #FAF8F5;
+  padding: 3px;
+  object-fit: contain;
+}
+
+.lp-hero__brand-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--omos-ink);
+  letter-spacing: -0.01em;
+}
+
+.lp-hero__brand-sub {
+  font-size: 11.5px;
+  color: var(--omos-ink-muted);
+}
+
+.lp-hero__title {
+  font-size: clamp(28px, 3.8vw, 44px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+  margin-bottom: 22px;
+}
+
+.lp-hero__title span {
+  background: linear-gradient(95deg, var(--omos-gold) 0%, var(--omos-emerald) 55%, var(--omos-cyan) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.lp-hero__ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.lp-hero__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  padding-top: 20px;
+  border-top: 1px solid var(--omos-border);
+}
+
+.lp-metric-box__val {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--omos-ink);
+  letter-spacing: -0.02em;
+}
+
+.lp-metric-box__lbl {
+  font-size: 11.5px;
+  color: var(--omos-ink-muted);
+  margin-top: 2px;
+}
+
+/* Telemetry Cockpit Card */
+.lp-cockpit {
+  background: var(--omos-cockpit-bg);
+  border: 1px solid var(--omos-border);
+  border-radius: var(--omos-radius-lg);
+  padding: 20px;
+  box-shadow: var(--omos-shadow-cockpit);
+}
+
+.lp-cockpit__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--omos-border);
+}
+
+.lp-cockpit__title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--omos-cyan);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lp-cockpit__clock {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--omos-gold-bright);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+
+.lp-cockpit__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.lp-tele-card {
+  background: var(--omos-subcard-bg);
+  border: 1px solid var(--omos-border);
+  border-radius: 10px;
+  padding: 12px 13px;
+}
+
+.lp-tele-card__head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--omos-ink-muted);
+  margin-bottom: 4px;
+}
+
+.lp-tele-card__val {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 16.5px;
+  font-weight: 700;
+  color: var(--omos-ink);
+}
+
+.lp-tele-card__sub {
+  font-size: 10.5px;
+  color: var(--omos-emerald-bright);
+  margin-top: 3px;
+}
+
+.lp-tele-card__sub--cyan {
+  color: var(--omos-cyan);
+}
+
+.lp-tele-card__sub--gold {
+  color: var(--omos-gold-bright);
+}
+
+.lp-cockpit__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--omos-ink-muted);
+  padding-top: 10px;
+  border-top: 1px solid var(--omos-border);
+}
+
+/* Section Headers */
+.lp-section {
+  padding: 44px 0 52px;
+  border-top: 1px solid var(--omos-border);
+}
+
+.lp-section__head {
+  margin-bottom: 28px;
+  max-width: 720px;
+}
+
+.lp-section__title {
+  font-size: clamp(22px, 2.8vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  text-wrap: balance;
+  margin-bottom: 8px;
+}
+
+.lp-section__desc {
+  font-size: 14px;
+  color: var(--omos-ink-muted);
+  line-height: 1.6;
+  max-width: 65ch;
+  text-wrap: pretty;
+}
+
+/* Bento Grid 6 Pilar */
+.lp-bento {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.lp-bento-card {
+  grid-column: span 6;
+  background: var(--omos-card-bg);
+  border: 1px solid var(--omos-border);
+  border-radius: var(--omos-radius-md);
+  padding: 22px 24px;
+  box-shadow: var(--omos-shadow-card);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.22s ease,
+              box-shadow 0.22s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  position: relative;
+  overflow: hidden;
+}
+
+.lp-bento-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.65), rgba(16, 185, 129, 0.45), transparent);
+  opacity: 0.7;
+}
+
+.lp-bento-card--span-7 {
+  grid-column: span 7;
+}
+
+.lp-bento-card--span-5 {
+  grid-column: span 5;
+}
+
+.lp-bento-card--wide {
+  grid-column: span 12;
+}
+
+@media (max-width: 900px) {
+  .lp-bento-card,
+  .lp-bento-card--span-7,
+  .lp-bento-card--span-5,
+  .lp-bento-card--wide {
+    grid-column: span 12;
+  }
+}
+
+.lp-bento-card:hover {
+  border-color: var(--omos-border-strong);
+  transform: translateY(-2px);
+}
+
+.lp-bento-card__title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin-bottom: 10px;
+  color: var(--omos-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lp-bento-card__desc {
+  font-size: 13px;
+  color: var(--omos-ink-secondary);
+  line-height: 1.6;
+}
+
+.lp-bento-card__lead {
+  color: var(--omos-ink-muted);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+/* Custom Numbered Feature List */
+.lp-feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  counter-reset: omos-item;
+}
+
+.lp-feature-list li {
+  counter-increment: omos-item;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12.8px;
+  line-height: 1.5;
+  color: var(--omos-ink-secondary);
+}
+
+.lp-feature-list li::before {
+  content: counter(omos-item);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--omos-gold-bright);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  min-width: 21px;
+  height: 21px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Architecture 3-Layer Stack */
+.lp-arch-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lp-arch-layer {
+  background: var(--omos-arch-bg);
+  border: 1px solid var(--omos-border);
+  border-left: 4px solid var(--omos-gold);
+  border-radius: var(--omos-radius-md);
+  padding: 16px 20px;
+  box-shadow: var(--omos-shadow-card);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lp-arch-layer--emerald {
+  border-left-color: var(--omos-emerald);
+}
+
+.lp-arch-layer--cyan {
+  border-left-color: var(--omos-cyan);
+}
+
+.lp-arch-layer__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--omos-gold-bright);
+}
+
+.lp-arch-layer--cyan .lp-arch-layer__title {
+  color: var(--omos-cyan);
+}
+
+.lp-arch-layer--emerald .lp-arch-layer__title {
+  color: var(--omos-emerald-bright);
+}
+
+.lp-arch-layer__desc {
+  font-size: 13px;
+  color: var(--omos-ink-secondary);
+}
+
+/* Contact Section */
+.lp-contact-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 20px;
+}
+
+@media (max-width: 820px) {
+  .lp-contact-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lp-form-card {
+  background: var(--omos-card-bg);
+  border: 1px solid var(--omos-border);
+  border-radius: var(--omos-radius-md);
+  padding: 22px 24px;
+  box-shadow: var(--omos-shadow-card);
+}
+
+.lp-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 560px) {
+  .lp-form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.lp-field label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--omos-ink-secondary);
+}
+
+.lp-field input,
+.lp-field select,
+.lp-field textarea {
+  background: var(--omos-input-bg);
+  border: 1px solid var(--omos-border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--omos-ink);
+  font-size: 12.5px;
+  font-family: inherit;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.lp-field input::placeholder,
+.lp-field textarea::placeholder {
+  color: var(--omos-ink-subtle);
+}
+
+.lp-field input:focus,
+.lp-field select:focus,
+.lp-field textarea:focus {
+  outline: none;
+  border-color: var(--omos-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.lp-support-box {
+  padding: 10px 12px;
+  background: var(--omos-subcard-bg);
+  border: 1px solid var(--omos-border);
+  border-radius: 8px;
+}
+
+.lp-support-box__lbl {
+  color: var(--omos-ink-muted);
+  font-size: 11px;
+}
+
+.lp-support-box__val {
+  font-weight: 600;
+  color: var(--omos-ink);
+  margin-top: 2px;
+}
+
+/* Modal Overlay */
+.lp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(3, 6, 14, 0.72);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.lp-modal-backdrop[hidden] {
+  display: none !important;
+}
+
+.lp-modal {
+  width: 100%;
+  max-width: 440px;
+  background: var(--omos-modal-bg);
+  border: 1px solid var(--omos-border-strong);
+  border-radius: var(--omos-radius-lg);
+  padding: 22px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+}
+
+.lp-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.lp-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: var(--omos-subcard-bg);
+  border: 1px solid var(--omos-border);
+  padding: 4px;
+  border-radius: 9px;
+  margin-bottom: 16px;
+}
+
+.lp-tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--omos-ink-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.lp-tab-btn.is-active {
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--omos-gold-bright);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.lp-footer {
+  padding: 24px 0 36px;
+  border-top: 1px solid var(--omos-border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--omos-ink-muted);
+}
+
+/* AI Agent Approval Bar inside Sidecar */
+.lp-agent-bar {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.14), rgba(16, 185, 129, 0.14));
+  border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+</style>
+  
+</head>
+<body>
+
+  <!-- BAR KONTROL PREVIEW EXTENSION ANTIGRAVITY -->
+  <div class="lp-agent-bar">
+    <div>
+      <strong style="color:var(--omos-gold-bright);">âœ¨ Interactive Sample Preview</strong>
+      <span style="color:var(--omos-ink-secondary);margin-left:6px;">OMOS (One Mining System Operation)</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button type="button" class="lp-btn lp-btn--ghost" onclick="window.location.href='/?t='+Date.now()" style="padding:5px 10px;font-size:11px;">
+        ðŸ”„ Refresh Preview
+      </button>
+      <button type="button" class="lp-btn lp-btn--emerald" id="btnApproveToAgent" style="padding:5px 11px;font-size:11.5px;">
+        ðŸš€ Terapkan Desain Ini ke Aplikasi Utama
+      </button>
+    </div>
+  </div>
+
+  <!-- STICKY NAVBAR -->
+  <header class="lp-navbar">
+    <a href="#top" class="lp-brand">
+      <img src="../assets/reports/omos-one-path.png" alt="OMOS One Path Logo" class="lp-brand__logo" />
+      <div>
+        <div class="lp-brand__title">
+          OMOS
+          <span class="lp-brand__badge">ONLINE â€¢ v2.6</span>
+        </div>
+        <div class="lp-brand__sub">One Mining System Operation</div>
+      </div>
+    </a>
+
+    <nav class="lp-nav-links">
+      <a href="#modul">6 Pilar Modul</a>
+      <a href="#explorer">Deep-Dive Fitur</a>
+      <a href="#arsitektur">Arsitektur 3-Layer</a>
+      <a href="#contact">Contact Us</a>
+    </nav>
+
+    <div class="lp-nav-actions">
+      <!-- Tombol Dark / Light Mode (Simbol Matahari & Bulan) -->
+      <button type="button" class="lp-theme-toggle" id="btnThemeToggle" title="Ganti Mode Terang / Gelap" aria-label="Ganti Mode Terang / Gelap">
+        <!-- Sun Icon -->
+        <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+        </svg>
+        <!-- Moon Icon -->
+        <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+
+      <a href="#contact" class="lp-btn lp-btn--ghost" id="btnNavContact">ðŸ’¬ Contact Us</a>
+      <button type="button" class="lp-btn lp-btn--gold" id="btnNavLogin">ðŸ” Login</button>
+    </div>
+  </header>
+
+  <main class="lp-container" id="top">
+
+    <!-- ================= 1. HERO SECTION ================= -->
+    <section class="lp-hero">
+      <div>
+
+        <div class="lp-hero__brand-card">
+          <img src="../assets/reports/omos-one-path.png" alt="OMOS Brand" />
+          <div>
+            <div class="lp-hero__brand-title">OMOS â€” One Mining System Operation</div>
+            <div class="lp-hero__brand-sub">Platform Kendali Tambang Terintegrasi</div>
+          </div>
+        </div>
+
+        <h1 class="lp-hero__title">
+          Satu Sistem Kendali Terpadu untuk <span>Operasional Tambang Presisi Tinggi.</span>
+        </h1>
+
+        <div class="lp-hero__ctas">
+          <button type="button" class="lp-btn lp-btn--gold" id="btnHeroLogin">
+            ðŸ” Login ke Command Center
+          </button>
+          <a href="#contact" class="lp-btn lp-btn--ghost">
+            ðŸ“© Contact Us / Request Demo
+          </a>
+        </div>
+
+        <div class="lp-hero__metrics">
+          <div>
+            <div class="lp-metric-box__val">6 Pilar Inti</div>
+            <div class="lp-metric-box__lbl">Ekosistem End-to-End</div>
+          </div>
+          <div>
+            <div class="lp-metric-box__val">24/7 Sync</div>
+            <div class="lp-metric-box__lbl">Offline-First Field Ready</div>
+          </div>
+          <div>
+            <div class="lp-metric-box__val">SMKP 100%</div>
+            <div class="lp-metric-box__lbl">Permen ESDM 26/2018</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE TELEMETRY COCKPIT MOCKUP -->
+      <div class="lp-cockpit">
+        <div class="lp-cockpit__header">
+          <div class="lp-cockpit__title">
+            <span>â—</span> LIVE SITE TELEMETRY SNAPSHOT
+          </div>
+          <div class="lp-cockpit__clock" id="lpLiveClock">--:--:-- WIB</div>
+        </div>
+
+        <div class="lp-tabs" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px;">
+          <button type="button" class="lp-tab-btn is-active" data-cockpit-tab="prod">â›ï¸ Produksi &amp; Fleet</button>
+          <button type="button" class="lp-tab-btn" data-cockpit-tab="hse">ðŸ›¡ï¸ HSE &amp; SMKP</button>
+          <button type="button" class="lp-tab-btn" data-cockpit-tab="hr">ðŸ‘¥ People &amp; Fuel</button>
+        </div>
+
+        <!-- Cockpit View 1: Production -->
+        <div class="lp-cockpit-pane" id="cockpitPane-prod">
+          <div class="lp-cockpit__grid">
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>OB Removal (MTD)</span><span>BCM</span></div>
+              <div class="lp-tele-card__val" id="teleObVal">48.250 BCM</div>
+              <div class="lp-tele-card__sub">â–² 102.4% vs Plan SPO v7</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Coal Getting (MTD)</span><span>MT</span></div>
+              <div class="lp-tele-card__val" id="teleCoalVal">14.680 MT</div>
+              <div class="lp-tele-card__sub">â–² Jarak Final Tervalidasi</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Fleet PA / UA</span><span>%</span></div>
+              <div class="lp-tele-card__val">PA 92.4% â€¢ UA 86.8%</div>
+              <div class="lp-tele-card__sub lp-tele-card__sub--cyan">Waterfall Delta Terkunci</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Periodic Service</span><span>Status</span></div>
+              <div class="lp-tele-card__val">PS 250â€“2000</div>
+              <div class="lp-tele-card__sub lp-tele-card__sub--gold">Auto-Sync Temuan Mekanik</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cockpit View 2: HSE -->
+        <div class="lp-cockpit-pane" id="cockpitPane-hse" hidden>
+          <div class="lp-cockpit__grid">
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Safe Manhours</span><span>LTI-Free</span></div>
+              <div class="lp-tele-card__val">1.428.500 Jam</div>
+              <div class="lp-tele-card__sub">Zero Fatality &amp; Zero LTI</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Inspeksi HSE V2</span><span>Compliance</span></div>
+              <div class="lp-tele-card__val">91.4% Terpenuhi</div>
+              <div class="lp-tele-card__sub lp-tele-card__sub--cyan">Kuota Jabatan &amp; Jadwal Objek</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>IBPR / HIRADC</span><span>Matriks 5x5</span></div>
+              <div class="lp-tele-card__val">24 Risiko Aktif</div>
+              <div class="lp-tele-card__sub lp-tele-card__sub--gold">Pengendalian Hierarki Terverifikasi</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>PTW &amp; LOTO</span><span>Izin Kerja</span></div>
+              <div class="lp-tele-card__val">100% Terkendali</div>
+              <div class="lp-tele-card__sub">Isolasi Energi &amp; SIMOPS</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cockpit View 3: People & Fuel -->
+        <div class="lp-cockpit-pane" id="cockpitPane-hr" hidden>
+          <div class="lp-cockpit__grid">
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Fuel Ratio</span><span>L / BCM</span></div>
+              <div class="lp-tele-card__val">0.78 L/BCM</div>
+              <div class="lp-tele-card__sub">FIFO Valuation &amp; Stock Opname</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Roster S/M &amp; Cuti</span><span>Sinkron</span></div>
+              <div class="lp-tele-card__val">145 Personil</div>
+              <div class="lp-tele-card__sub lp-tele-card__sub--cyan">Siklus Cuti &amp; MPP Terproteksi</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Geotag Attendance</span><span>Multi-Point</span></div>
+              <div class="lp-tele-card__val">Radius Akurat</div>
+              <div class="lp-tele-card__sub">Validasi Kamera + GPS Buffer</div>
+            </div>
+            <div class="lp-tele-card">
+              <div class="lp-tele-card__head"><span>Payroll Engine</span><span>Otomatis</span></div>
+              <div class="lp-tele-card__val">HM + Kehadiran</div>
+              <div class="lp-tele-card__sub lp-tele-card__sub--gold">Rekap Performa &amp; Insentif</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="lp-cockpit__footer">
+          <span>ðŸ”’ Tenant &amp; Project Scoped Isolation</span>
+          <span style="color:var(--omos-emerald-bright);font-family:monospace;">â— ENGINE READY</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 2. BENTO GRID 6 PILAR MODUL OMOS ================= -->
+    <section class="lp-section" id="modul">
+      <div class="lp-section__head">
+        <h2 class="lp-section__title">Enam Pilar Operasional dalam Satu Alur (One Path)</h2>
+        <p class="lp-section__desc">
+          Setiap transaksi oprasional di lapangan tercatat dalam satu sistem Platform dan terintegrasi dengan fitur modul mining Inteligence untuk keperluan review dan analisa data
+        </p>
+      </div>
+
+      <div class="lp-bento">
+        <!-- Row 1: Pilar 1 (span 7) + Pilar 2 (span 5) = 12 -->
+        <article class="lp-bento-card lp-bento-card--span-7">
+          <div>
+            <h3 class="lp-bento-card__title">â›ï¸ Mine Planning &amp; Production Intelligence</h3>
+            <div class="lp-bento-card__desc">
+              <div class="lp-bento-card__lead">Kendali penuh perencanaan tambang dan Produksi mulai dari :</div>
+              <ol class="lp-feature-list">
+                <li><span>Mine Planning &amp; Scenario simulation</span></li>
+                <li><span>Mine Budgetting &amp; Costing</span></li>
+                <li><span>Production snapshot, Review and Pareto</span></li>
+                <li><span>Inteligence dashboard &amp; Management berbasis AI</span></li>
+              </ol>
+            </div>
+          </div>
+        </article>
+
+        <!-- Pilar 2 -->
+        <article class="lp-bento-card lp-bento-card--span-5">
+          <div>
+            <h3 class="lp-bento-card__title">ðŸ› ï¸ Unit Population &amp; Maintenance</h3>
+            <div class="lp-bento-card__desc">
+              <div class="lp-bento-card__lead">Kendali penuh unit Alat berat dan Unit Support mulai dari :</div>
+              <ol class="lp-feature-list">
+                <li><span>Periodic service terencana</span></li>
+                <li><span>Unscheduled breakdown dalam satu database terintegrasi</span></li>
+                <li><span>Historical data untuk kemudahan analisis (Troubleshoot, inspection, Historis pemasangan spare part)</span></li>
+                <li><span>Indikator highlight (KPI, Unit Performance, MTBF, MTBR, MTTR)</span></li>
+              </ol>
+            </div>
+          </div>
+        </article>
+
+        <!-- Row 2: Pilar 3 (span 5) + Pilar 4 (span 7) = 12 -->
+        <article class="lp-bento-card lp-bento-card--span-5">
+          <div>
+            <h3 class="lp-bento-card__title">ðŸ“¦ Supply Chain Management</h3>
+            <p class="lp-bento-card__desc">
+              Kelola Kebutuhan tambang (Asset, Fuel, sparepart, consumable, etc) dalam satu modul terintegrasi, management gudang, Indikator Highlight dengan smart AI Inteligence, historical transaksi dalam satu modul yang terintegrasi dengan kebutuhan lintas departemen.
+            </p>
+          </div>
+        </article>
+
+        <!-- Pilar 4 -->
+        <article class="lp-bento-card lp-bento-card--span-7">
+          <div>
+            <h3 class="lp-bento-card__title">ðŸ‘¥ Human Resource Management &amp; Development</h3>
+            <div class="lp-bento-card__desc">
+              <div class="lp-bento-card__lead">Kelola karyawan dalam satu modul terintegrasi, mulai dari :</div>
+              <ol class="lp-feature-list">
+                <li><span>Record absensi realtime dari HP karyawan dengan kemudahan akses data untuk keperluan setting fleet dan kebutuhan lintas departemen lainnya</span></li>
+                <li><span>Smart dashboard untuk evaluasi kehadiran karyawan (ATR dan keterlambatan kerja)</span></li>
+                <li><span>MPP, Kontrak kerja karyawan, Roster cuti</span></li>
+                <li><span>Database payroll</span></li>
+                <li><span>Management people (Coaching, Counseling, Punishment and Reward)</span></li>
+                <li><span>Indikator Highlight dan KPI Lintas departemen</span></li>
+              </ol>
+            </div>
+          </div>
+        </article>
+
+        <!-- Row 3: Pilar 5 (span 7) + Pilar 6 (span 5) = 12 -->
+        <article class="lp-bento-card lp-bento-card--span-7" id="explorer">
+          <div>
+            <h3 class="lp-bento-card__title">ðŸ›¡ï¸ HSE &amp; Keselamatan Pertambangan (SMKP Minerba)</h3>
+            <div class="lp-bento-card__desc">
+              <div class="lp-bento-card__lead">Sistem manajemen K3L dalam satu modul terintegrasi, mulai dari :</div>
+              <ol class="lp-feature-list">
+                <li><span>Kemudahan Pelaporan Hazard, insiden, Inspeksi, P5M, Safety Talk dan investigasi langsung dari HP karyawan.</span></li>
+                <li><span>Database Kompetensi karyawan, SIMPER &amp; Mine Permit, APD, izin kerja, JSA, Audit (Internal dan SMKP) dokumen Peraturan perusahaan, Golden rules dan regulasi pemerintah.</span></li>
+                <li><span>Monitoring Lingkungan, Limbah B3, kesehatan kerja dan tanggap darurat</span></li>
+                <li><span>Indikator Highlight KPI, LTI, LTIFR yang terintegrasi database dan tersedia Mode layar TV</span></li>
+                <li><span>Setup Master yang fleksibel, custom semua jenis form, parameter dan dokumen sesuai dengan standar masing - masing perusahaan.</span></li>
+              </ol>
+            </div>
+          </div>
+        </article>
+
+        <!-- Pilar 6 -->
+        <article class="lp-bento-card lp-bento-card--span-5">
+          <div>
+            <h3 class="lp-bento-card__title">ðŸ§  Core Platform &amp; Decision Governance</h3>
+            <p class="lp-bento-card__desc">
+              Isolasi data per tenant/project, effective-dated master data, RBAC granular per sub-admin, observabilitas Web Vitals &amp; Server-Timing, serta ketahanan sinkronisasi jaringan tambang terpencil.
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ================= 3. ARSITEKTUR 3-LAPISAN ENTERPRISE ================= -->
+    <section class="lp-section" id="arsitektur">
+      <div class="lp-section__head">
+        <h2 class="lp-section__title">Dirancang untuk Ketangguhan Lapangan &amp; Skala Multi-Site</h2>
+        <p class="lp-section__desc">
+          Arsitektur OMOS memisahkan tanggung jawab antara Control Plane, Client Data Plane, Core Platform, dan Modul Operasional Tambang untuk menjamin keamanan serta keakuratan perhitungan.
+        </p>
+      </div>
+
+      <div class="lp-arch-stack">
+        <div class="lp-arch-layer lp-arch-layer--cyan">
+          <div>
+            <div class="lp-arch-layer__title">OMOS Intelligence Layer</div>
+            <div class="lp-arch-layer__desc">AI Vision â€¢ Operational Intelligence â€¢ Predictive Mining â€” Analisis Pareto Root-Cause, Delay Impact Waterfall, dan Forecasting Operasional.</div>
+          </div>
+        </div>
+
+        <div class="lp-arch-layer">
+          <div>
+            <div class="lp-arch-layer__title">OMOS Mining Modules</div>
+            <div class="lp-arch-layer__desc">People â€¢ Production â€¢ Commercial â€¢ Maintenance â€¢ HSE â€¢ Fleet â€” Mengikuti semantik tanggal operasional shift tambang dan formula teknik tervalidasi.</div>
+          </div>
+        </div>
+
+        <div class="lp-arch-layer lp-arch-layer--emerald">
+          <div>
+            <div class="lp-arch-layer__title">OMOS Core Platform &amp; Data Plane</div>
+            <div class="lp-arch-layer__desc">Identity â€¢ RBAC â€¢ MDM â€¢ Offline Sync â€¢ Workflow â€¢ Audit â€¢ Security â€” Didukung PostgreSQL 17, Cloud Sync, Idempotent Retry, dan jejak audit penuh.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 4. CONTACT US SECTION ================= -->
+    <section class="lp-section" id="contact">
+      <div class="lp-section__head">
+        <h2 class="lp-section__title">Siap Mengintegrasikan Operasional Tambang Anda?</h2>
+        <p class="lp-section__desc">
+          Diskusikan kebutuhan site tambang Anda, jadwalkan presentasi demo langsung, atau hubungi tim dukungan teknis OMOS (One Mining System Operation).
+        </p>
+      </div>
+
+      <div class="lp-contact-grid">
+        <form class="lp-form-card" id="formContactOmos">
+          <div style="font-size:15px;font-weight:700;margin-bottom:14px;color:var(--omos-ink);">
+            ðŸ“© Formulir Konsultasi &amp; Request Demo
+          </div>
+
+          <div class="lp-form-row">
+            <div class="lp-field" style="margin-bottom:0;">
+              <label for="inContactName">Nama Lengkap *</label>
+              <input type="text" id="inContactName" placeholder="Contoh: Budi Santoso" required />
+            </div>
+            <div class="lp-field" style="margin-bottom:0;">
+              <label for="inContactCompany">Perusahaan / Nama Site *</label>
+              <input type="text" id="inContactCompany" placeholder="PT Prima Indojaya Mandiri / Site..." required />
+            </div>
+          </div>
+
+          <div class="lp-form-row">
+            <div class="lp-field" style="margin-bottom:0;">
+              <label for="inContactRole">Jabatan / Departemen</label>
+              <input type="text" id="inContactRole" placeholder="KTT / PJO / Mine Plan / HR / HSE" />
+            </div>
+            <div class="lp-field" style="margin-bottom:0;">
+              <label for="inContactModule">Fokus Modul Prioritas</label>
+              <select id="inContactModule">
+                <option value="Full Suite OMOS (All-in-One)">Full Suite OMOS (Seluruh Modul)</option>
+                <option value="Mine Planning & Production Intelligence">Mine Planning &amp; Production Intelligence</option>
+                <option value="Unit Population & Maintenance">Unit Population &amp; Maintenance</option>
+                <option value="Supply Chain Management">Supply Chain Management</option>
+                <option value="Human Resource Management & Development">Human Resource Management &amp; Development</option>
+                <option value="HSE & Keselamatan Pertambangan (SMKP Minerba)">HSE &amp; Keselamatan Pertambangan (SMKP Minerba)</option>
+                <option value="Core Platform & Decision Governance">Core Platform &amp; Decision Governance</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="lp-field">
+            <label for="inContactMessage">Pesan / Kebutuhan Operasional Site *</label>
+            <textarea id="inContactMessage" rows="3" placeholder="Jelaskan jumlah armada, lokasi site, atau kebutuhan integrasi..." required></textarea>
+          </div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            <button type="submit" class="lp-btn lp-btn--gold">
+              ðŸ’¬ Kirim &amp; Teruskan via WhatsApp
+            </button>
+            <button type="button" class="lp-btn lp-btn--ghost" id="btnContactEmail">
+              âœ‰ï¸ Kirim via Email Resmi
+            </button>
+            <span id="contactFeedbackMsg" style="font-size:12px;color:var(--omos-emerald-bright);" hidden></span>
+          </div>
+        </form>
+
+        <div class="lp-form-card" style="display:flex;flex-direction:column;justify-content:space-between;">
+          <div>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+              <img src="../assets/reports/omos-one-path.png" alt="OMOS Logo" style="width:48px;height:48px;border-radius:10px;background:#FAF8F5;padding:3px;object-fit:contain;border:1px solid var(--omos-border);" />
+              <div>
+                <div style="font-weight:800;font-size:15px;color:var(--omos-ink);">OMOS Command Support</div>
+                <div style="font-size:12px;color:var(--omos-ink-muted);">One Mining System Operation</div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:12px;font-size:12.5px;">
+              <div class="lp-support-box">
+                <div class="lp-support-box__lbl">ðŸ¢ Dukungan Implementasi &amp; Operasional</div>
+                <div class="lp-support-box__val">PT Prima Indojaya Mandiri â€” Mining Operations Center</div>
+              </div>
+              <div class="lp-support-box">
+                <div class="lp-support-box__lbl">âœ‰ï¸ Email Kemitraan &amp; Bantuan Teknis</div>
+                <div class="lp-support-box__val" style="color:var(--omos-cyan);">support@omos-mining.com</div>
+              </div>
+              <div class="lp-support-box">
+                <div class="lp-support-box__lbl">â±ï¸ Layanan Site &amp; Server</div>
+                <div class="lp-support-box__val" style="color:var(--omos-emerald-bright);">24/7 Shift Siang &amp; Malam (WIB)</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--omos-border);display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11.5px;color:var(--omos-ink-muted);">Sudah memiliki akun otorisasi?</span>
+            <button type="button" class="lp-btn lp-btn--gold" id="btnCardLogin" style="padding:6px 12px;font-size:11.5px;">
+              Login Sekarang â†’
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="lp-footer">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <img src="../assets/reports/omos-one-path.png" alt="OMOS" style="width:28px;height:28px;border-radius:6px;background:#FAF8F5;padding:2px;border:1px solid var(--omos-border);" />
+        <span><strong>OMOS (One Mining System Operation)</strong> â€¢ Architecture v2.6</span>
+      </div>
+      <div>
+        Â© 2026 OMOS Platform â€” Seluruh Hak Cipta Dilindungi.
+      </div>
+    </footer>
+
+  </main>
+
+  <!-- ================= MODAL LOGIN TERPADU ================= -->
+  <div class="lp-modal-backdrop" id="modalLoginOmos" hidden>
+    <div class="lp-modal">
+      <div class="lp-modal__head">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <img src="../assets/reports/omos-one-path.png" alt="OMOS" style="width:36px;height:36px;border-radius:8px;background:#FAF8F5;padding:2px;border:1px solid var(--omos-border);" />
+          <div>
+            <div style="font-size:15px;font-weight:800;color:var(--omos-ink);">Login Sistem OMOS</div>
+            <div style="font-size:11px;color:var(--omos-ink-muted);">One Mining System Operation</div>
+          </div>
+        </div>
+        <button type="button" class="lp-btn lp-btn--ghost" id="btnCloseLoginModal" style="padding:4px 9px;">âœ•</button>
+      </div>
+
+      <div class="lp-tabs">
+        <button type="button" class="lp-tab-btn is-active" id="tabBtnAdminLogin">ðŸ–¥ï¸ Command Center (Admin)</button>
+        <button type="button" class="lp-tab-btn" id="tabBtnPortalKaryawan">ðŸ“± Portal Karyawan</button>
+      </div>
+
+      <!-- Tab 1: Form Login Admin -->
+      <div id="paneAdminLogin">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:11.5px;color:var(--omos-ink-muted);">
+          <span>Otorisasi Dashboard &amp; Modul Tambang</span>
+          <span id="modalClock" style="font-family:monospace;color:var(--omos-gold-bright);">--:--:--</span>
+        </div>
+        <form id="formPreviewLogin">
+          <div class="lp-field">
+            <label>Email Otorisasi</label>
+            <input type="email" placeholder="admin@perusahaan.com" required />
+          </div>
+          <div class="lp-field">
+            <label>Password</label>
+            <input type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required />
+          </div>
+          <button type="submit" class="lp-btn lp-btn--gold" style="width:100%;padding:10px;margin-top:4px;">
+            Masuk ke Dashboard OMOS â†’
+          </button>
+          <p id="previewLoginNotice" style="font-size:11.5px;color:var(--omos-emerald-bright);margin-top:8px;text-align:center;" hidden></p>
+        </form>
+      </div>
+
+      <!-- Tab 2: Akses Portal Karyawan -->
+      <div id="panePortalKaryawan" hidden>
+        <p style="font-size:12.5px;color:var(--omos-ink-secondary);margin-bottom:14px;">
+          Untuk presensi wajah &amp; GPS, melihat jadwal kerja, riwayat kehadiran, serta slip gaji karyawan lapangan:
+        </p>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button type="button" class="lp-btn lp-btn--emerald" id="btnModalGoPortal" style="width:100%;padding:10px;">
+            ðŸŒ Buka Portal Absensi Web
+          </button>
+          <button type="button" class="lp-btn lp-btn--ghost" id="btnModalDownloadApk" style="width:100%;padding:10px;">
+            ðŸ“² Unduh Aplikasi Android
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+// Frontend logic untuk OMOS Landing Page Showcase (Sidecar & Standalone)
+(function () {
+  // 1. Dark / Light Theme Switcher (Sun & Moon)
+  const rootHtml = document.documentElement;
+  const btnThemeToggle = document.getElementById('btnThemeToggle');
+  const THEME_KEY = 'omos_landing_theme';
+
+  function applyTheme(theme) {
+    const next = theme === 'light' ? 'light' : 'dark';
+    rootHtml.setAttribute('data-theme', next);
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch (_) {}
+  }
+
+  try {
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      applyTheme(savedTheme);
+    }
+  } catch (_) {}
+
+  btnThemeToggle?.addEventListener('click', () => {
+    const current = rootHtml.getAttribute('data-theme') || 'dark';
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+  });
+
+  // 2. Live Clocks
+  function updateClocks() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('id-ID', { hour12: false, timeZone: 'Asia/Jakarta' }) + ' WIB';
+    const c1 = document.getElementById('lpLiveClock');
+    const c2 = document.getElementById('modalClock');
+    if (c1) c1.textContent = timeStr;
+    if (c2) c2.textContent = timeStr;
+  }
+  updateClocks();
+  setInterval(updateClocks, 1000);
+
+  // 3. Cockpit Tab Switcher
+  document.querySelectorAll('[data-cockpit-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = btn.getAttribute('data-cockpit-tab');
+      document.querySelectorAll('[data-cockpit-tab]').forEach((b) => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      document.querySelectorAll('.lp-cockpit-pane').forEach((pane) => {
+        pane.hidden = pane.id !== `cockpitPane-${target}`;
+      });
+    });
+  });
+
+  // 4. Modal Login Open / Close & Tabs
+  const modalLogin = document.getElementById('modalLoginOmos');
+  const openLoginModal = (defaultTab = 'admin') => {
+    if (!modalLogin) return;
+    modalLogin.hidden = false;
+    switchLoginTab(defaultTab);
+  };
+  const closeLoginModal = () => {
+    if (modalLogin) modalLogin.hidden = true;
+  };
+
+  const tabAdmin = document.getElementById('tabBtnAdminLogin');
+  const tabPortal = document.getElementById('tabBtnPortalKaryawan');
+  const paneAdmin = document.getElementById('paneAdminLogin');
+  const panePortal = document.getElementById('panePortalKaryawan');
+
+  function switchLoginTab(mode) {
+    const isPortal = mode === 'portal';
+    if (tabAdmin) tabAdmin.classList.toggle('is-active', !isPortal);
+    if (tabPortal) tabPortal.classList.toggle('is-active', isPortal);
+    if (paneAdmin) paneAdmin.hidden = isPortal;
+    if (panePortal) panePortal.hidden = !isPortal;
+  }
+
+  ['btnNavLogin', 'btnHeroLogin', 'btnCardLogin'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('click', () => openLoginModal('admin'));
+  });
+  document.getElementById('btnCloseLoginModal')?.addEventListener('click', closeLoginModal);
+  modalLogin?.addEventListener('click', (e) => {
+    if (e.target === modalLogin) closeLoginModal();
+  });
+
+  tabAdmin?.addEventListener('click', () => switchLoginTab('admin'));
+  tabPortal?.addEventListener('click', () => switchLoginTab('portal'));
+
+  // 5. Preview Form Login Submit
+  document.getElementById('formPreviewLogin')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const notice = document.getElementById('previewLoginNotice');
+    if (notice) {
+      notice.hidden = false;
+      notice.textContent = 'âœ“ Simulasi Login Berhasil! Pada aplikasi utama, ini akan langsung membuka Command Center OMOS.';
+    }
+  });
+
+  // 6. Contact Us Form Handler
+  const formContact = document.getElementById('formContactOmos');
+  const feedbackEl = document.getElementById('contactFeedbackMsg');
+
+  function getContactPayload() {
+    return {
+      name: document.getElementById('inContactName')?.value.trim() || '',
+      company: document.getElementById('inContactCompany')?.value.trim() || '',
+      role: document.getElementById('inContactRole')?.value.trim() || '-',
+      module: document.getElementById('inContactModule')?.value || 'Full Suite OMOS',
+      message: document.getElementById('inContactMessage')?.value.trim() || '',
+    };
+  }
+
+  formContact?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = getContactPayload();
+    if (window.sidecar?.fetch) {
+      try {
+        await window.sidecar.fetch('/api/contact', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      } catch (_) {}
+    }
+    if (feedbackEl) {
+      feedbackEl.hidden = false;
+      feedbackEl.textContent = `âœ“ Pesan dari ${payload.name} (${payload.company}) siap diteruskan ke WhatsApp/Tim OMOS!`;
+    }
+  });
+
+  document.getElementById('btnContactEmail')?.addEventListener('click', () => {
+    const payload = getContactPayload();
+    if (!payload.name || !payload.company) {
+      if (feedbackEl) {
+        feedbackEl.hidden = false;
+        feedbackEl.textContent = 'Silakan lengkapi Nama dan Perusahaan terlebih dahulu.';
+      }
+      return;
+    }
+    if (feedbackEl) {
+      feedbackEl.hidden = false;
+      feedbackEl.textContent = `âœ“ Draft email untuk support@omos-mining.com (${payload.module}) telah disiapkan!`;
+    }
+  });
+
+  // 7. Approve & Send to Agent button (Sidecar integration)
+  const btnApprove = document.getElementById('btnApproveToAgent');
+  btnApprove?.addEventListener('click', async () => {
+    if (window.sidecar?.agent?.sendMessage && window.sidecar.conversationId) {
+      btnApprove.textContent = 'âœ“ Mengirim instruksi ke Agen...';
+      await window.sidecar.agent.sendMessage(
+        'Saya sudah meninjau sampel tampilan Landing Page OMOS (One Mining System Operation). Silakan eksekusi dan terapkan ke halaman utama aplikasi.'
+      );
+      btnApprove.textContent = 'âœ“ Instruksi Terkirim!';
+    } else {
+      btnApprove.textContent = 'âœ“ Silakan ketik "eksekusi" di kolom chat';
+    }
+  });
+})();
+
+</script>
+</body>
+</html>
+

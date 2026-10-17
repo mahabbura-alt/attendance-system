@@ -1,0 +1,2974 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OMOS HSE Dashboard Preview (Fase 1)</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.42.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="../style.css?v=65">
+  <link rel="stylesheet" href="../hse.css?v=1">
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #f0efec;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .preview-banner {
+      background: #1e293b;
+      color: #f8fafc;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="preview-banner">
+    <div><strong>OMOS · Modul HSE (Health, Safety, and Environment)</strong> — Preview Interaktif Terisolasi (Fase 1)</div>
+    <div style="font-size:11px;opacity:0.8;">Acuan Mutlak: omos_hse_dashboard_layout.html</div>
+  </div>
+
+  <div id="hseRoot"></div>
+
+  <script src="../ui-action-feedback.js"></script>
+  <script>
+    // Mock API terisolasi untuk preview
+    window.state = { token: 'preview-token' };
+    window.getApiBaseUrl = () => '';
+
+    const mockOverview = {
+      hero: { daysWithoutLti: 142, recordDays: 210, targetDays: 250, percentTarget: 57 },
+      kpi: { ltifr: 0.42, ltifrPrev: 0.61, ltifrTrend: 'turun dari 0,61', trir: 1.10, trirTrend: 'stabil', nearMissMonth: 9, hazardOpen: 18, extremeCount: 1 },
+      hazardTrend6Months: [
+        { month: 'Mei', count: 50 }, { month: 'Jun', count: 60 }, { month: 'Jul', count: 56 },
+        { month: 'Agu', count: 76 }, { month: 'Sep', count: 68 }, { month: 'Okt', count: 64 },
+      ],
+      hazardRiskLevels: { extreme: 1, high: 4, medium: 8, low: 5 },
+      compliance: { training: 94, mcu: 97, simper: 91, inspection: 88 },
+      actionItems: [
+        { type: 'danger', icon: 'ti-circle-filled', text: '2 tindakan korektif lewat tenggat', route: 'hazard', tab: 'capa' },
+        { type: 'warning', icon: 'ti-circle-filled', text: '7 SIMPER habis dalam 30 hari', route: 'competency' },
+        { type: 'warning', icon: 'ti-circle-filled', text: '5 MCU jatuh tempo bulan ini', route: 'occ-health' },
+        { type: 'warning', icon: 'ti-circle-filled', text: '4 APAR perlu inspeksi', route: 'emergency' },
+        { type: 'accent', icon: 'ti-circle-filled', text: '3 izin kerja aktif hari ini', route: 'ptw' },
+      ],
+    };
+
+    let mockLocationsList = [
+      { id: 'loc-pit', code: 'PIT', name: 'PIT', type: 'PIT', parent_id: null, is_active: true },
+      { id: 'loc-pit-blk1', code: 'PIT-BLK-1', name: 'Blok 1', type: 'PIT', parent_id: 'loc-pit', is_active: true },
+      { id: 'loc-pit-blk2', code: 'PIT-BLK-2', name: 'Blok 2', type: 'PIT', parent_id: 'loc-pit', is_active: true },
+      { id: 'loc-pit-east', code: 'PIT-EAST', name: 'Pit Timur', type: 'PIT', parent_id: 'loc-pit', is_active: true },
+      { id: 'loc-haul', code: 'HAUL-ROAD', name: 'Jalan Hauling', type: 'HAUL_ROAD', parent_id: null, is_active: true },
+      { id: 'loc-haul-km1', code: 'HAUL-KM-1', name: 'KM 1', type: 'HAUL_ROAD', parent_id: 'loc-haul', is_active: true },
+      { id: 'loc-haul-km2', code: 'HAUL-KM-2', name: 'KM 2', type: 'HAUL_ROAD', parent_id: 'loc-haul', is_active: true },
+      { id: 'loc-ws', code: 'WORKSHOP', name: 'Workshop', type: 'WORKSHOP', parent_id: null, is_active: true },
+      { id: 'loc-ws-bay1', code: 'WS-BAY-1', name: 'Bay 1 Alat Berat', type: 'WORKSHOP', parent_id: 'loc-ws', is_active: true },
+      { id: 'loc-ws-tyre', code: 'WS-TYRE', name: 'Tyre Shop', type: 'WORKSHOP', parent_id: 'loc-ws', is_active: true },
+      { id: 'loc-disp', code: 'DISPOSAL', name: 'Disposal', type: 'DISPOSAL', parent_id: null, is_active: true },
+      { id: 'loc-disp-barat', code: 'DISP-BARAT', name: 'Disposal Barat', type: 'DISPOSAL', parent_id: 'loc-disp', is_active: true },
+      { id: 'loc-disp-timur', code: 'DISP-TIMUR', name: 'Disposal Timur', type: 'DISPOSAL', parent_id: 'loc-disp', is_active: true },
+    ];
+
+    const mockMasters = {
+      locations: mockLocationsList,
+      categories: [
+        { id: 'cat-1', domain: 'HAZARD', code: 'ROAD', label: 'Jalan Tambang & Hauling' },
+        { id: 'cat-2', domain: 'HAZARD', code: 'EQUIP', label: 'Alat Berat & Unit Kendaraan' },
+        { id: 'cat-3', domain: 'HAZARD', code: 'ELEC', label: 'Listrik & Instalasi Kabel' },
+        { id: 'cat-4', domain: 'HAZARD', code: 'HEIGHT', label: 'Ketinggian & Tangga Kerja' },
+        { id: 'cat-5', domain: 'HAZARD', code: 'HOUSEKEEP', label: 'Kebersihan & Kerapihan (5R)' },
+        { id: 'cat-6', domain: 'HAZARD', code: 'CHEMICAL', label: 'Bahan Kimia & B3' },
+      ],
+      employees: [
+        { id: 'emp-1', nama: 'Andi Saputra', employee_id: 'EMP-001', jabatan: 'Foreman Produksi' },
+        { id: 'emp-2', nama: 'Budi Santoso', employee_id: 'EMP-002', jabatan: 'HSE Officer' },
+        { id: 'emp-3', nama: 'Rudi Hartono', employee_id: 'EMP-003', jabatan: 'Supervisor Tambang' },
+        { id: 'emp-4', nama: 'Siti Aminah', employee_id: 'EMP-004', jabatan: 'Safety Inspector' },
+      ],
+      positions: [
+        { id: 'pos-1', name: 'Foreman Produksi' },
+        { id: 'pos-2', name: 'HSE Officer' },
+        { id: 'pos-3', name: 'Supervisor Tambang' },
+        { id: 'pos-4', name: 'Safety Inspector' },
+      ],
+      departments: [
+        { id: 'dept-1', name: 'Mining Operation' },
+        { id: 'dept-2', name: 'HSE & Safety' },
+        { id: 'dept-3', name: 'Plant & Maintenance' },
+      ],
+      shifts: [
+        { id: 'shift-siang', nama_shift: 'SIANG (06:00-18:00)', operational_start: '06:00', operational_end: '18:00', lintas_hari: false },
+        { id: 'shift-malam', nama_shift: 'MALAM (18:00-06:00)', operational_start: '18:00', operational_end: '06:00', lintas_hari: true },
+      ],
+      riskMatrix: [],
+    };
+
+    let mockInspectionTemplates = [
+      {
+        id: 'tmpl-1', root_id: 'tmpl-1', code: 'TMPL-PIT-01', name: 'Inspeksi K3 Front Loading Pit',
+        inspection_type: 'PLANNED', schedule_cycle: 'DAILY', custom_interval_days: null,
+        object_type: 'AREA', is_active: true, version_no: 1, is_current: true, setup_reviewed: true,
+        locked_at: null, items_count: 5, critical_items_count: 2,
+        items: [
+          { id: 'it-1', question: 'Tinggi bench dan kemiringan lereng aman?', is_critical: true, sort_order: 1 },
+          { id: 'it-2', question: 'Tanggul pengaman (safety berm) sesuai standar 3/4 ban?', is_critical: true, sort_order: 2 },
+          { id: 'it-3', question: 'Penerangan tower lamp mencukupi?', is_critical: false, sort_order: 3 },
+        ]
+      },
+      {
+        id: 'tmpl-2', root_id: 'tmpl-2', code: 'TMPL-HAUL-02', name: 'Inspeksi Rutin Jalan Hauling',
+        inspection_type: 'PLANNED', schedule_cycle: 'WEEKLY', custom_interval_days: null,
+        object_type: 'AREA', is_active: true, version_no: 1, is_current: true, setup_reviewed: true,
+        locked_at: '2026-10-08T00:00:00Z', items_count: 4, critical_items_count: 1,
+        items: [
+          { id: 'it-4', question: 'Drainase jalan dan gorong-gorong tidak tersumbat?', is_critical: false, sort_order: 1 },
+          { id: 'it-5', question: 'Rambu kecepatan dan batas tikungan terpasang jelas?', is_critical: true, sort_order: 2 }
+        ]
+      },
+      {
+        id: 'tmpl-3', root_id: 'tmpl-3', code: 'TMPL-ADHOC-01', name: 'Inspeksi Insidental Pasca Hujan Lebat',
+        inspection_type: 'UNPLANNED', schedule_cycle: 'NONE', custom_interval_days: null,
+        object_type: 'AREA', is_active: true, version_no: 1, is_current: true, setup_reviewed: true,
+        locked_at: null, items_count: 3, critical_items_count: 1,
+        items: [
+          { id: 'it-6', question: 'Genangan air dan lumpur telah dipompa?', is_critical: true, sort_order: 1 }
+        ]
+      }
+    ];
+
+    let mockInspectionTargets = [
+      {
+        id: 'tgt-1', target_type: 'BY_ROLE', position_id: 'pos-1', position_name: 'Foreman Produksi',
+        department_id: null, department_name: 'Semua Departemen', template_root_id: null,
+        template_name: 'Semua Jenis Inspeksi', cycle: 'MONTHLY', target_quota: 4,
+        effective_from: '2026-01-01', effective_to: null, proration_mode: 'BY_ATTENDANCE',
+        reason_code: null, notes: 'SOP Supervisi Tambang', is_active: true
+      },
+      {
+        id: 'tgt-2', target_type: 'BY_EMPLOYEE', employee_id: 'emp-2', employee_name: 'Budi Santoso',
+        employee_nrp: 'EMP-002', template_root_id: null, template_name: 'Semua Jenis Inspeksi',
+        cycle: 'MONTHLY', target_quota: 8, effective_from: '2026-01-01', effective_to: null,
+        proration_mode: 'NONE', reason_code: 'SPECIAL_ASSIGNMENT', notes: 'Lead Inspector', is_active: true
+      }
+    ];
+
+    let mockHazardReportTargets = [
+      {
+        id: 'hzt-1', target_type: 'BY_ROLE', position_id: 'pos-1', position_name: 'Foreman Produksi',
+        department_id: null, department_name: 'Semua Departemen',
+        cycle: 'MONTHLY', target_quota: 2,
+        effective_from: '2026-01-01', effective_to: null, proration_mode: 'NONE',
+        reason_code: null, notes: 'SOP Pelaporan Hazard', is_active: true
+      },
+      {
+        id: 'hzt-2', target_type: 'BY_EMPLOYEE', employee_id: 'emp-2', employee_name: 'Budi Santoso',
+        employee_nrp: 'EMP-002',
+        cycle: 'MONTHLY', target_quota: 4, effective_from: '2026-01-01', effective_to: null,
+        proration_mode: 'NONE', reason_code: 'SAFETY_CHAMPION', notes: 'Koordinator hazard', is_active: true
+      }
+    ];
+
+    let mockHazardReportScope = {
+      scope_mode: 'ALL', included_positions: [], included_employee_ids: [], excluded_employee_ids: []
+    };
+
+    let mockP5mTargets = [
+      {
+        id: 'p5m-1', target_type: 'BY_ROLE', position_id: 'pos-1', position_name: 'Foreman Produksi',
+        department_id: null, department_name: 'Semua Departemen',
+        cycle: 'MONTHLY', target_quota: 2,
+        effective_from: '2026-01-01', effective_to: null, proration_mode: 'NONE',
+        reason_code: null, notes: 'SOP P5M', is_active: true
+      }
+    ];
+
+    let mockP5mScope = {
+      scope_mode: 'ALL', included_positions: [], included_employee_ids: [], excluded_employee_ids: []
+    };
+
+    let mockStTargets = [
+      {
+        id: 'stt-1', target_type: 'BY_ROLE', position_id: 'pos-1', position_name: 'Foreman Produksi',
+        department_id: null, department_name: 'Semua Departemen',
+        cycle: 'MONTHLY', target_quota: 2,
+        effective_from: '2026-01-01', effective_to: null, proration_mode: 'NONE',
+        reason_code: null, notes: 'SOP Safety Talk', is_active: true
+      }
+    ];
+
+    let mockStScope = {
+      scope_mode: 'ALL', included_positions: [], included_employee_ids: [], excluded_employee_ids: []
+    };
+
+    let mockInspectionSchedules = [
+      {
+        id: 'sch-1', template_root_id: 'tmpl-1', template_name: 'Inspeksi K3 Front Loading Pit',
+        schedule_cycle: 'DAILY', location_id: 'loc-pit-blk1', location_name: 'Blok 1',
+        assignee_type: 'POSITION', assignee_position_id: 'pos-1', assignee_position_name: 'Foreman Produksi',
+        assignee_employee_id: null, assignee_employee_name: null,
+        next_due_date: new Date().toISOString().slice(0, 10), due_status: 'TODAY', is_active: true,
+        notes: 'Cek sebelum pergantian shift pagi'
+      },
+      {
+        id: 'sch-2', template_root_id: 'tmpl-2', template_name: 'Inspeksi Rutin Jalan Hauling',
+        schedule_cycle: 'WEEKLY', location_id: 'loc-haul-km1', location_name: 'KM 1',
+        assignee_type: 'EMPLOYEE', assignee_position_id: null, assignee_position_name: null,
+        assignee_employee_id: 'emp-2', assignee_employee_name: 'Budi Santoso',
+        next_due_date: '2026-10-15', due_status: 'SCHEDULED', is_active: true,
+        notes: 'Pemeriksaan rutin mingguan'
+      }
+    ];
+
+    let mockHazards = [
+      {
+        id: 'hz-1', report_no: 'HZD-2610-001', report_date: '2026-10-06', report_time: '08:30:00',
+        location_id: 'loc-3', location_name: 'Main Haul Road KM 2-4',
+        category_id: 'cat-1', category_name: 'Jalan Tambang & Hauling',
+        description: 'Tanggul jalan (safety berm) amblas sepanjang 15 meter akibat gerusan air hujan semalam',
+        likelihood: 4, consequence: 4, risk_score: 16, risk_level: 'HIGH',
+        assigned_to_name: 'Rudi Hartono', status: 'IN_ACTION',
+      },
+      {
+        id: 'hz-2', report_no: 'HZD-2610-002', report_date: '2026-10-06', report_time: '10:15:00',
+        location_id: 'loc-4', location_name: 'Main Workshop & Bay Tambang',
+        category_id: 'cat-5', category_name: 'Kebersihan & Kerapihan (5R)',
+        description: 'Ceceran oli drum pelumas tanpa secondary containment di area workshop bay 2',
+        likelihood: 2, consequence: 2, risk_score: 4, risk_level: 'LOW',
+        assigned_to_name: 'Andi Saputra', status: 'NEW',
+      },
+      {
+        id: 'hz-3', report_no: 'HZD-2610-003', report_date: '2026-10-07', report_time: '14:20:00',
+        location_id: 'loc-2', location_name: 'Pit 2 Utara',
+        category_id: 'cat-2', category_name: 'Alat Berat & Unit Kendaraan',
+        description: 'Retakan lereng aktif di atas area manuver excavator EX-201, potensi longsor fatal',
+        likelihood: 4, consequence: 5, risk_score: 20, risk_level: 'EXTREME',
+        assigned_to_name: 'Budi Santoso', status: 'IN_ACTION',
+      },
+    ];
+
+    let mockActions = [
+      {
+        id: 'act-1', action_no: 'CAPA-2610-001', source_type: 'HAZARD', source_id: 'hz-1',
+        description: 'Lakukan penimbunan ulang dan perkuatan tanggul pengaman haul road KM 2-4',
+        action_type: 'CORRECTIVE', pic_name: 'Rudi Hartono', due_date: '2026-10-08',
+        status: 'OPEN', is_overdue: true,
+      },
+      {
+        id: 'act-2', action_no: 'CAPA-2610-002', source_type: 'HAZARD', source_id: 'hz-3',
+        description: 'Evakuasi unit EX-201, pasang barikade batas bahaya 50 meter dan pasang prisma monitoring',
+        action_type: 'IMMEDIATE', pic_name: 'Budi Santoso', due_date: '2026-10-07',
+        status: 'DONE_PENDING_VERIFY', is_overdue: false,
+      },
+    ];
+
+    let mockIncidents = [
+      {
+        id: 'inc-1', incident_no: 'INC-2610-001', incident_type: 'MTI', occurred_at: '2026-10-02T14:15:00Z',
+        location_name: 'Main Workshop & Bay Tambang', department_name: 'Plant / Workshop',
+        description: 'Mekanik mengalami cedera jepit pada jari telunjuk kanan saat menyetel bracket alternator unit DT-104.',
+        actual_severity: 'MODERATE', potential_severity: 'MODERATE', estimated_loss: 2500000,
+        status: 'INVESTIGATING', investigation_status: 'OPEN',
+        persons: [{ person_name: 'Budi Santoso', role_in_incident: 'INJURED', injury_type: 'Crush / Laceration', body_part: 'Jari telunjuk kanan', treatment: 'MEDICAL', lost_days: 0 }],
+        assets: [{ asset_code: 'DT-104', asset_name: 'Dump Truck CAT 777D', damage_description: 'Tidak ada kerusakan unit', repair_cost: 0 }],
+        investigation: {
+          method: 'FIVE_WHY', lead_name: 'Admin Utama', team_members: 'Suryadi (Workshop Foreman), Anton (Safety Officer)',
+          immediate_cause: 'Tangan memegang komponen berat yang tidak tertumpu secara mekanis saat baut pengencang dilepas.',
+          root_causes: [
+            { why: 1, question: 'Mengapa jari mekanik terjepit bracket alternator?', answer: 'Tangan mekanik menahan alternator saat baut pengunci dikendorkan rekan kerja.' },
+            { why: 2, question: 'Mengapa alternator ditahan manual tanpa alat bantu?', answer: 'Peralatan lifting jack alternator portabel sedang dipakai di bay lain.' },
+            { why: 3, question: 'Mengapa mekanik tidak menunggu lifting jack tersedia?', answer: 'Target breakdown unit harus keluar sebelum pergantian shift 17:00.' },
+            { why: 4, question: 'Mengapa rekan kerja mengendorkan baut tanpa aba-aba?', answer: 'Kurang komunikasi verbal dan tidak ada SOP tandem kerja di area sempit alternator.' },
+            { why: 5, question: 'Mengapa tidak ada SOP tandem dan JSEA belum ditinjau?', answer: 'JSEA belum diperbarui untuk prosedur penggantian alternator tipe heavy duty CAT 777D.' }
+          ],
+          findings: 'Keterbatasan tools lifting khusus alternator; JSEA pekerjaan alternator belum mendetailkan risiko pinch point.',
+          lessons_learned: 'Pekerjaan komponen bermassa >15 kg wajib menggunakan penyangga mekanis dan JSEA terverifikasi pengawas.',
+          status: 'OPEN'
+        },
+        actions: [
+          { action_no: 'CAPA-2610-004', description: 'Pengadaan 2 unit hydraulic bracket jack khusus alternator dan revisi JSEA pekerjaan engine bay CAT 777D', pic_name: 'Admin Utama', due_date: '2026-10-15', status: 'OPEN' }
+        ]
+      },
+      {
+        id: 'inc-2', incident_no: 'INC-2610-002', incident_type: 'FAI', occurred_at: '2026-10-05T09:30:00Z',
+        location_name: 'Pit 1 Selatan', department_name: 'Mining Operation',
+        description: 'Operator tergores kawat sling pada sarung tangan saat memasang shackle hook, luka lecet ringan.',
+        actual_severity: 'MINOR', potential_severity: 'MINOR', estimated_loss: 0,
+        status: 'CLOSED', investigation_status: null, persons: [], assets: [], investigation: null, actions: []
+      },
+      {
+        id: 'inc-3', incident_no: 'INC-2610-005', incident_type: 'PROPERTY_DAMAGE', occurred_at: '2026-10-06T18:45:00Z',
+        location_name: 'Pit 2 Utara', department_name: 'Hauling',
+        description: 'DT-112 menyenggol safety berm saat manuver mundur di area loading point karena blind spot dan penerangan minim.',
+        actual_severity: 'MODERATE', potential_severity: 'MAJOR', estimated_loss: 18500000,
+        status: 'ACTION', investigation_status: null, persons: [], assets: [], investigation: null, actions: []
+      },
+      {
+        id: 'inc-4', incident_no: 'INC-2610-007', incident_type: 'NEAR_MISS', occurred_at: '2026-10-08T10:15:00Z',
+        location_name: 'Main Haul Road KM 2-4', department_name: 'Hauling',
+        description: 'Dua dump truck hampir bersenggolan di persimpangan KM 3 karena komunikasi radio channel 2 overload.',
+        actual_severity: 'MINOR', potential_severity: 'MAJOR', estimated_loss: 0,
+        status: 'INVESTIGATING', investigation_status: 'OPEN', persons: [], assets: [], investigation: null, actions: []
+      }
+    ];
+
+    let mockSafetyReports = {
+      monthlyStatistics: [
+        { monthKey: '2026-10', monthLabel: 'Oct 2026', hours: 239000, fatality: 0, lti: 0, mti: 1, fai: 1, nm: 4, pd: 1, lostDays: 0, ltifr: 0.00, trir: 4.18, sr: 0.00 },
+        { monthKey: '2026-09', monthLabel: 'Sep 2026', hours: 244000, fatality: 0, lti: 0, mti: 0, fai: 2, nm: 5, pd: 1, lostDays: 0, ltifr: 0.00, trir: 0.00, sr: 0.00 },
+        { monthKey: '2026-08', monthLabel: 'Aug 2026', hours: 240000, fatality: 0, lti: 0, mti: 0, fai: 0, nm: 0, pd: 0, lostDays: 0, ltifr: 0.00, trir: 0.00, sr: 0.00 },
+        { monthKey: '2026-07', monthLabel: 'Jul 2026', hours: 245000, fatality: 0, lti: 0, mti: 0, fai: 0, nm: 0, pd: 0, lostDays: 0, ltifr: 0.00, trir: 0.00, sr: 0.00 },
+        { monthKey: '2026-06', monthLabel: 'Jun 2026', hours: 242000, fatality: 0, lti: 0, mti: 0, fai: 0, nm: 0, pd: 0, lostDays: 0, ltifr: 0.00, trir: 0.00, sr: 0.00 },
+        { monthKey: '2026-05', monthLabel: 'May 2026', hours: 238000, fatality: 0, lti: 0, mti: 0, fai: 0, nm: 0, pd: 0, lostDays: 0, ltifr: 0.00, trir: 0.00, sr: 0.00 },
+      ],
+      categoryBreakdown: [
+        { incident_type: 'NEAR_MISS', count: 9 },
+        { incident_type: 'FAI', count: 3 },
+        { incident_type: 'PROPERTY_DAMAGE', count: 2 },
+        { incident_type: 'MTI', count: 1 }
+      ],
+      locationBreakdown: [
+        { location_name: 'Main Haul Road KM 2-4', count: 6 },
+        { location_name: 'Main Workshop & Bay Tambang', count: 4 },
+        { location_name: 'Pit 2 Utara', count: 3 },
+        { location_name: 'Pit 1 Selatan', count: 2 }
+      ]
+    };
+
+    let mockCourses = [
+      { id: 'c-1', code: 'TR-IND-01', name: 'Induksi Keselamatan Tambang Dasar', duration_hours: 4, validity_months: 12 },
+      { id: 'c-2', code: 'TR-DDT-01', name: 'Defensive Driving & Haul Road Safety', duration_hours: 8, validity_months: 12 },
+      { id: 'c-3', code: 'TR-FA-01', name: 'Pertolongan Pertama Pada Kecelakaan (P3K)', duration_hours: 8, validity_months: 24 },
+      { id: 'c-4', code: 'TR-WAH-01', name: 'Bekerja Aman di Ketinggian (Working at Height)', duration_hours: 8, validity_months: 12 },
+      { id: 'c-5', code: 'TR-LOTO-01', name: 'Lockout Tagout (LOTO) & Isolasi Energi', duration_hours: 6, validity_months: 12 },
+      { id: 'c-6', code: 'TR-ENV-01', name: 'Pengelolaan Lingkungan & Limbah B3 Tambang', duration_hours: 4, validity_months: 24 },
+    ];
+
+    let mockLicenses = [
+      {
+        id: 'lic-1', employee_id: 'emp-1', employee_name: 'Andi Saputra', employee_nrp: 'EMP-001', employee_position: 'Foreman Produksi',
+        license_type: 'SIMPER', license_no: 'SIMPER-26-0042', class_or_unit: 'Light Vehicle 4x4 / Sarana Tambang',
+        issued_by: 'KTT Site JMB-DKC', issued_date: '2025-10-15', expiry_date: '2026-10-25',
+        computed_status: 'EXPIRING', status: 'EXPIRING', fit_to_operate: true, notes: 'Masa berlaku < 30 hari'
+      },
+      {
+        id: 'lic-2', employee_id: 'emp-2', employee_name: 'Budi Santoso', employee_nrp: 'EMP-002', employee_position: 'HSE Officer',
+        license_type: 'SIMPER', license_no: 'SIMPER-26-0081', class_or_unit: 'Light Vehicle 4x4 / Rescue Unit',
+        issued_by: 'KTT Site JMB-DKC', issued_date: '2025-11-01', expiry_date: '2027-11-01',
+        computed_status: 'VALID', status: 'VALID', fit_to_operate: true, notes: 'Full operational permit'
+      },
+      {
+        id: 'lic-3', employee_id: 'emp-3', employee_name: 'Rudi Hartono', employee_nrp: 'EMP-003', employee_position: 'Supervisor Tambang',
+        license_type: 'SIMPER', license_no: 'SIMPER-25-0911', class_or_unit: 'Dump Truck Scania & Excavator CAT',
+        issued_by: 'KTT Site JMB-DKC', issued_date: '2025-09-01', expiry_date: '2026-09-01',
+        computed_status: 'EXPIRED', status: 'EXPIRED', fit_to_operate: false, notes: 'Kedaluwarsa - Tidak Layak Operasi'
+      },
+      {
+        id: 'lic-4', employee_id: 'emp-4', employee_name: 'Siti Aminah', employee_nrp: 'EMP-004', employee_position: 'Safety Inspector',
+        license_type: 'FIRST_AID', license_no: 'FA-CERT-24-001', class_or_unit: 'Petugas P3K Tambang Kelas A',
+        issued_by: 'Kemnaker RI', issued_date: '2024-06-01', expiry_date: '2027-06-01',
+        computed_status: 'VALID', status: 'VALID', fit_to_operate: true, notes: 'Bersertifikat resmi Kemnaker'
+      }
+    ];
+
+    let mockMatrix = {
+      courses: mockCourses,
+      positions: [
+        { position: 'Foreman Produksi', employeeCount: 1, compliancePct: 100 },
+        { position: 'HSE Officer', employeeCount: 1, compliancePct: 100 },
+        { position: 'Supervisor Tambang', employeeCount: 1, compliancePct: 66.7 },
+        { position: 'Safety Inspector', employeeCount: 1, compliancePct: 100 },
+      ],
+      positionCompliance: [
+        { position: 'Foreman Produksi', employeeCount: 1, compliancePct: 100 },
+        { position: 'HSE Officer', employeeCount: 1, compliancePct: 100 },
+        { position: 'Supervisor Tambang', employeeCount: 1, compliancePct: 66.7 },
+        { position: 'Safety Inspector', employeeCount: 1, compliancePct: 100 },
+      ],
+      employees: [
+        {
+          id: 'emp-1', nama: 'Andi Saputra', nrp: 'EMP-001', jabatan: 'Foreman Produksi', requiredCount: 3, fulfilledCount: 3, compliancePct: 100,
+          courses: {
+            'c-1': { status: 'COMPLETED', date: '2025-10-10' },
+            'c-2': { status: 'COMPLETED', date: '2025-11-01' },
+            'c-3': { status: 'COMPLETED', date: '2025-12-05' },
+            'c-4': { status: 'OPTIONAL' }, 'c-5': { status: 'OPTIONAL' }, 'c-6': { status: 'OPTIONAL' }
+          }
+        },
+        {
+          id: 'emp-2', nama: 'Budi Santoso', nrp: 'EMP-002', jabatan: 'HSE Officer', requiredCount: 3, fulfilledCount: 3, compliancePct: 100,
+          courses: {
+            'c-1': { status: 'COMPLETED', date: '2025-10-10' },
+            'c-2': { status: 'COMPLETED', date: '2025-11-01' },
+            'c-3': { status: 'COMPLETED', date: '2025-12-05' },
+            'c-4': { status: 'OPTIONAL' }, 'c-5': { status: 'OPTIONAL' }, 'c-6': { status: 'OPTIONAL' }
+          }
+        },
+        {
+          id: 'emp-3', nama: 'Rudi Hartono', nrp: 'EMP-003', jabatan: 'Supervisor Tambang', requiredCount: 3, fulfilledCount: 2, compliancePct: 66.7,
+          courses: {
+            'c-1': { status: 'COMPLETED', date: '2025-10-10' },
+            'c-2': { status: 'REQUIRED_MISSING' },
+            'c-3': { status: 'COMPLETED', date: '2025-12-05' },
+            'c-4': { status: 'OPTIONAL' }, 'c-5': { status: 'OPTIONAL' }, 'c-6': { status: 'OPTIONAL' }
+          }
+        },
+        {
+          id: 'emp-4', nama: 'Siti Aminah', nrp: 'EMP-004', jabatan: 'Safety Inspector', requiredCount: 3, fulfilledCount: 3, compliancePct: 100,
+          courses: {
+            'c-1': { status: 'COMPLETED', date: '2025-10-10' },
+            'c-2': { status: 'COMPLETED', date: '2025-11-01' },
+            'c-3': { status: 'COMPLETED', date: '2025-12-05' },
+            'c-4': { status: 'OPTIONAL' }, 'c-5': { status: 'OPTIONAL' }, 'c-6': { status: 'OPTIONAL' }
+          }
+        }
+      ]
+    };
+
+    let mockInductions = [
+      {
+        id: 'ind-1', person_type: 'EMPLOYEE', employee_id: 'emp-1', display_name: 'Andi Saputra',
+        company_name: 'PT Internal Site JMB-DKC', id_no: '3201092801920001',
+        induction_date: '2026-10-01', test_score: 95.0, result: 'PASSED', valid_until: '2027-10-01', inductor_name: 'Budi Santoso'
+      },
+      {
+        id: 'ind-2', person_type: 'CONTRACTOR', employee_id: null, display_name: 'Bambang Irawan',
+        company_name: 'PT United Tractors Tbk', id_no: '3201092801920003',
+        induction_date: '2026-10-03', test_score: 88.0, result: 'PASSED', valid_until: '2027-10-03', inductor_name: 'Budi Santoso'
+      },
+      {
+        id: 'ind-3', person_type: 'VISITOR', employee_id: null, display_name: 'Ir. Hendra Wijaya',
+        company_name: 'Inspektur Tambang Dinas ESDM', id_no: '3171092801920002',
+        induction_date: '2026-10-04', test_score: 100.0, result: 'PASSED', valid_until: '2026-10-05', inductor_name: 'Budi Santoso'
+      }
+    ];
+
+    let mockP5mEvents = [
+      {
+        id: 'p5me-1', event_no: 'P5M-0001', event_date: '2026-10-09',
+        shift_id: 'shift-siang', shift_name: 'SIANG (06:00-18:00)',
+        location_id: 'loc-pit-blk1', location_name: 'Blok 1',
+        topics: ['APD wajib di area produksi', 'Jarak aman dump truck'],
+        led_by_ids: ['emp-1'], led_by_names: ['Andi Saputra'],
+        photos: [], status: 'ACTIVE', merged_into_id: null, duplicate_count: 1,
+        attendee_count: 2, attendee_ids: ['emp-1', 'emp-2'], attendee_names: ['Andi Saputra', 'Budi Santoso']
+      },
+      {
+        id: 'p5me-2', event_no: 'P5M-0002', event_date: '2026-10-09',
+        shift_id: 'shift-siang', shift_name: 'SIANG (06:00-18:00)',
+        location_id: 'loc-pit-blk1', location_name: 'Blok 1',
+        topics: ['APD wajib di area produksi'],
+        led_by_ids: [], led_by_names: [],
+        photos: [], status: 'ACTIVE', merged_into_id: null, duplicate_count: 1,
+        attendee_count: 1, attendee_ids: ['emp-3'], attendee_names: ['Rudi Hartono']
+      },
+      {
+        id: 'p5me-3', event_no: 'P5M-0003', event_date: '2026-10-07',
+        shift_id: 'shift-malam', shift_name: 'MALAM (18:00-06:00)',
+        location_id: 'loc-ws-bay1', location_name: 'Bay 1 Alat Berat',
+        topics: ['Isolasi energi LOTO sebelum masuk ruang mesin'],
+        led_by_ids: ['emp-2'], led_by_names: ['Budi Santoso'],
+        photos: [], status: 'ACTIVE', merged_into_id: null, duplicate_count: 0,
+        attendee_count: 2, attendee_ids: ['emp-1', 'emp-3'], attendee_names: ['Andi Saputra', 'Rudi Hartono']
+      }
+    ];
+
+    let mockStEvents = [
+      {
+        id: 'ste-1', event_no: 'STK-0001', event_date: '2026-10-08',
+        shift_id: 'shift-siang', shift_name: 'SIANG (06:00-18:00)',
+        location_id: 'loc-haul-km1', location_name: 'KM 1',
+        topics: ['Batas kecepatan haul road 40 km/jam saat hujan'],
+        led_by_ids: ['emp-3'], led_by_names: ['Rudi Hartono'],
+        photos: [], status: 'ACTIVE', merged_into_id: null, duplicate_count: 0,
+        attendee_count: 2, attendee_ids: ['emp-1', 'emp-2'], attendee_names: ['Andi Saputra', 'Budi Santoso']
+      }
+    ];
+
+    let mockCompetencyOverview = {
+      licenses: { total: 4, valid: 2, expiring: 1, expired: 1, unfitOperators: 1 },
+      training: { totalRequiredSlots: 12, fulfilledSlots: 11, compliancePct: 91.7 },
+      inductions: { total_inductions: 3, employee_inductions: 1, contractor_inductions: 1, visitor_inductions: 1, passed_inductions: 3, failed_inductions: 0 }
+    };
+
+    let mockPtwOverview = {
+      total: 5,
+      active: 2,
+      submitted: 1,
+      hseCheck: 0,
+      approved: 1,
+      closed: 1,
+      expired: 0,
+      simopsCount: 2,
+      simopsLocations: [{ id: 'loc-4', name: 'Main Workshop & Bay Tambang' }]
+    };
+
+    let mockPermits = [
+      {
+        id: 'ptw-1', permit_no: 'PTW-2610-001', permit_type: 'HOT_WORK',
+        title: 'Pengelasan Chute Transfer Crusher & Penggantian Wear Plate',
+        location_id: 'loc-4', location_name: 'Main Workshop & Bay Tambang', area_description: 'Bay 3 Plant Crushing',
+        applicant_name: 'Andi Saputra', supervisor_name: 'Rudi Hartono', contractor_name: 'PT Internal Site',
+        valid_from: '2026-10-09T08:00:00Z', valid_until: '2026-10-10T17:00:00Z',
+        hazards_identified: 'Percikan api las, gas mudah terbakar, panas tinggi',
+        precautions: 'APAR 6kg standby, fire blanket terpasang, gas test 0% LEL',
+        status: 'ACTIVE', computed_status: 'ACTIVE', is_simops: true,
+        workers: [
+          { employee_id: 'emp-1', employee_name: 'Andi Saputra', employee_nrp: 'EMP-001', employee_position: 'Foreman Produksi', worker_role: 'Welder', license_status: 'OK' }
+        ],
+        isolations: [
+          { id: 'iso-1', permit_id: 'ptw-1', equipment_tag: 'CRUSHER-CHUTE-01', isolation_point: 'Breaker Panel MCC-03', tag_no: 'TAG-LOTO-001', lock_no: 'LCK-081', isolation_method: 'Padlock & Hasp', isolator_name: 'Budi Santoso', status: 'LOCKED' }
+        ],
+        handovers: [
+          { id: 'ho-1', shift_from: 'Shift 1', shift_to: 'Shift 2', handover_from_name: 'Rudi Hartono', handover_to_name: 'Andi Saputra', loto_verified: true, housekeeping_ok: true, hazards_briefed: true, notes: 'Progress las 60%' }
+        ],
+        simopsConflicts: [
+          { id: 'ptw-4', permit_no: 'PTW-2610-004', permit_type: 'LOTO', title: 'Overhaul Mesin Genset Backup Utama' }
+        ]
+      },
+      {
+        id: 'ptw-2', permit_no: 'PTW-2610-002', permit_type: 'CONFINED_SPACE',
+        title: 'Inspeksi & Pembersihan Tangki Solar Fuel Station',
+        location_id: 'loc-5', location_name: 'TPS Limbah B3 & Gudang Site', area_description: 'Tangki T-02',
+        applicant_name: 'Budi Santoso', supervisor_name: 'Budi Santoso', contractor_name: 'PT Mandiri Jaya',
+        valid_from: '2026-10-10T08:00:00Z', valid_until: '2026-10-10T16:00:00Z',
+        hazards_identified: 'Kekurangan oksigen, uap hidrokarbon mudah meledak',
+        precautions: 'Blower ventilasi continuous, gas detector 4-gas, tripod & harness',
+        status: 'SUBMITTED', computed_status: 'SUBMITTED', is_simops: false,
+        workers: [
+          { employee_id: 'emp-2', employee_name: 'Budi Santoso', employee_nrp: 'EMP-002', employee_position: 'HSE Officer', worker_role: 'Standby Person', license_status: 'OK' }
+        ],
+        isolations: [],
+        handovers: [],
+        simopsConflicts: []
+      },
+      {
+        id: 'ptw-3', permit_no: 'PTW-2610-003', permit_type: 'WORK_AT_HEIGHT',
+        title: 'Pemasangan Lampu Sorot Tower Lighting 18 Meter',
+        location_id: 'loc-1', location_name: 'Pit 1 Selatan', area_description: 'Tower 4 Disposal',
+        applicant_name: 'Rudi Hartono', supervisor_name: 'Rudi Hartono', contractor_name: null,
+        valid_from: '2026-10-09T07:00:00Z', valid_until: '2026-10-09T18:00:00Z',
+        hazards_identified: 'Jatuh dari ketinggian, terpaan angin kencang',
+        precautions: 'Full body harness double lanyard 100% tie-off, wind meter < 25 knot',
+        status: 'APPROVED', computed_status: 'APPROVED', is_simops: false,
+        workers: [
+          { employee_id: 'emp-3', employee_name: 'Rudi Hartono', employee_nrp: 'EMP-003', employee_position: 'Supervisor Tambang', worker_role: 'Rigger', license_status: 'OK' }
+        ],
+        isolations: [],
+        handovers: [],
+        simopsConflicts: []
+      },
+      {
+        id: 'ptw-4', permit_no: 'PTW-2610-004', permit_type: 'LOTO',
+        title: 'Overhaul Mesin Genset Backup Utama',
+        location_id: 'loc-4', location_name: 'Main Workshop & Bay Tambang', area_description: 'Ruang Genset Bay 4',
+        applicant_name: 'Siti Aminah', supervisor_name: 'Budi Santoso', contractor_name: 'PT Traktor Nusantara',
+        valid_from: '2026-10-09T09:00:00Z', valid_until: '2026-10-10T12:00:00Z',
+        hazards_identified: 'Energi listrik tidak terkontrol, putaran mekanis mendadak',
+        precautions: 'Main switch di-padlock, baterai aki dilepas, safety tag out',
+        status: 'ACTIVE', computed_status: 'ACTIVE', is_simops: true,
+        workers: [
+          { employee_id: 'emp-4', employee_name: 'Siti Aminah', employee_nrp: 'EMP-004', employee_position: 'Safety Inspector', worker_role: 'Inspector', license_status: 'OK' }
+        ],
+        isolations: [
+          { id: 'iso-2', permit_id: 'ptw-4', equipment_tag: 'GENSET-BAY-04', isolation_point: 'Main Breaker ACB', tag_no: 'TAG-LOTO-002', lock_no: 'LCK-092', isolation_method: 'Lockout Clamp', isolator_name: 'Budi Santoso', status: 'LOCKED' }
+        ],
+        handovers: [],
+        simopsConflicts: [
+          { id: 'ptw-1', permit_no: 'PTW-2610-001', permit_type: 'HOT_WORK', title: 'Pengelasan Chute Transfer Crusher' }
+        ]
+      },
+      {
+        id: 'ptw-5', permit_no: 'PTW-2610-005', permit_type: 'EXCAVATION',
+        title: 'Penggalian Paritan Gorong-gorong Aliran Air Hauling KM 2',
+        location_id: 'loc-3', location_name: 'Main Haul Road KM 2-4', area_description: 'Bahu Jalan Kiri',
+        applicant_name: 'Andi Saputra', supervisor_name: 'Rudi Hartono', contractor_name: null,
+        valid_from: '2026-10-08T08:00:00Z', valid_until: '2026-10-08T17:00:00Z',
+        hazards_identified: 'Pipa air/kabel optik tertanam terputus, longsor dinding parit',
+        precautions: 'Pengecekan denah utilitas, shoring dinding galian > 1.5m',
+        status: 'CLOSED', computed_status: 'CLOSED', is_simops: false,
+        workers: [],
+        isolations: [],
+        handovers: [],
+        simopsConflicts: []
+      }
+    ];
+
+    const MOCK_INSP_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const MOCK_INSP_PDF = 'data:application/pdf;base64,JVBERi0xLjQK';
+
+    let mockInspections = [
+      {
+        id: 'ins-1', inspection_no: 'INS-2610-001', inspection_date: '2026-10-09',
+        template_id: 'tmpl-1', template_code: 'TMPL-LV-01', template_name: 'Checklist Harian Light Vehicle (P2H LV)',
+        location_id: 'loc-4', location_name: 'Main Workshop & Bay Tambang', equipment_tag: 'LV-012',
+        inspector_name: 'Andi Saputra', status: 'COMPLETED', pass_rate_pct: 100, critical_findings_count: 0,
+        notes: 'Unit prima siap operasional tambang.',
+        photos: [MOCK_INSP_PNG],
+        documents: [{ name: 'laporan-p2h-oktober.pdf', mime: 'application/pdf', size: 24576, data: MOCK_INSP_PDF }],
+        answers: [
+          { category: 'Mesin & Cairan', item_prompt: 'Kondisi oli mesin, minyak rem, dan air radiator cukup', is_critical: true, answer: 'YES', notes: null },
+          { category: 'Pengereman & Kemudi', item_prompt: 'Fungsi rem utama (foot brake) dan rem parkir bekerja prima', is_critical: true, answer: 'YES', notes: null },
+          { category: 'Kelistrikan & Lampu', item_prompt: 'Lampu utama, lampu sein, rotary lamp, dan mundur berfungsi', is_critical: true, answer: 'YES', notes: null },
+          { category: 'Keselamatan Tambang', item_prompt: 'Tiang bendera (buggy whip) terpasang tegak dengan lampu menyala', is_critical: false, answer: 'YES', notes: null },
+          { category: 'Keselamatan Tambang', item_prompt: 'APAR 2kg tersedia dan jarum tekanan berada pada zona hijau', is_critical: true, answer: 'YES', notes: null }
+        ],
+        criticalFindings: []
+      },
+      {
+        id: 'ins-2', inspection_no: 'INS-2610-002', inspection_date: '2026-10-09',
+        template_id: 'tmpl-2', template_code: 'TMPL-HD-01', template_name: 'P2H Dump Truck & Alat Berat Tambang',
+        location_id: 'loc-1', location_name: 'Pit 1 Selatan', equipment_tag: 'DT-785',
+        inspector_name: 'Budi Santoso', status: 'COMPLETED', pass_rate_pct: 75, critical_findings_count: 1,
+        notes: 'Ditemukan kebocoran oli hidrolik pada silinder hoist.',
+        photos: [MOCK_INSP_PNG],
+        documents: [],
+        answers: [
+          { category: 'Struktur & Ban', item_prompt: 'Kondisi ban (tyre), baut roda, dan tidak ada batu terjepit di dual tyre', is_critical: true, answer: 'YES', notes: null },
+          { category: 'Sistem Hidrolik', item_prompt: 'Tidak ada kebocoran oli hidrolik pada silinder hoist vessel dan steering', is_critical: true, answer: 'NO', notes: 'Bocor rembes silinder hoist kiri' },
+          { category: 'Sistem Kemudi & Rem', item_prompt: 'Uji retarder, service brake, dan secondary steering berfungsi normal', is_critical: true, answer: 'YES', notes: null },
+          { category: 'Sistem Proteksi Kebakaran', item_prompt: 'Fire suppression system pin pengaman terpasang & siap aktif', is_critical: true, answer: 'YES', notes: null }
+        ],
+        criticalFindings: [
+          { item_prompt: 'Tidak ada kebocoran oli hidrolik pada silinder hoist vessel dan steering', answer: 'NO', notes: 'Bocor rembes silinder hoist kiri' }
+        ]
+      },
+      {
+        id: 'ins-3', inspection_no: 'INS-2610-003', inspection_date: '2026-10-08',
+        template_id: 'tmpl-3', template_code: 'TMPL-WSHOP-01', template_name: 'Inspeksi Kerapihan & Standar 5R Workshop',
+        location_id: 'loc-4', location_name: 'Main Workshop & Bay Tambang', equipment_tag: null,
+        inspector_name: 'Siti Aminah', status: 'COMPLETED', pass_rate_pct: 100, critical_findings_count: 0,
+        notes: 'Workshop Bay 1-4 bersih dan rapi.',
+        photos: [MOCK_INSP_PNG],
+        documents: [{ name: 'checklist-5r.pdf', mime: 'application/pdf', size: 18432, data: MOCK_INSP_PDF }],
+        answers: [
+          { category: 'Housekeeping (5R)', item_prompt: 'Lantai kerja bersih dari tumpahan oli dan ceceran gemuk', is_critical: false, answer: 'YES', notes: null },
+          { category: 'Alat & Perkakas', item_prompt: 'Peralatan tangan (hand tools) ditaruh pada papan bay bayang (shadow board)', is_critical: false, answer: 'YES', notes: null },
+          { category: 'Jalur Evakuasi', item_prompt: 'Walkway dan jalur evakuasi darurat bebas dari halangan barang', is_critical: true, answer: 'YES', notes: null }
+        ],
+        criticalFindings: []
+      },
+      {
+        id: 'ins-4', inspection_no: 'INS-2610-004', inspection_date: '2026-10-07',
+        template_id: 'tmpl-4', template_code: 'TMPL-APAR-01', template_name: 'Pemeriksaan Rutin Bulanan APAR & Hydrant Site',
+        location_id: 'loc-5', location_name: 'TPS Limbah B3 & Gudang Site', equipment_tag: 'APAR-TPS-02',
+        inspector_name: 'Rudi Hartono', status: 'COMPLETED', pass_rate_pct: 67, critical_findings_count: 1,
+        notes: 'Tekanan APAR TPS-02 berada di zona merah (kurang tekanan).',
+        photos: [MOCK_INSP_PNG],
+        documents: [],
+        answers: [
+          { category: 'Fisik Tabung', item_prompt: 'Tabung tidak berkarat, segel pin utuh, dan selang tidak retak', is_critical: true, answer: 'YES', notes: null },
+          { category: 'Tekanan Gas', item_prompt: 'Pressure gauge menunjukkan jarum di area hijau (bertekanan)', is_critical: true, answer: 'NO', notes: 'Jarum berada di zona merah' },
+          { category: 'Akses & Rambu', item_prompt: 'Rambu penunjuk APAR terpasang jelas dan akses tidak terhalang', is_critical: false, answer: 'YES', notes: null }
+        ],
+        criticalFindings: [
+          { item_prompt: 'Pressure gauge menunjukkan jarum di area hijau (bertekanan)', answer: 'NO', notes: 'Jarum berada di zona merah' }
+        ]
+      }
+    ];
+
+    // --- FASE 5: OCCUPATIONAL HEALTH MOCKS ---
+    const mockOccHealthOverview = {
+      mcu: { total_mcu: 4, fit_count: 2, fit_notes_count: 1, unfit_count: 1, expiring_count: 1 },
+      ffw: { total_checks: 4, fit_count: 3, unfit_count: 1, fatigue_risk_count: 1 },
+      substance: { total_tests: 3, negative_count: 2, positive_count: 1, random_count: 1 },
+      cases: { total_cases: 3, open_cases: 2, pak_cases: 1, lost_workdays: 3 },
+      hygiene: { total_measurements: 5, exceeded_count: 2, near_limit_count: 1, ok_count: 2 },
+    };
+
+    let mockMcuRecords = [
+      {
+        id: 'mcu-1', employee_id: 'emp-1', employee_name: 'Andi Saputra', employee_nrp: 'EMP-001',
+        department_name: 'Mining Operation', position_name: 'Foreman Produksi',
+        mcu_type: 'PERIODIC', mcu_date: '2026-05-10', valid_until: '2027-05-10',
+        fit_status: 'FIT', validity_status: 'VALID', work_restrictions: null,
+        medical_facility: 'RS Pertamedika Balikpapan', examiner_doctor: 'dr. Hendra Hiperkes'
+      },
+      {
+        id: 'mcu-2', employee_id: 'emp-2', employee_name: 'Budi Santoso', employee_nrp: 'EMP-002',
+        department_name: 'HSE & Safety', position_name: 'HSE Officer',
+        mcu_type: 'PERIODIC', mcu_date: '2025-10-25', valid_until: '2026-10-25',
+        fit_status: 'FIT_WITH_NOTES', validity_status: 'EXPIRING',
+        work_restrictions: 'Wajib kacamata silinder saat inspeksi malam',
+        medical_facility: 'Klinik Site JMB-DKC', examiner_doctor: 'dr. Farida'
+      },
+      {
+        id: 'mcu-3', employee_id: 'emp-3', employee_name: 'Rudi Hartono', employee_nrp: 'EMP-003',
+        department_name: 'Production & Pit', position_name: 'Supervisor Tambang',
+        mcu_type: 'SPECIAL', mcu_date: '2026-08-15', valid_until: '2027-08-15',
+        fit_status: 'TEMP_UNFIT', validity_status: 'VALID',
+        work_restrictions: 'Hipertensi stage 2, dilarang mengemudi unit tambang',
+        medical_facility: 'Klinik Pratama Site', examiner_doctor: 'dr. Farida'
+      },
+      {
+        id: 'mcu-4', employee_id: 'emp-4', employee_name: 'Siti Aminah', employee_nrp: 'EMP-004',
+        department_name: 'HSE Compliance', position_name: 'Safety Inspector',
+        mcu_type: 'PRE_EMPLOYMENT', mcu_date: '2026-01-10', valid_until: '2027-01-10',
+        fit_status: 'FIT', validity_status: 'VALID', work_restrictions: null,
+        medical_facility: 'Bio Medika Samarinda', examiner_doctor: 'dr. Iwan'
+      }
+    ];
+
+    let mockFfwChecks = [
+      {
+        id: 'ffw-1', employee_id: 'emp-1', employee_name: 'Andi Saputra', employee_nrp: 'EMP-001',
+        department_name: 'Mining Operation', check_date: '2026-10-09', shift: 'SHIFT_1',
+        sleep_hours: 7.5, blood_pressure_systolic: 120, blood_pressure_diastolic: 80,
+        heart_rate_bpm: 72, body_temp_celsius: 36.4, has_symptoms: false,
+        overall_result: 'FIT', action_taken: null, checker_name: 'Medic Site Budi'
+      },
+      {
+        id: 'ffw-2', employee_id: 'emp-2', employee_name: 'Budi Santoso', employee_nrp: 'EMP-002',
+        department_name: 'HSE & Safety', check_date: '2026-10-09', shift: 'SHIFT_1',
+        sleep_hours: 4.0, blood_pressure_systolic: 135, blood_pressure_diastolic: 88,
+        heart_rate_bpm: 84, body_temp_celsius: 36.8, has_symptoms: true,
+        symptoms_desc: 'Mata perih, mengantuk berat', overall_result: 'UNFIT',
+        action_taken: 'Fatigue risk tidur 4 jam. Diistirahatkan 2 jam di rest room.', checker_name: 'Medic Site Budi'
+      },
+      {
+        id: 'ffw-3', employee_id: 'emp-3', employee_name: 'Rudi Hartono', employee_nrp: 'EMP-003',
+        department_name: 'Production & Pit', check_date: '2026-10-09', shift: 'SHIFT_1',
+        sleep_hours: 6.5, blood_pressure_systolic: 125, blood_pressure_diastolic: 82,
+        heart_rate_bpm: 76, body_temp_celsius: 36.5, has_symptoms: false,
+        overall_result: 'FIT', action_taken: null, checker_name: 'Medic Site Budi'
+      },
+      {
+        id: 'ffw-4', employee_id: 'emp-4', employee_name: 'Siti Aminah', employee_nrp: 'EMP-004',
+        department_name: 'HSE Compliance', check_date: '2026-10-09', shift: 'SHIFT_1',
+        sleep_hours: 7.0, blood_pressure_systolic: 115, blood_pressure_diastolic: 75,
+        heart_rate_bpm: 70, body_temp_celsius: 36.3, has_symptoms: false,
+        overall_result: 'FIT', action_taken: null, checker_name: 'Medic Site Budi'
+      }
+    ];
+
+    let mockSubstanceTests = [
+      {
+        id: 'sub-1', employee_id: 'emp-1', employee_name: 'Andi Saputra', employee_nrp: 'EMP-001',
+        department_name: 'Mining Operation', test_date: '2026-10-08', test_type: 'RANDOM',
+        reason: 'Uji acak bulanan pra-shift front tambang', breathalyzer_level: 0.00,
+        urine_drug_result: 'NEGATIVE', overall_result: 'NEGATIVE',
+        tester_name: 'HSE Team Agus', witness_name: 'Foreman Joni', action_taken: 'Dinyatakan bersih'
+      },
+      {
+        id: 'sub-2', employee_id: 'emp-2', employee_name: 'Budi Santoso', employee_nrp: 'EMP-002',
+        department_name: 'HSE & Safety', test_date: '2026-10-05', test_type: 'POST_INCIDENT',
+        reason: 'Investigasi insiden serempetan LV di Haul Road', breathalyzer_level: 0.00,
+        urine_drug_result: 'NEGATIVE', overall_result: 'NEGATIVE',
+        tester_name: 'dr. Farida', witness_name: 'HSE Superintendent', action_taken: 'Bebas pengaruh alkohol/narkoba'
+      },
+      {
+        id: 'sub-3', employee_id: 'emp-3', employee_name: 'Rudi Hartono', employee_nrp: 'EMP-003',
+        department_name: 'Production & Pit', test_date: '2026-09-20', test_type: 'FOR_CAUSE',
+        reason: 'Indikasi disorientasi saat apel shift', breathalyzer_level: 0.15,
+        urine_drug_result: 'POSITIVE', overall_result: 'POSITIVE',
+        tester_name: 'dr. Farida', witness_name: 'HR Site Manager',
+        action_taken: 'SIMPER dicabut sementara, proses investigasi etik & konseling'
+      }
+    ];
+
+    let mockHealthCases = [
+      {
+        id: 'cas-1', case_no: 'MED-2610-001', employee_id: 'emp-1', employee_name: 'Andi Saputra',
+        employee_nrp: 'EMP-001', department_name: 'Mining Operation',
+        visit_date: '2026-10-07', case_type: 'INJURY',
+        chief_complaint: 'Luka lecet pada jari telunjuk kanan saat perbaikan hose',
+        diagnosis: 'Vulnus laceratum digiti II manus dextra superficial',
+        lost_workdays: 0, status: 'CLOSED', treatment_given: 'Pembersihan luka betadine & verban steril',
+        medical_staff_name: 'Paramedic Site Rudi'
+      },
+      {
+        id: 'cas-2', case_no: 'MED-2610-002', employee_id: 'emp-3', employee_name: 'Rudi Hartono',
+        employee_nrp: 'EMP-003', department_name: 'Production & Pit',
+        visit_date: '2026-10-06', case_type: 'SUSPECTED_OD',
+        chief_complaint: 'Nyeri punggung bawah menjalar ke pinggang setelah shift alat berat',
+        diagnosis: 'Suspek LBP miogenik ec paparan vibrasi whole body vibration',
+        lost_workdays: 3, status: 'MONITORING', treatment_given: 'Analgetik oral, fisioterapi, istirahat 3 hari',
+        medical_staff_name: 'dr. Farida'
+      },
+      {
+        id: 'cas-3', case_no: 'MED-2610-003', employee_id: 'emp-4', employee_name: 'Siti Aminah',
+        employee_nrp: 'EMP-004', department_name: 'HSE Compliance',
+        visit_date: '2026-10-09', case_type: 'ILLNESS',
+        chief_complaint: 'Demam hari ke-2 disertai pusing dan pilek',
+        diagnosis: 'Common Cold / Febris ec ISPA ringan',
+        lost_workdays: 0, status: 'OPEN', treatment_given: 'Paracetamol 500mg, Vitamin C',
+        medical_staff_name: 'Paramedic Site Rudi'
+      }
+    ];
+
+    let mockHygieneMeasurements = [
+      {
+        id: 'hyg-1', measurement_date: '2026-10-08', location_id: 'loc-4', location_name: 'Main Workshop & Bay Tambang',
+        parameter: 'NOISE', measured_value: 88.5, unit: 'dBA', threshold_nab: 85.0, nab_status: 'EXCEEDED',
+        exposure_duration_hours: 8.0, corrective_action: 'Wajib double ear protection (earplug + earmuff) dan peredam kompresor',
+        measured_by_name: 'HSE Industrial Hygienist'
+      },
+      {
+        id: 'hyg-2', measurement_date: '2026-10-08', location_id: 'loc-3', location_name: 'Main Haul Road KM 2-4',
+        parameter: 'DUST', measured_value: 2.1, unit: 'mg/m³', threshold_nab: 3.0, nab_status: 'NEAR_LIMIT',
+        exposure_duration_hours: 10.0, corrective_action: 'Intensifkan water truck penyiraman jalan setiap 45 menit',
+        measured_by_name: 'HSE Industrial Hygienist'
+      },
+      {
+        id: 'hyg-3', measurement_date: '2026-10-07', location_id: 'loc-1', location_name: 'Pit 1 Selatan',
+        parameter: 'LIGHTING', measured_value: 45.0, unit: 'Lux', threshold_nab: 100.0, nab_status: 'EXCEEDED',
+        exposure_duration_hours: 12.0, corrective_action: 'Tambah tower lamp 4000W di loading point pit',
+        measured_by_name: 'HSE Safety Inspector'
+      },
+      {
+        id: 'hyg-4', measurement_date: '2026-10-07', location_id: 'loc-1', location_name: 'Pit 1 Selatan',
+        parameter: 'VIBRATION', measured_value: 3.2, unit: 'm/s²', threshold_nab: 5.0, nab_status: 'OK',
+        exposure_duration_hours: 8.0, corrective_action: 'Suspensi kursi operator grader masih standar',
+        measured_by_name: 'HSE Industrial Hygienist'
+      },
+      {
+        id: 'hyg-5', measurement_date: '2026-10-06', location_id: 'loc-6', location_name: 'Kantor Utama Site JMB-DKC',
+        parameter: 'HEAT', measured_value: 24.5, unit: '°C', threshold_nab: 28.0, nab_status: 'OK',
+        exposure_duration_hours: 8.0, corrective_action: 'Suhu ruang kerja sejuk kondusif',
+        measured_by_name: 'HSE Safety Inspector'
+      }
+    ];
+
+    // Fase 6 Mock Data: Tanggap Darurat & APD
+    const mockEmergencyOverview = {
+      team: { total_team: 4, active_team: 4, commander_count: 1, firefighter_count: 1, firstaider_count: 1, rescue_count: 1 },
+      drills: { total_drills_ytd: 2, avg_response_time_sec: 195, good_result: 1, adequate_result: 1, needs_improvement: 0 },
+      equipment: { total_equipment: 5, good_count: 3, due_inspection: 1, overdue_inspection: 1, defective_count: 0 },
+      assembly: { total_assembly_points: 3, total_capacity: 180 },
+      contacts: { total_contacts: 5, internal_contacts: 2, external_contacts: 3 }
+    };
+
+    let mockEmergencyTeam = [
+      { id: 'ert-1', employee_id: 'emp-1', employee_name: 'Andi Saputra', employee_nrp: 'EMP-001', department_name: 'Mining Operation', position_name: 'Foreman Produksi', role: 'COMMANDER', shift: 'SHIFT_1', phone_no: '0811-5555-101', is_active: true, certifications: 'Incident Commander Gold Badge, Basic Fire Fighter' },
+      { id: 'ert-2', employee_id: 'emp-2', employee_name: 'Budi Santoso', employee_nrp: 'EMP-002', department_name: 'Plant & Maintenance', position_name: 'Lead Mechanic', role: 'FIRE_FIGHTER', shift: 'SHIFT_1', phone_no: '0812-7777-102', is_active: true, certifications: 'Fire Fighter Kelas D Kemenaker' },
+      { id: 'ert-3', employee_id: 'emp-3', employee_name: 'Rudi Hartono', employee_nrp: 'EMP-003', department_name: 'HSE & Safety', position_name: 'HSE Superintendent', role: 'RESCUE', shift: 'ALL', phone_no: '0813-9999-103', is_active: true, certifications: 'High Angle Rescue, Confined Space Rescue' },
+      { id: 'ert-4', employee_id: 'emp-4', employee_name: 'Siti Aminah', employee_nrp: 'EMP-004', department_name: 'Health & Safety', position_name: 'Paramedic Site', role: 'FIRST_AIDER', shift: 'SHIFT_1', phone_no: '0812-3333-104', is_active: true, certifications: 'P3K Tambang Kemenaker, BTCLS Medis' }
+    ];
+
+    let mockEmergencyDrills = [
+      { id: 'drl-1', drill_no: 'DRL-2610-001', drill_date: '2026-09-18', scenario: 'FIRE', scenario_title: 'Simulasi Kebakaran Workshop & Penanganan Tabung Gas Meledak', location_name: 'Main Workshop & Bay Tambang', participant_count: 24, response_time_sec: 180, result: 'GOOD', evaluation: 'Tim tiba dalam 3 menit, seluruh APAR berfungsi baik.' },
+      { id: 'drl-2', drill_no: 'DRL-2610-002', drill_date: '2026-10-05', scenario: 'ROCKFALL', scenario_title: 'Simulasi Evakuasi Longsoran Lereng Pit 1 & Pencarian Operator', location_name: 'Pit 1 Selatan', participant_count: 18, response_time_sec: 210, result: 'ADEQUATE', evaluation: 'Respon cepat namun radio HT saluran 2 sempat tertimpa traffic.' }
+    ];
+
+    let mockEmergencyEquipment = [
+      { id: 'eq-1', equipment_code: 'APAR-WS-001', equipment_type: 'FIRE_EXTINGUISHER', location_name: 'Main Workshop & Bay Tambang', capacity: '6 kg DCP', last_inspection_date: '2026-09-15', next_inspection_date: '2026-10-15', status: 'DUE', inspector_name: 'Budi Santoso' },
+      { id: 'eq-2', equipment_code: 'APAR-PIT-002', equipment_type: 'FIRE_EXTINGUISHER', location_name: 'Pit 1 Selatan', capacity: '9 kg Foam', last_inspection_date: '2026-08-01', next_inspection_date: '2026-09-01', status: 'OVERDUE', inspector_name: 'Rudi Hartono' },
+      { id: 'eq-3', equipment_code: 'BOX-P3K-01', equipment_type: 'FIRST_AID_BOX', location_name: 'Kantor Utama Site JMB-DKC', capacity: 'Kotak Bentuk A (25 Item)', last_inspection_date: '2026-10-01', next_inspection_date: '2026-11-01', status: 'GOOD', inspector_name: 'Siti Aminah' },
+      { id: 'eq-4', equipment_code: 'EYEWASH-WS-01', equipment_type: 'EYEWASH', location_name: 'Main Workshop & Bay Tambang', capacity: 'Tekanan 2.5 Bar', last_inspection_date: '2026-10-02', next_inspection_date: '2026-11-02', status: 'GOOD', inspector_name: 'Budi Santoso' },
+      { id: 'eq-5', equipment_code: 'SPILL-GUD-01', equipment_type: 'SPILL_KIT', location_name: 'TPS Limbah B3 & Gudang Site', capacity: '50 Liter Kit Drum', last_inspection_date: '2026-10-05', next_inspection_date: '2026-11-05', status: 'GOOD', inspector_name: 'Siti Aminah' }
+    ];
+
+    let mockAssemblyPoints = [
+      { id: 'ap-1', code: 'AP-01', name: 'Titik Kumpul Utama Workshop', location_name: 'Main Workshop & Bay Tambang', capacity_persons: 80, warden_name: 'Budi Santoso', is_active: true },
+      { id: 'ap-2', code: 'AP-02', name: 'Titik Kumpul Kantor Site', location_name: 'Kantor Utama Site JMB-DKC', capacity_persons: 60, warden_name: 'Andi Saputra', is_active: true },
+      { id: 'ap-3', code: 'AP-03', name: 'Titik Kumpul Shelter Pit 1', location_name: 'Pit 1 Selatan', capacity_persons: 40, warden_name: 'Rudi Hartono', is_active: true }
+    ];
+
+    let mockEmergencyContacts = [
+      { id: 'cont-1', category: 'INTERNAL', name: 'Emergency Radio Dispatch Tambang Site', phone_no: '0811-5555-119', alternate_phone: 'Kanal Radio VHF 16', address: 'Gedung Kontrol Dispatch Site JMB-DKC' },
+      { id: 'cont-2', category: 'CLINIC', name: 'Paramedic & Klinik Pratama Site', phone_no: '0812-7777-222', alternate_phone: 'Kanal Radio VHF 12', address: 'Klinik Kesehatan Site JMB-DKC' },
+      { id: 'cont-3', category: 'HOSPITAL', name: 'RSUD Abdul Wahab Sjahranie', phone_no: '0541-738118', alternate_phone: '0541-738052', address: 'Jl. Palang Merah No. 1, Samarinda' },
+      { id: 'cont-4', category: 'FIRE_DEPT', name: 'Dinas Pemadam Kebakaran & Penyelamatan', phone_no: '0541-113', alternate_phone: '0541-741113', address: 'Pos Damkar Wilayah Tambang' },
+      { id: 'cont-5', category: 'POLICE', name: 'Polsek Wilayah Tambang Minerba', phone_no: '0541-110', alternate_phone: '0813-8888-0110', address: 'Polsek Sektor Pertambangan' }
+    ];
+
+    const mockPpeOverview = {
+      items: { total_items: 8, critical_stock_count: 2, total_stock_on_hand: 369 },
+      issuances: { total_issuances: 5, active_issuances: 4, due_replacement_count: 1, overdue_replacement_count: 0 },
+      standards: { total_standards: 8, covered_positions: 3 }
+    };
+
+    let mockPpeItems = [
+      { id: 'ppe-1', code: 'PPE-HELM-01', name: 'Safety Helmet V-Gard ANSI Class E', category: 'HEAD', replace_interval_months: 24, standard_specification: 'ANSI Z89.1 Type 1 Class E, Chinstrap 4 titik', current_stock: 42, minimum_stock: 15, unit: 'PCS', is_critical_stock: false },
+      { id: 'ppe-2', code: 'PPE-BOOT-01', name: 'Safety Boots King Steel Toe Cap', category: 'FOOT', replace_interval_months: 12, standard_specification: 'SNI 7079 / EN ISO 20345 S3 SRC Oil & Chemical Resistant', current_stock: 26, minimum_stock: 12, unit: 'PASANG', is_critical_stock: false },
+      { id: 'ppe-3', code: 'PPE-VEST-01', name: 'Rompi Safety Scotlight 3M Hi-Vis', category: 'BODY', replace_interval_months: 6, standard_specification: 'EN 471 Class 2 Breathable Mesh with Zipper', current_stock: 55, minimum_stock: 20, unit: 'PCS', is_critical_stock: false },
+      { id: 'ppe-4', code: 'PPE-GLASS-01', name: 'Kacamata Safety Clear UV Anti-Fog', category: 'EYE', replace_interval_months: 6, standard_specification: 'ANSI Z87.1+ Polycarbonate UV400', current_stock: 8, minimum_stock: 15, unit: 'PCS', is_critical_stock: true },
+      { id: 'ppe-5', code: 'PPE-GLOVE-01', name: 'Sarung Tangan Impact & Rigger Kulit', category: 'HAND', replace_interval_months: 3, standard_specification: 'EN 388 Level 4 Cut & Impact Protection', current_stock: 48, minimum_stock: 20, unit: 'PASANG', is_critical_stock: false },
+      { id: 'ppe-6', code: 'PPE-EAR-01', name: 'Ear Plug Reusable Corded 25 dB', category: 'EAR', replace_interval_months: 3, standard_specification: 'ANSI S3.19 NRR 25dB Washable Silicone', current_stock: 75, minimum_stock: 30, unit: 'PASANG', is_critical_stock: false },
+      { id: 'ppe-7', code: 'PPE-RESP-01', name: 'Respirator Masker N95 Anti-Debu Tambang', category: 'RESPIRATORY', replace_interval_months: 1, standard_specification: 'NIOSH N95 Particulate Filter with Valve', current_stock: 110, minimum_stock: 40, unit: 'BOX', is_critical_stock: false },
+      { id: 'ppe-8', code: 'PPE-HARN-01', name: 'Full Body Harness Double Lanyard Absorber', category: 'FALL_PROTECTION', replace_interval_months: 24, standard_specification: 'EN 361 / ANSI Z359.11 Shock Absorber Carabiner', current_stock: 5, minimum_stock: 8, unit: 'SET', is_critical_stock: true }
+    ];
+
+    let mockPpeStandards = [
+      { id: 'std-1', position_name: 'Operator Dump Truck & Alat Berat', location_type: 'PIT', ppe_name: 'Safety Helmet V-Gard ANSI Class E', ppe_category: 'HEAD', replace_interval_months: 24, standard_specification: 'ANSI Z89.1 Type 1 Class E', notes: 'Wajib helm bersertifikat ANSI' },
+      { id: 'std-2', position_name: 'Operator Dump Truck & Alat Berat', location_type: 'PIT', ppe_name: 'Safety Boots King Steel Toe Cap', ppe_category: 'FOOT', replace_interval_months: 12, standard_specification: 'SNI 7079 S3 SRC', notes: 'Sepatu safety baja anti selip' },
+      { id: 'std-3', position_name: 'Operator Dump Truck & Alat Berat', location_type: 'PIT', ppe_name: 'Rompi Safety Scotlight 3M Hi-Vis', ppe_category: 'BODY', replace_interval_months: 6, standard_specification: 'EN 471 Class 2', notes: 'Rompi reflektor visibilitas tinggi' },
+      { id: 'std-4', position_name: 'Mekanik & Welder Workshop', location_type: 'WORKSHOP', ppe_name: 'Safety Boots King Steel Toe Cap', ppe_category: 'FOOT', replace_interval_months: 12, standard_specification: 'SNI 7079 S3 SRC', notes: 'Tahan oli dan pelumas' },
+      { id: 'std-5', position_name: 'Mekanik & Welder Workshop', location_type: 'WORKSHOP', ppe_name: 'Sarung Tangan Impact & Rigger Kulit', ppe_category: 'HAND', replace_interval_months: 3, standard_specification: 'EN 388 Level 4', notes: 'Tahan gores & panas' },
+      { id: 'std-6', position_name: 'Rigger / Pekerja Ketinggian', location_type: 'ALL', ppe_name: 'Full Body Harness Double Lanyard Absorber', ppe_category: 'FALL_PROTECTION', replace_interval_months: 24, standard_specification: 'EN 361 / ANSI Z359.11', notes: 'Wajib double lanyard saat bekerja > 1.8 m' }
+    ];
+
+    let mockPpeIssuances = [
+      { id: 'iss-1', employee_id: 'emp-1', employee_name: 'Andi Saputra', employee_nrp: 'EMP-001', department_name: 'Mining Operation', position_name: 'Foreman Produksi', ppe_item_name: 'Safety Helmet V-Gard ANSI Class E', ppe_category: 'HEAD', size: 'M', quantity: 1, issued_date: '2025-10-15', replace_due_date: '2027-10-15', status: 'ACTIVE' },
+      { id: 'iss-2', employee_id: 'emp-1', employee_name: 'Andi Saputra', employee_nrp: 'EMP-001', department_name: 'Mining Operation', position_name: 'Foreman Produksi', ppe_item_name: 'Safety Boots King Steel Toe Cap', ppe_category: 'FOOT', size: '42', quantity: 1, issued_date: '2025-11-01', replace_due_date: '2026-11-01', status: 'ACTIVE' },
+      { id: 'iss-3', employee_id: 'emp-2', employee_name: 'Budi Santoso', employee_nrp: 'EMP-002', department_name: 'Plant & Maintenance', position_name: 'Lead Mechanic', ppe_item_name: 'Safety Boots King Steel Toe Cap', ppe_category: 'FOOT', size: '41', quantity: 1, issued_date: '2025-10-20', replace_due_date: '2026-10-20', status: 'DUE_REPLACEMENT' },
+      { id: 'iss-4', employee_id: 'emp-3', employee_name: 'Rudi Hartono', employee_nrp: 'EMP-003', department_name: 'HSE & Safety', position_name: 'HSE Superintendent', ppe_item_name: 'Rompi Safety Scotlight 3M Hi-Vis', ppe_category: 'BODY', size: 'L', quantity: 1, issued_date: '2026-06-10', replace_due_date: '2026-12-10', status: 'ACTIVE' },
+      { id: 'iss-5', employee_id: 'emp-4', employee_name: 'Siti Aminah', employee_nrp: 'EMP-004', department_name: 'Health & Safety', position_name: 'Paramedic Site', ppe_item_name: 'Safety Helmet V-Gard ANSI Class E', ppe_category: 'HEAD', size: 'S', quantity: 1, issued_date: '2026-02-15', replace_due_date: '2028-02-15', status: 'ACTIVE' }
+    ];
+
+    let mockContractorOverview = {
+      total_contractors: 3,
+      active_contractors: 2,
+      csms_approved: 1,
+      expiring_or_expired_docs: 1,
+      open_violations: 1
+    };
+
+    let mockContractors = [
+      { id: 'ctr-1', code: 'CTR-PTM', name: 'PT Petro Tambang Mandiri', business_type: 'HAULING', pic_name: 'Ir. Agus Wijaya', pic_phone: '0811-2233-4455', pic_email: 'agus@petrotambang.co.id', worker_count: 85, address: 'Workshop KM 4 Site Pelabuhan', is_active: true, latest_csms_score: 88.5, csms_status: 'APPROVED' },
+      { id: 'ctr-2', code: 'CTR-MKN', name: 'PT Mitra Konstruksi Nusantara', business_type: 'CIVIL_WORKS', pic_name: 'Hadi Suryo', pic_phone: '0812-9988-7766', pic_email: 'hadi@mknmining.co.id', worker_count: 40, address: 'Camp Kontraktor Pit North', is_active: true, latest_csms_score: 71.0, csms_status: 'CONDITIONAL' },
+      { id: 'ctr-3', code: 'CTR-BKD', name: 'CV Berkah Drilling', business_type: 'DRILLING_BLASTING', pic_name: 'Kurniawan S.', pic_phone: '0813-5544-3322', pic_email: 'kurnia@berkahdrilling.com', worker_count: 15, address: 'Basecamp Eksplorasi KM 10', is_active: false, latest_csms_score: null, csms_status: null }
+    ];
+
+    let mockContractorAssessments = [
+      { id: 'ass-1', contractor_id: 'ctr-1', contractor_name: 'PT Petro Tambang Mandiri', contractor_code: 'CTR-PTM', contractor_business: 'HAULING', assessment_date: '2026-01-15', assessment_type: 'PRE_QUALIFICATION', score: 88.5, result: 'APPROVED', valid_until: '2027-01-15', assessor_name: 'Bambang Sudibyo (Lead CSMS)', notes: 'Sistem manajemen keselamatan memenuhi standar SMKP dan CSMS OMOS.' },
+      { id: 'ass-2', contractor_id: 'ctr-2', contractor_name: 'PT Mitra Konstruksi Nusantara', contractor_code: 'CTR-MKN', contractor_business: 'CIVIL_WORKS', assessment_date: '2026-02-10', assessment_type: 'PERIODIC', score: 71.0, result: 'CONDITIONAL', valid_until: '2026-08-10', assessor_name: 'Bambang Sudibyo', notes: 'Perlu melengkapi sertifikasi juru las dan sertifikasi kelayakan crane boom.' }
+    ];
+
+    let mockContractorDocuments = [
+      { id: 'doc-1', contractor_id: 'ctr-1', contractor_name: 'PT Petro Tambang Mandiri', contractor_code: 'CTR-PTM', doc_type: 'SMK3', doc_number: 'SMK3/DEPNAKER/2024/0981', issued_date: '2024-05-10', expiry_date: '2027-05-10', status: 'VALID', notes: 'Sertifikat Emas SMK3 166 Kriteria' },
+      { id: 'doc-2', contractor_id: 'ctr-1', contractor_name: 'PT Petro Tambang Mandiri', contractor_code: 'CTR-PTM', doc_type: 'IUJP', doc_number: '45/1/IUJP/ESDM/2023', issued_date: '2023-08-01', expiry_date: '2028-08-01', status: 'VALID', notes: 'Izin Usaha Jasa Pertambangan Bidang Pengangkutan' },
+      { id: 'doc-3', contractor_id: 'ctr-2', contractor_name: 'PT Mitra Konstruksi Nusantara', contractor_code: 'CTR-MKN', doc_type: 'INSURANCE_POLICY', doc_number: 'BPJS-TK-6789-2025', issued_date: '2025-03-01', expiry_date: '2026-10-25', status: 'EXPIRING', notes: 'Polis JKK dan JKM mendekati jatuh tempo' }
+    ];
+
+    let mockContractorViolations = [
+      { id: 'viol-1', contractor_id: 'ctr-1', contractor_name: 'PT Petro Tambang Mandiri', contractor_code: 'CTR-PTM', violation_date: '2026-03-28', severity: 'CRITICAL', description: 'Unit Dump Truck DT-08 melintas melebihi kecepatan batas (over speeding 65 km/h di area turunan pit).', sanction_type: 'STOP_WORK', status: 'OPEN', reported_by_name: 'Foreman K3 Tambang Pit West' },
+      { id: 'viol-2', contractor_id: 'ctr-2', contractor_name: 'PT Mitra Konstruksi Nusantara', contractor_code: 'CTR-MKN', violation_date: '2026-03-12', severity: 'MINOR', description: 'Pekerja sipil tidak menggunakan kacamata safety saat pekerjaan gerinda baja ringan.', sanction_type: 'WARNING', status: 'RESOLVED', reported_by_name: 'Inspektur Safety Workshop' }
+    ];
+
+    let mockEnvironmentOverview = {
+      b3_stored_total: 3,
+      b3_deadline_alerts: 1,
+      active_monitoring_points: 4,
+      exceeded_measurements_30d: 1,
+      reclamation_realization_ha: 7.30
+    };
+
+    let mockWasteB3Logs = [
+      { id: 'b3-1', log_date: '2026-03-01', waste_code: 'B105d', waste_name: 'Minyak Pelumas Bekas (Oli)', source_location: 'Workshop Tambang Utama', source_unit: 'DT-12 & EX-05', quantity: 800, unit: 'LITER', storage_deadline: '2026-05-30', days_to_deadline: 51, is_deadline_alert: false, is_overdue: false, status: 'STORED', transporter_name: null, manifest_number: null },
+      { id: 'b3-2', log_date: '2026-01-20', waste_code: 'B107d', waste_name: 'Filter Bekas Terkontaminasi', source_location: 'Workshop Tambang Utama', source_unit: 'Service Bay', quantity: 25, unit: 'DRUM', storage_deadline: '2026-04-20', days_to_deadline: 11, is_deadline_alert: true, is_overdue: false, status: 'STORED', transporter_name: null, manifest_number: null },
+      { id: 'b3-3', log_date: '2026-03-15', waste_code: 'B110d', waste_name: 'Aki / Baterai Bekas Timbal', source_location: 'Workshop Elektrik', source_unit: 'Light Vehicle & Dump Truck', quantity: 18, unit: 'UNIT', storage_deadline: '2026-06-13', days_to_deadline: 65, is_deadline_alert: false, is_overdue: false, status: 'STORED', transporter_name: null, manifest_number: null },
+      { id: 'b3-4', log_date: '2026-02-10', waste_code: 'B105d', waste_name: 'Minyak Pelumas Bekas (Oli)', source_location: 'Workshop Tambang Utama', source_unit: 'Bulk Storage', quantity: 1200, unit: 'LITER', storage_deadline: '2026-05-11', days_to_deadline: 32, is_deadline_alert: false, is_overdue: false, status: 'HAULED', transporter_name: 'PT Prasadha Pamunah Limbah Industri (PPLI)', manifest_number: 'KLHK-B3-2026-00481' }
+    ];
+
+    let mockEnvPoints = [
+      { id: 'pt-1', point_code: 'KPL-01-OUT', name: 'Outlet Kolam Pengendap Limbah Pit West', category: 'SEDIMENT_POND', location_description: 'Hilir weir kolam pengendap sebelum lepas ke Sungai Batang', coordinates: '-2.1345, 115.4210' },
+      { id: 'pt-2', point_code: 'KPL-01-IN', name: 'Inlet Kolam Pengendap Limbah Pit West', category: 'SEDIMENT_POND', location_description: 'Saluran masuk air tambang dari sump pit barat', coordinates: '-2.1320, 115.4190' },
+      { id: 'pt-3', point_code: 'UA-01', name: 'Pemantauan Udara Ambien Desa Muara', category: 'AMBIENT_AIR', location_description: 'Pemukiman lingkar tambang terdekat (jarak 1.5 km dari pit)', coordinates: '-2.1450, 115.4400' },
+      { id: 'pt-4', point_code: 'KB-01', name: 'Kebisingan Batas IUP Wilayah Workshop', category: 'NOISE', location_description: 'Batas pagar luar workshop utama dan jalan hauling', coordinates: '-2.1380, 115.4280' }
+    ];
+
+    let mockEnvParameters = [
+      { id: 'prm-1', code: 'PH', name: 'Derajat Keasaman (pH)', media_type: 'WATER', unit: 'pH', standard_min_val: 6.0, standard_max_val: 9.0, regulatory_reference: 'Kepmen LH No. 113 Th 2003' },
+      { id: 'prm-2', code: 'TSS', name: 'Total Suspended Solids (TSS)', media_type: 'WATER', unit: 'mg/L', standard_min_val: null, standard_max_val: 200.0, regulatory_reference: 'Kepmen LH No. 113 Th 2003' },
+      { id: 'prm-3', code: 'FE', name: 'Besi Terlarut (Fe)', media_type: 'WATER', unit: 'mg/L', standard_min_val: null, standard_max_val: 7.0, regulatory_reference: 'Kepmen LH No. 113 Th 2003' },
+      { id: 'prm-4', code: 'MN', name: 'Mangan Terlarut (Mn)', media_type: 'WATER', unit: 'mg/L', standard_min_val: null, standard_max_val: 4.0, regulatory_reference: 'Kepmen LH No. 113 Th 2003' },
+      { id: 'prm-5', code: 'TSP', name: 'Debu Total Suspended Particulate (TSP)', media_type: 'AIR', unit: 'ug/m3', standard_min_val: null, standard_max_val: 230.0, regulatory_reference: 'PP No. 22 Th 2021 Lampiran VII' },
+      { id: 'prm-6', code: 'NOISE_DAY', name: 'Tingkat Kebisingan Siang Hari', media_type: 'NOISE', unit: 'dBA', standard_min_val: null, standard_max_val: 70.0, regulatory_reference: 'Kepmen LH No. 48 Th 1996 Industri' }
+    ];
+
+    let mockEnvMeasurements = [
+      { id: 'meas-1', point_id: 'pt-1', point_code: 'KPL-01-OUT', point_name: 'Outlet Kolam Pengendap Limbah Pit West', point_category: 'SEDIMENT_POND', parameter_id: 'prm-1', param_code: 'PH', parameter_name: 'Derajat Keasaman (pH)', param_unit: 'pH', param_min_val: 6.0, param_max_val: 9.0, measurement_date: '2026-03-25', measured_value: 7.20, compliance_status: 'COMPLIES', lab_name: 'Internal Water Lab KPL', tested_by_name: 'Rian Pratama' },
+      { id: 'meas-2', point_id: 'pt-1', point_code: 'KPL-01-OUT', point_name: 'Outlet Kolam Pengendap Limbah Pit West', point_category: 'SEDIMENT_POND', parameter_id: 'prm-2', param_code: 'TSS', parameter_name: 'Total Suspended Solids (TSS)', param_unit: 'mg/L', param_min_val: null, param_max_val: 200.0, measurement_date: '2026-03-25', measured_value: 240.0, compliance_status: 'EXCEEDED', lab_name: 'Internal Water Lab KPL', tested_by_name: 'Rian Pratama' },
+      { id: 'meas-3', point_id: 'pt-3', point_code: 'UA-01', name: 'Pemantauan Udara Ambien Desa Muara', point_name: 'Pemantauan Udara Ambien Desa Muara', point_category: 'AMBIENT_AIR', parameter_id: 'prm-5', param_code: 'TSP', parameter_name: 'Debu Total Suspended Particulate (TSP)', param_unit: 'ug/m3', param_min_val: null, param_max_val: 230.0, measurement_date: '2026-03-20', measured_value: 185.0, compliance_status: 'COMPLIES', lab_name: 'PT Sucofindo Timika', tested_by_name: 'Tim Uji Udara' }
+    ];
+
+    let mockReclamationRecords = [
+      { id: 'rec-1', location_name: 'Disposal Pit West Blok 4B', activity_date: '2026-03-10', activity_type: 'LANDSCAPING', plan_area_ha: 2.50, actual_area_ha: 2.30, seedling_types: 'Penataan lereng jenjang dan drainase kontur', seedling_count: 0, mortality_rate_pct: 0, supervisor_name: 'Dedi Kurniawan' },
+      { id: 'rec-2', location_name: 'Ex-Mine Pit South Blok 2', activity_date: '2026-02-18', activity_type: 'PLANTING', plan_area_ha: 3.50, actual_area_ha: 3.50, seedling_types: 'Sengon (Paraserianthes falcataria), Johar, Trembesi', seedling_count: 2200, mortality_rate_pct: 4.5, supervisor_name: 'Dedi Kurniawan' },
+      { id: 'rec-3', location_name: 'Disposal North Blok 1', activity_date: '2026-01-25', activity_type: 'TOPSOIL', plan_area_ha: 1.50, actual_area_ha: 1.50, seedling_types: 'Penebaran topsoil tebal 50 cm & hydroseeding cover crop', seedling_count: 0, mortality_rate_pct: 0, supervisor_name: 'Dedi Kurniawan' }
+    ];
+
+    // --- FASE 8: AUDIT, SMKP & DOKUMEN REGULASI MOCKS ---
+    let mockAuditOverview = {
+      total_audits: 2,
+      audits_completed: 1,
+      audits_planned: 1,
+      avg_compliance_score: 84.5,
+      open_major_findings: 1,
+      open_minor_findings: 1,
+      total_open_findings: 2,
+    };
+
+    let mockSmkpElements = [
+      { element_no: 1, element_name: 'Kebijakan Keselamatan Pertambangan', weight_percentage: 5.0, clause_count: 5, target_compliance_pct: 90.0, description: 'Penyusunan, penetapan, komunikasi, dan tinjauan berkala kebijakan K3 dan KO Pertambangan.' },
+      { element_no: 2, element_name: 'Perencanaan', weight_percentage: 15.0, clause_count: 8, target_compliance_pct: 85.0, description: 'Penelaahan awal, Manajemen Risiko (IBPR), identifikasi dan kepatuhan perundang-undangan, penetapan tujuan dan sasaran.' },
+      { element_no: 3, element_name: 'Organisasi dan Personil', weight_percentage: 15.0, clause_count: 10, target_compliance_pct: 85.0, description: 'Penyusunan struktur organisasi K3, penunjukan KTT/PJO, Bagian K3, Komite Keselamatan Pertambangan, dan kompetensi tenaga kerja.' },
+      { element_no: 4, element_name: 'Implementasi', weight_percentage: 25.0, clause_count: 18, target_compliance_pct: 85.0, description: 'Pelaksanaan operasional, prosedur kerja, izin kerja (PTW), pengelolaan bahan peledak/B3, kesiapsiagaan tanggap darurat, dan CSMS.' },
+      { element_no: 5, element_name: 'Pemantauan, Evaluasi, dan Tindak Lanjut', weight_percentage: 20.0, clause_count: 12, target_compliance_pct: 80.0, description: 'Inspeksi berkala, pemantauan lingkungan kerja/kesehatan kerja, penyelidikan kecelakaan tambang, dan audit internal SMKP.' },
+      { element_no: 6, element_name: 'Dokumentasi', weight_percentage: 10.0, clause_count: 6, target_compliance_pct: 85.0, description: 'Manual SMKP, pengendalian dokumen, rekaman keselamatan pertambangan, dan kerahasiaan data.' },
+      { element_no: 7, element_name: 'Tinjauan Manajemen dan Peningkatan Kinerja', weight_percentage: 10.0, clause_count: 5, target_compliance_pct: 80.0, description: 'Rapat tinjauan manajemen berkala oleh KTT dan manajemen puncak, evaluasi efektivitas sistem, dan rencana perbaikan berkelanjutan.' },
+    ];
+
+    let mockAudits = [
+      {
+        id: 'aud-1', audit_no: 'AUD-2026-001', audit_title: 'Audit Internal SMKP Minerba Tahunan 2026',
+        audit_type: 'INTERNAL', scope_standard: 'SMKP Minerba Permen ESDM No. 26/2018',
+        start_date: '2026-02-15', end_date: '2026-02-20',
+        lead_auditor: 'Bambang Sudibyo', audit_team: 'Tim Internal Audit K3LH OMOS',
+        audit_body: 'Internal Mining Audit Team', status: 'REPORTED',
+        compliance_score_pct: 84.50, summary_notes: 'Penerapan SMKP berjalan baik pada Elemen I, II, dan VI. Perlu perbaikan pada pemenuhan APD spesifik dan izin kerja panas.'
+      },
+      {
+        id: 'aud-2', audit_no: 'AUD-2026-002', audit_title: 'Surveillance Audit Eksternal ISO 45001 & ISO 14001',
+        audit_type: 'EXTERNAL', scope_standard: 'ISO 45001:2018 & ISO 14001:2015',
+        start_date: '2026-11-10', end_date: '2026-11-14',
+        lead_auditor: 'Dr. Ir. Hendra Kusuma', audit_team: 'Auditor Eksternal PT Sucofindo',
+        audit_body: 'PT Sucofindo (Persero)', status: 'PLANNED',
+        compliance_score_pct: null, summary_notes: 'Audit surveillance tahun kedua sertifikasi ISO operasional tambang.'
+      }
+    ];
+
+    let mockAuditFindings = [
+      {
+        id: 'fnd-1', audit_id: 'aud-1', audit_no: 'AUD-2026-001', audit_title: 'Audit Internal SMKP Minerba Tahunan 2026',
+        finding_no: 'FND-2026-001', smkp_element_no: 4,
+        clause_reference: 'Elemen IV Klausul 4.3 Izin Kerja Khusus',
+        category: 'MAJOR',
+        description: 'Ditemukan aktivitas pengelasan di fuel storage bay tanpa dokumen Hot Work Permit aktif dan gas detector tidak terkalibrasi.',
+        evidence_summary: 'Foto dokumen izin kedaluwarsa dan lembar cek tabung argon tanpa stiker kalibrasi',
+        pic_name: 'Budi Santoso (Safety Superintendent)', due_date: '2026-03-05',
+        status: 'IN_ACTION', action_id: 'act-aud-1', action_no: 'CAPA-AUD-001', resolution_notes: null
+      },
+      {
+        id: 'fnd-2', audit_id: 'aud-1', audit_no: 'AUD-2026-001', audit_title: 'Audit Internal SMKP Minerba Tahunan 2026',
+        finding_no: 'FND-2026-002', smkp_element_no: 3,
+        clause_reference: 'Elemen III Klausul 3.4 Matriks Pelatihan',
+        category: 'MINOR',
+        description: 'Terdapat 3 operator alat berat baru belum terdokumentasi evaluasi pasca induksi keselamatan 30 hari.',
+        evidence_summary: 'Sampel berkas HRD & Safety Induction Form 3 operator DT-01 s/d DT-03',
+        pic_name: 'Siti Aminah (Training Coordinator)', due_date: '2026-03-15',
+        status: 'VERIFY', action_id: 'act-aud-2', action_no: 'CAPA-AUD-002', resolution_notes: 'Form evaluasi telah dilengkapi dan diverifikasi oleh instruktur.'
+      },
+      {
+        id: 'fnd-3', audit_id: 'aud-1', audit_no: 'AUD-2026-001', audit_title: 'Audit Internal SMKP Minerba Tahunan 2026',
+        finding_no: 'FND-2026-003', smkp_element_no: 6,
+        clause_reference: 'Elemen VI Klausul 6.2 Pengendalian Dokumen',
+        category: 'OBSERVATION',
+        description: 'Papan salinan SOP Tanggap Darurat di pos security barat masih menampilkan versi revisi tahun 2024.',
+        evidence_summary: 'Salinan dokumen fisik di papan pengumuman Pos Security 2',
+        pic_name: 'Rudi Hartono (Doc Control Officer)', due_date: '2026-03-01',
+        status: 'CLOSED', action_id: null, action_no: null, resolution_notes: 'Poster telah diganti dengan versi revisi terbaru Rev 2.'
+      }
+    ];
+
+    let mockDocsOverview = {
+      total_active_docs: 4,
+      review_alerts: 1,
+      in_review_docs: 1,
+      fully_compliant_regulations: 3,
+      pending_reports: 1,
+    };
+
+    let mockDocuments = [
+      {
+        id: 'doc-k3-1', doc_number: 'POL-HSE-OMOS-001',
+        title: 'Kebijakan Keselamatan Pertambangan dan Lindungan Lingkungan Hidup PT OMOS',
+        doc_type: 'POLICY', revision_no: 2, status: 'ACTIVE',
+        effective_date: '2025-01-01', next_review_date: '2027-01-01',
+        owner_dept: 'K3LH & Manajemen Puncak', approved_by: 'Direktur Utama & KTT',
+        file_url: 'https://storage.internal.omos/docs/kebijakan-k3lh-rev2.pdf',
+        summary: 'Kebijakan komitmen nol insiden fatal, kepatuhan SMKP Minerba, dan konservasi alam.'
+      },
+      {
+        id: 'doc-k3-2', doc_number: 'ERP-MINE-001',
+        title: 'Rencana Tanggap Darurat dan Evakuasi Bencana Tambang (Emergency Response Plan)',
+        doc_type: 'ERP', revision_no: 1, status: 'ACTIVE',
+        effective_date: '2025-06-01', next_review_date: '2026-06-01',
+        owner_dept: 'Emergency Response Team', approved_by: 'KTT',
+        file_url: 'https://storage.internal.omos/docs/erp-tambang-rev1.pdf',
+        summary: 'Prosedur penanganan longsor lereng, ledakan tangki bahan bakar, dan kebakaran tambang.'
+      },
+      {
+        id: 'doc-k3-3', doc_number: 'SOP-HSE-OPS-008',
+        title: 'Standar Operasional Prosedur Pengoperasian Unit Dump Truck di Jalur Hauling',
+        doc_type: 'SOP', revision_no: 3, status: 'UNDER_REVIEW',
+        effective_date: '2024-04-10', next_review_date: '2026-04-10',
+        owner_dept: 'Mining Operations', approved_by: 'Kepala Teknik Tambang',
+        file_url: 'https://storage.internal.omos/docs/sop-hauling-rev3.pdf',
+        summary: 'Panduan batas kecepatan, jarak beriringan 50 meter, dan komunikasi radio channel 2.'
+      },
+      {
+        id: 'doc-k3-4', doc_number: 'JSA-MAINT-015',
+        title: 'Analisis Keselamatan Pekerjaan: Penggantian Tyre Depan Unit HD 785',
+        doc_type: 'JSA', revision_no: 0, status: 'ACTIVE',
+        effective_date: '2025-08-15', next_review_date: '2026-08-15',
+        owner_dept: 'Plant & Maintenance', approved_by: 'Maintenance Manager',
+        file_url: 'https://storage.internal.omos/docs/jsa-tyre-hd.pdf',
+        summary: 'Langkah isolasi energi LOTO, penggunaan tyre handler, dan torsi pengencangan baut roda.'
+      }
+    ];
+
+    let mockLegalRegister = [
+      {
+        id: 'leg-1', reg_number: 'UU No. 1 Tahun 1970',
+        title: 'Keselamatan Kerja',
+        issuing_body: 'KEMENAKER',
+        compliance_requirements: 'Syarat-syarat keselamatan kerja dalam perencanaan, pengolahan, dan penyimpanan alat berat/bahan beracun.',
+        relevant_articles: 'Pasal 3, Pasal 8, Pasal 9, Pasal 14',
+        compliance_status: 'COMPLIANT',
+        evidence_records: 'Struktur P2K3 aktif, sertifikasi operator, penyediaan APD cuma-cuma.',
+        evaluator_name: 'Bambang Sudibyo', last_evaluated_date: '2026-01-10'
+      },
+      {
+        id: 'leg-2', reg_number: 'Permen ESDM No. 26 Tahun 2018',
+        title: 'Pelaksanaan Kaidah Pertambangan yang Baik dan Pengawasan Pertambangan Minerba',
+        issuing_body: 'ESDM_MINERBA',
+        compliance_requirements: 'Penerapan Sistem Manajemen Keselamatan Pertambangan (SMKP) Minerba dan pengelolaan teknis pertambangan.',
+        relevant_articles: 'Pasal 3 ayat 1, Pasal 14, Lampiran II',
+        compliance_status: 'COMPLIANT',
+        evidence_records: 'SK KTT definitif, Buku Tambang, dan dokumen manual SMKP terverifikasi.',
+        evaluator_name: 'Bambang Sudibyo', last_evaluated_date: '2026-01-12'
+      },
+      {
+        id: 'leg-3', reg_number: 'Kepmen ESDM No. 1827 K/30/MEM/2018',
+        title: 'Pedoman Pelaksanaan Kaidah Teknik Pertambangan yang Baik',
+        issuing_body: 'ESDM_MINERBA',
+        compliance_requirements: 'Pedoman keselamatan operasi pertambangan, sarana prasarana, instalasi listrik, dan pengawasan K3.',
+        relevant_articles: 'Lampiran III & Lampiran IV',
+        compliance_status: 'PARTIAL',
+        evidence_records: 'Prosedur pemeliharaan berkala unit & laporan triwulan (catatan CAPA audit FND-001 masih terbuka).',
+        evaluator_name: 'Budi Santoso', last_evaluated_date: '2026-02-20'
+      },
+      {
+        id: 'leg-4', reg_number: 'PP No. 22 Tahun 2021',
+        title: 'Penyelenggaraan Perlindungan dan Pengelolaan Lingkungan Hidup',
+        issuing_body: 'KLHK',
+        compliance_requirements: 'Persetujuan teknis pemenuhan baku mutu air limbah tambang, emisi genset, dan izin TPS Limbah B3.',
+        relevant_articles: 'Pasal 133, Pasal 145, Lampiran VII',
+        compliance_status: 'COMPLIANT',
+        evidence_records: 'Izin TPS B3 aktif, logfestronik terverifikasi KLHK, hasil lab bulanan KPL.',
+        evaluator_name: 'Rian Pratama', last_evaluated_date: '2026-03-01'
+      }
+    ];
+
+    let mockMandatoryReports = [
+      {
+        id: 'rep-1', report_name: 'Laporan Triwulan I K3 dan Keselamatan Operasi Pertambangan',
+        legal_basis: 'Kepmen ESDM No. 1827 K/30/MEM/2018 Lampiran IV',
+        recipient_agency: 'ESDM_KAIT', period_type: 'QUARTERLY', period_label: 'Triwulan I 2026',
+        deadline_date: '2026-04-10', submission_date: '2026-04-05',
+        status: 'VERIFIED', receipt_no: '045/TT-K3/MINERBA-ESDM/IV/2026',
+        receipt_file_url: 'https://storage.internal.omos/receipts/tt-tw1-k3.pdf',
+        notes: 'Diserahkan via portal e-PNBP & hardcopy ke kantor Inspektur Tambang'
+      },
+      {
+        id: 'rep-2', report_name: 'Laporan Triwulan II K3 Pertambangan',
+        legal_basis: 'Kepmen ESDM No. 1827 K/30/MEM/2018 Lampiran IV',
+        recipient_agency: 'ESDM_KAIT', period_type: 'QUARTERLY', period_label: 'Triwulan II 2026',
+        deadline_date: '2026-07-10', submission_date: null,
+        status: 'PENDING', receipt_no: null, receipt_file_url: null,
+        notes: 'Batas lapor H+10 setelah akhir triwulan'
+      },
+      {
+        id: 'rep-3', report_name: 'Laporan Semesteran Implementasi RKL-RPL Lingkungan Hidup',
+        legal_basis: 'UU No. 32 Tahun 2009 & PP No. 22 Tahun 2021',
+        recipient_agency: 'DLH_KLHK', period_type: 'SEMESTER', period_label: 'Semester I 2026',
+        deadline_date: '2026-07-31', submission_date: null,
+        status: 'PENDING', receipt_no: null, receipt_file_url: null,
+        notes: 'Mencakup data air asam tambang, revegetasi, dan pengelolaan limbah B3'
+      }
+    ];
+
+    let mockRiskRegister = [
+      {
+        id: 'rsk-1',
+        risk_no: 'RSK-2610-001',
+        activity: 'Penggalian Material Tanah Penutup (Overburden) di Dekat Tebing Pit',
+        department_name: 'Mining Operations',
+        hazard: 'Lereng tebing labil / potensi longsor (slope failure) akibat rembesan air tanah',
+        consequence_desc: 'Tertimbunnya excavator dan operator, fatality, kerusakan alat berat total',
+        initial_likelihood: 4,
+        initial_consequence: 5,
+        initial_score: 20,
+        initial_level: 'EXTREME',
+        controls: [
+          { hierarchy: 'ELIMINATION', description: 'Menghentikan operasi penggalian pada tebing lereng jika terdeteksi rekahan' },
+          { hierarchy: 'ENGINEERING', description: 'Pemasangan slope stability radar (SSR) dan sensor prism otomatis' },
+          { hierarchy: 'ADMINISTRATIVE', description: 'SOP Lereng Tambang No. SOP-PIT-004, inspeksi geoteknik setiap shift' },
+          { hierarchy: 'PPE', description: 'Kabin FOPS/ROPS certified pada excavator, radio komunikasi dua arah' }
+        ],
+        residual_likelihood: 2,
+        residual_consequence: 4,
+        residual_score: 8,
+        residual_level: 'MEDIUM',
+        owner_name: 'Budi Santoso (Pit Superintendant)',
+        review_date: '2026-11-01',
+        status: 'ACTIVE'
+      },
+      {
+        id: 'rsk-2',
+        risk_no: 'RSK-2610-002',
+        activity: 'Pengangkutan Batubara (Hauling) Melintasi Persimpangan Main Road KM 6',
+        department_name: 'Hauling Operations',
+        hazard: 'Truk dump muatan 40 ton bersimpangan dengan light vehicle (LV) pengawas',
+        consequence_desc: 'Tabrakan kendaraan (collision), kerusakan armada, cedera berat pengemudi',
+        initial_likelihood: 4,
+        initial_consequence: 4,
+        initial_score: 16,
+        initial_level: 'HIGH',
+        controls: [
+          { hierarchy: 'ENGINEERING', description: 'Pemisahan lajur LV & Dump Truck, pemasangan buggymug & blind spot mirror' },
+          { hierarchy: 'ADMINISTRATIVE', description: 'Sistem komunikasi radio channel 2, batas kecepatan maksimal 40 km/jam' },
+          { hierarchy: 'PPE', description: 'Safety belt 3-titik wajib, rompi reflektif' }
+        ],
+        residual_likelihood: 1,
+        residual_consequence: 3,
+        residual_score: 3,
+        residual_level: 'LOW',
+        owner_name: 'Rudi Hartono (Hauling Supervisor)',
+        review_date: '2026-10-25',
+        status: 'ACTIVE'
+      }
+    ];
+
+    let mockRiskOverview = {
+      totalRisks: 2,
+      extremeCount: 0,
+      highCount: 0,
+      mediumCount: 1,
+      lowCount: 1,
+      reviewDueCount: 0,
+      matrix: [
+        { likelihood: 2, consequence: 4, score: 8, level: 'MEDIUM', count: 1 },
+        { likelihood: 1, consequence: 3, score: 3, level: 'LOW', count: 1 },
+      ]
+    };
+
+    const originalFetch = window.fetch;
+    window.fetch = async (url, opts = {}) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/hse/overview')) {
+        return new Response(JSON.stringify(mockOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/masters')) {
+        return new Response(JSON.stringify(mockMasters), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/hazards')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const repEmp = mockMasters.employees.find(e => e.id === body.reported_by);
+          const newH = {
+            id: 'hz-' + Date.now(),
+            report_no: 'HZD-2610-' + String(mockHazards.length + 1).padStart(3, '0'),
+            report_date: new Date().toISOString().slice(0, 10),
+            location_id: body.location_id,
+            location_name: mockMasters.locations.find(l => l.id === body.location_id)?.name || 'Pit 1',
+            category_id: body.category_id,
+            category_name: mockMasters.categories.find(c => c.id === body.category_id)?.label || 'Umum',
+            description: body.description,
+            potential_consequence: body.potential_consequence || '',
+            likelihood: body.likelihood || 3,
+            consequence: body.consequence || 3,
+            risk_score: (body.likelihood || 3) * (body.consequence || 3),
+            risk_level: (body.likelihood || 3) * (body.consequence || 3) >= 17 ? 'EXTREME' : ((body.likelihood || 3) * (body.consequence || 3) >= 10 ? 'HIGH' : 'MEDIUM'),
+            reported_by: body.reported_by || null,
+            reported_by_name: body.reported_by_name || repEmp?.nama || 'Admin HSE',
+            reported_by_dept: body.reported_by_dept || repEmp?.departemen || 'Operasional',
+            reported_by_role: body.reported_by_role || repEmp?.jabatan || 'Staff',
+            assigned_to: body.assigned_to || null,
+            assigned_to_name: mockMasters.employees.find(e => e.id === body.assigned_to)?.nama || 'HSE Team',
+            status: 'NEW',
+          };
+          mockHazards.unshift(newH);
+          return new Response(JSON.stringify(newH), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (urlStr.match(/\/api\/hse\/hazards\/[^/]+$/)) {
+          const hid = urlStr.split('/').pop();
+          const found = mockHazards.find(h => h.id === hid) || mockHazards[0];
+          return new Response(JSON.stringify({ ...found, actions: mockActions.filter(a => a.source_id === found.id) }), {
+            status: 200, headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return new Response(JSON.stringify(mockHazards), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/actions')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newA = {
+            id: 'act-' + Date.now(),
+            action_no: 'CAPA-2610-' + String(mockActions.length + 1).padStart(3, '0'),
+            source_type: 'HAZARD',
+            description: body.description,
+            action_type: body.action_type || 'CORRECTIVE',
+            pic_name: mockMasters.employees.find(e => e.id === body.pic_employee_id)?.nama || 'HSE PIC',
+            due_date: body.due_date || new Date().toISOString().slice(0, 10),
+            status: 'OPEN',
+            is_overdue: false,
+          };
+          mockActions.unshift(newA);
+          return new Response(JSON.stringify(newA), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockActions), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/incidents')) {
+        const parts = urlStr.split('/incidents');
+        const after = parts[1] || '';
+        if (after.includes('/investigation') && opts.method === 'POST') {
+          const incId = after.split('/')[1];
+          const body = JSON.parse(opts.body || '{}');
+          const inc = mockIncidents.find(i => i.id === incId);
+          if (inc) {
+            inc.investigation = { ...inc.investigation, ...body };
+            inc.investigation_status = body.status || 'OPEN';
+          }
+          return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (after.startsWith('/') && !after.includes('?')) {
+          const incId = after.replace('/', '');
+          const found = mockIncidents.find(i => i.id === incId) || mockIncidents[0];
+          return new Response(JSON.stringify(found), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newInc = {
+            id: 'inc-' + Date.now(),
+            incident_no: 'INC-2610-' + String(mockIncidents.length + 1).padStart(3, '0'),
+            incident_type: body.incident_type || 'NEAR_MISS',
+            occurred_at: body.occurred_at || new Date().toISOString(),
+            location_name: mockMasters.locations.find(l => l.id === body.location_id)?.name || 'Workshop',
+            department_name: body.department_name || 'Operasional',
+            description: body.description,
+            actual_severity: body.actual_severity || 'MINOR',
+            potential_severity: body.potential_severity || 'MODERATE',
+            estimated_loss: body.estimated_loss || 0,
+            status: 'REPORTED',
+            investigation_status: null,
+            persons: body.persons || [],
+            assets: body.assets || [],
+            investigation: null,
+            actions: [],
+          };
+          mockIncidents.unshift(newInc);
+          return new Response(JSON.stringify(newInc), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockIncidents), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/reports/safety')) {
+        return new Response(JSON.stringify(mockSafetyReports), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/manhours') && opts.method === 'POST') {
+        const body = JSON.parse(opts.body || '{}');
+        const monthLabel = body.period_month;
+        mockSafetyReports.monthlyStatistics.unshift({
+          monthKey: body.period_month.slice(0, 7),
+          monthLabel: monthLabel,
+          hours: Number(body.hours) || 240000,
+          fatality: 0, lti: 0, mti: 0, fai: 0, nm: 0, pd: 0, lostDays: 0,
+          ltifr: 0.00, trir: 0.00, sr: 0.00
+        });
+        return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/competency/overview')) {
+        return new Response(JSON.stringify(mockCompetencyOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/competency/courses')) {
+        return new Response(JSON.stringify(mockCourses), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/competency/licenses')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const emp = mockMasters.employees.find(e => e.id === body.employee_id);
+          const newLic = {
+            id: 'lic-' + Date.now(),
+            employee_id: body.employee_id,
+            employee_name: emp?.nama || 'Karyawan',
+            employee_nrp: emp?.employee_id || 'EMP-NEW',
+            employee_position: emp?.jabatan || 'Operator',
+            license_type: body.license_type,
+            license_no: body.license_no,
+            class_or_unit: body.class_or_unit,
+            issued_by: body.issued_by,
+            issued_date: body.issued_date,
+            expiry_date: body.expiry_date,
+            computed_status: 'VALID',
+            status: 'VALID',
+            fit_to_operate: true,
+            notes: body.notes
+          };
+          mockLicenses.unshift(newLic);
+          return new Response(JSON.stringify(newLic), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockLicenses), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/competency/matrix')) {
+        return new Response(JSON.stringify(mockMatrix), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/competency/training-records') && opts.method === 'POST') {
+        const body = JSON.parse(opts.body || '{}');
+        return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/competency/inductions')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newInd = {
+            id: 'ind-' + Date.now(),
+            ...body,
+            display_name: body.person_name,
+            result: body.result || 'PASSED'
+          };
+          mockInductions.unshift(newInd);
+          return new Response(JSON.stringify(newInd), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockInductions), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/p5m/events') || urlStr.includes('/api/hse/safetytalk/events')) {
+        const isP5m = urlStr.includes('/api/hse/p5m/events');
+        const list = isP5m ? mockP5mEvents : mockStEvents;
+        const basePath = isP5m ? '/api/hse/p5m/events' : '/api/hse/safetytalk/events';
+        const prefix = isP5m ? 'P5M' : 'STK';
+        const rest = (urlStr.split(basePath)[1] || '').split('?')[0];
+        const params = new URLSearchParams(urlStr.split('?')[1] || '');
+
+        const empById = id => mockMasters.employees.find(e => e.id === id) || null;
+        const attendeeNames = ids => (ids || []).map(id => empById(id)?.nama).filter(Boolean);
+        const recalcDup = () => {
+          list.forEach(ev => {
+            ev.duplicate_count = list.filter(d =>
+              d.id !== ev.id && d.status === 'ACTIVE' && !d.merged_into_id &&
+              d.location_id === ev.location_id && d.event_date === ev.event_date && d.shift_id === ev.shift_id
+            ).length;
+          });
+        };
+        const withList = rows => rows.map(ev => ({
+          ...ev,
+          attendee_count: (ev.attendee_ids || []).length,
+          attendee_names: attendeeNames(ev.attendee_ids)
+        }));
+        const detailOf = ev => ({
+          ...ev,
+          attendee_count: (ev.attendee_ids || []).length,
+          attendees: (ev.attendee_ids || []).map(id => {
+            const emp = empById(id) || {};
+            return {
+              id,
+              employee_id: emp.employee_id || null,
+              employee_no: emp.employee_id || null,
+              nama: emp.nama || 'Karyawan',
+              jabatan: emp.jabatan || null
+            };
+          })
+        });
+
+        recalcDup();
+
+        if (rest.endsWith('/merge') && opts.method === 'POST') {
+          const targetId = rest.split('/')[1];
+          const body = JSON.parse(opts.body || '{}');
+          const target = list.find(e => e.id === targetId);
+          if (!target) {
+            return new Response(JSON.stringify({ error: 'Event utama tidak ditemukan' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+          }
+          const sourceIds = (body.source_ids || []).filter(id => id !== targetId);
+          if (!sourceIds.length) {
+            return new Response(JSON.stringify({ error: 'Pilih minimal 1 data lain untuk digabungkan' }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+          }
+          const union = (...lists) => {
+            const out = [];
+            lists.forEach(l => (l || []).forEach(v => { if (v && !out.includes(v)) out.push(v); }));
+            return out;
+          };
+          const sourceRows = sourceIds.map(id => list.find(e => e.id === id)).filter(Boolean);
+          target.topics = union(target.topics, ...sourceRows.map(s => s.topics));
+          target.led_by_ids = union(target.led_by_ids, ...sourceRows.map(s => s.led_by_ids));
+          target.led_by_names = union(target.led_by_names, ...sourceRows.map(s => s.led_by_names));
+          target.photos = union(target.photos, ...sourceRows.map(s => s.photos));
+          target.attendee_ids = union(target.attendee_ids, ...sourceRows.map(s => s.attendee_ids));
+          sourceRows.forEach(s => {
+            s.status = 'DUPLICATE';
+            s.merged_into_id = target.id;
+            s.attendee_ids = [];
+          });
+          recalcDup();
+          return new Response(JSON.stringify(detailOf(target)), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (rest && rest !== '/') {
+          const id = rest.split('/')[1];
+          const ev = list.find(e => e.id === id);
+          if (!ev) {
+            return new Response(JSON.stringify({ error: 'Event tidak ditemukan' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (opts.method === 'PUT') {
+            const body = JSON.parse(opts.body || '{}');
+            if (body.event_date !== undefined) ev.event_date = body.event_date;
+            if (body.shift_id !== undefined) {
+              ev.shift_id = body.shift_id;
+              ev.shift_name = mockMasters.shifts.find(s => s.id === body.shift_id)?.nama_shift || ev.shift_name;
+            }
+            if (body.location_id !== undefined) {
+              ev.location_id = body.location_id;
+              ev.location_name = mockMasters.locations.find(l => l.id === body.location_id)?.name || ev.location_name;
+            }
+            if (body.topics !== undefined) ev.topics = body.topics;
+            if (body.led_by_ids !== undefined) {
+              ev.led_by_ids = body.led_by_ids;
+              ev.led_by_names = (body.led_by_ids || []).map(x => empById(x)?.nama).filter(Boolean);
+            }
+            if (body.photos !== undefined) ev.photos = body.photos;
+            if (body.participant_ids !== undefined) {
+              ev.attendee_ids = body.participant_ids;
+              ev.attendee_names = attendeeNames(body.participant_ids);
+            }
+            recalcDup();
+            return new Response(JSON.stringify(detailOf(ev)), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (opts.method === 'DELETE') {
+            const cascade = list.filter(e => e.merged_into_id === id);
+            const idx = list.indexOf(ev);
+            if (idx >= 0) list.splice(idx, 1);
+            cascade.forEach(c => {
+              const ci = list.indexOf(c);
+              if (ci >= 0) list.splice(ci, 1);
+            });
+            recalcDup();
+            return new Response(JSON.stringify({ success: true, deleted_count: 1 + cascade.length }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          return new Response(JSON.stringify(detailOf(ev)), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const seq = String(list.length + 1).padStart(4, '0');
+          const newEv = {
+            id: (isP5m ? 'p5me-' : 'ste-') + Date.now(),
+            event_no: `${prefix}-${seq}`,
+            event_date: body.event_date,
+            shift_id: body.shift_id,
+            shift_name: mockMasters.shifts.find(s => s.id === body.shift_id)?.nama_shift || '',
+            location_id: body.location_id,
+            location_name: mockMasters.locations.find(l => l.id === body.location_id)?.name || '',
+            topics: body.topics || [],
+            led_by_ids: body.led_by_ids || [],
+            led_by_names: (body.led_by_ids || []).map(x => empById(x)?.nama).filter(Boolean),
+            photos: body.photos || [],
+            status: 'ACTIVE',
+            merged_into_id: null,
+            duplicate_count: 0,
+            attendee_ids: body.participant_ids || [],
+            attendee_names: attendeeNames(body.participant_ids)
+          };
+          list.unshift(newEv);
+          recalcDup();
+          return new Response(JSON.stringify(detailOf(newEv)), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        let rows = list.filter(ev => ev.status === 'ACTIVE' && !ev.merged_into_id);
+        if (params.get('location_id')) rows = rows.filter(r => r.location_id === params.get('location_id'));
+        if (params.get('date_from')) rows = rows.filter(r => r.event_date >= params.get('date_from'));
+        if (params.get('date_to')) rows = rows.filter(r => r.event_date <= params.get('date_to'));
+        if (params.get('search')) {
+          const s = params.get('search').toLowerCase();
+          rows = rows.filter(r =>
+            (r.topics || []).join(' ').toLowerCase().includes(s) ||
+            String(r.event_no || '').toLowerCase().includes(s) ||
+            attendeeNames(r.attendee_ids).join(' ').toLowerCase().includes(s)
+          );
+        }
+        return new Response(JSON.stringify(withList(rows)), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // FASE 4: PTW & LOTO & SIMOPS
+      if (urlStr.includes('/api/hse/ptw/overview')) {
+        return new Response(JSON.stringify(mockPtwOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/ptw/permits')) {
+        const parts = urlStr.split('/permits');
+        const after = parts[1] || '';
+        if (after.includes('/isolations') && opts.method === 'POST') {
+          const permitId = after.split('/')[1];
+          const body = JSON.parse(opts.body || '{}');
+          const newIso = {
+            id: 'iso-' + Date.now(),
+            permit_id: permitId,
+            ...body,
+            status: 'LOCKED',
+          };
+          const p = mockPermits.find(item => item.id === permitId);
+          if (p) {
+            p.isolations = p.isolations || [];
+            p.isolations.push(newIso);
+          }
+          return new Response(JSON.stringify(newIso), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (after.includes('/handovers') && opts.method === 'POST') {
+          const permitId = after.split('/')[1];
+          const body = JSON.parse(opts.body || '{}');
+          const newHo = {
+            id: 'ho-' + Date.now(),
+            created_at: new Date().toISOString(),
+            ...body,
+          };
+          const p = mockPermits.find(item => item.id === permitId);
+          if (p) {
+            p.handovers = p.handovers || [];
+            p.handovers.push(newHo);
+          }
+          return new Response(JSON.stringify(newHo), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (after.includes('/status') && opts.method === 'PUT') {
+          const permitId = after.split('/')[1];
+          const body = JSON.parse(opts.body || '{}');
+          const p = mockPermits.find(item => item.id === permitId);
+          if (p) {
+            p.status = body.status;
+            p.computed_status = body.status;
+            if (body.notes) p.closed_notes = body.notes;
+          }
+          return new Response(JSON.stringify({ ok: true, permit: p }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (after.startsWith('/') && !after.includes('?')) {
+          const pId = after.replace('/', '');
+          const found = mockPermits.find(item => item.id === pId) || mockPermits[0];
+          return new Response(JSON.stringify(found), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const loc = mockMasters.locations.find(l => l.id === body.location_id);
+          const newP = {
+            id: 'ptw-' + Date.now(),
+            permit_no: 'PTW-2610-' + String(mockPermits.length + 1).padStart(3, '0'),
+            ...body,
+            location_name: loc?.name || 'Area Site',
+            applicant_name: 'Admin Site',
+            status: 'SUBMITTED',
+            computed_status: 'SUBMITTED',
+            is_simops: false,
+            workers: (body.workers || []).map(w => {
+              const emp = mockMasters.employees.find(e => e.id === w.employee_id);
+              return {
+                employee_id: w.employee_id,
+                employee_name: emp?.nama || 'Pekerja',
+                employee_nrp: emp?.employee_id || 'NRP',
+                employee_position: emp?.jabatan || 'Worker',
+                worker_role: w.worker_role || 'Worker',
+                license_status: 'OK',
+              };
+            }),
+            isolations: [],
+            handovers: [],
+            simopsConflicts: [],
+          };
+          mockPermits.unshift(newP);
+          return new Response(JSON.stringify(newP), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockPermits), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/ptw/isolations') && urlStr.includes('/release') && opts.method === 'PUT') {
+        const parts = urlStr.split('/isolations/')[1].split('/release')[0];
+        const isoId = parts;
+        mockPermits.forEach(p => {
+          (p.isolations || []).forEach(iso => {
+            if (iso.id === isoId) {
+              iso.status = 'RELEASED';
+              iso.released_by_name = 'Budi Santoso';
+            }
+          });
+        });
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // FASE 4: INSPECTIONS & COMPLIANCE
+      if (urlStr.includes('/api/hse/inspections/compliance')) {
+        const dueCount = mockInspectionSchedules.filter(s => s.is_active).length;
+        const compRate = 100;
+        return new Response(JSON.stringify({
+          period: { cycle: 'MONTHLY', month: 10, year: 2026 },
+          summary: {
+            totalWajib: 2,
+            achievedCount: 2,
+            complianceRate: 100,
+            scheduleCoverage: {
+              totalActive: mockInspectionSchedules.length,
+              dueInPeriod: dueCount,
+              completedInPeriod: 1,
+              overdueCount: 0,
+              coverageRate: 100
+            }
+          },
+          items: [
+            {
+              employee_id: 'emp-1',
+              nama: 'Andi Saputra',
+              employee_nrp: 'EMP-001',
+              jabatan: 'Foreman Produksi',
+              departemen: 'Mining Operation',
+              target_quota: 4,
+              realization: 4,
+              compliance_rate: 100,
+              status: 'TERCAPAI'
+            },
+            {
+              employee_id: 'emp-2',
+              nama: 'Budi Santoso',
+              employee_nrp: 'EMP-002',
+              jabatan: 'HSE Officer',
+              departemen: 'HSE & Safety',
+              target_quota: 8,
+              realization: 8,
+              compliance_rate: 100,
+              status: 'TERCAPAI'
+            }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/inspections/schedules')) {
+        // Will be handled in dedicated interceptor or here
+      }
+
+      if (urlStr.includes('/api/hse/inspections/templates')) {
+        return new Response(JSON.stringify(mockInspectionTemplates.filter(t => t.is_active)), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/inspections') && !urlStr.includes('/inspections/')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          if (!Array.isArray(body.photos) || body.photos.length === 0) {
+            return new Response(JSON.stringify({ error: 'Inspeksi wajib memiliki minimal 1 foto' }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+          }
+          const tmpl = mockInspectionTemplates.find(t => t.id === body.template_id);
+          const loc = mockMasters.locations.find(l => l.id === body.location_id);
+          const answers = body.answers || [];
+          const noCount = answers.filter(a => a.answer === 'NO').length;
+          const yesCount = answers.filter(a => a.answer === 'YES').length;
+          const passRate = answers.length > 0 ? Math.round((yesCount / answers.length) * 100) : 100;
+
+          if (body.schedule_id) {
+            const sched = mockInspectionSchedules.find(s => s.id === body.schedule_id);
+            if (sched) {
+              sched.last_done_at = new Date().toISOString();
+              sched.due_status = 'SCHEDULED';
+            }
+          }
+
+          const newIns = {
+            id: 'ins-' + Date.now(),
+            inspection_no: 'INS-2610-' + String(mockInspections.length + 1).padStart(3, '0'),
+            inspected_at: body.inspection_date || new Date().toISOString().slice(0, 10),
+            inspection_date: body.inspection_date || new Date().toISOString().slice(0, 10),
+            template_id: body.template_id,
+            template_code: tmpl?.template_code || tmpl?.code || 'TMPL',
+            template_name: tmpl?.name || 'Inspeksi',
+            location_id: body.location_id,
+            location_name: loc?.name || 'Area Site',
+            object_identifier: body.object_identifier || body.equipment_tag || null,
+            equipment_tag: body.equipment_tag || null,
+            inspected_by_name: 'HSE Auditor',
+            inspector_name: 'HSE Auditor',
+            status: 'COMPLETED',
+            pass_rate_pct: passRate,
+            critical_findings_count: noCount,
+            findings_count: noCount,
+            notes: body.notes || null,
+            photos: body.photos,
+            documents: Array.isArray(body.documents) ? body.documents : [],
+            answers: answers.map(a => {
+              const qItem = (tmpl?.items || []).find(it => it.id === a.item_id);
+              return {
+                category: qItem?.category || 'Umum',
+                item_prompt: qItem?.item_prompt || qItem?.question || 'Butir pemeriksaan',
+                is_critical: Boolean(qItem?.is_critical),
+                answer: a.answer,
+                notes: a.notes,
+              };
+            }),
+            criticalFindings: [],
+          };
+          mockInspections.unshift(newIns);
+          return new Response(JSON.stringify(newIns), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockInspections), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // Lampiran inspeksi: PUT replace-set (foto wajib >= 1, dokumen opsional)
+      if (urlStr.includes('/api/hse/inspections/') && urlStr.includes('/lampiran')) {
+        if (opts.method === 'PUT') {
+          const body = JSON.parse(opts.body || '{}');
+          const insId = urlStr.split('/inspections/')[1]?.split('?')[0]?.split('/')[0];
+          const found = mockInspections.find(item => item.id === insId);
+          if (!found) {
+            return new Response(JSON.stringify({ error: 'Inspeksi tidak ditemukan' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (!Array.isArray(body.photos) || body.photos.length === 0) {
+            return new Response(JSON.stringify({ error: 'Inspeksi wajib memiliki minimal 1 foto' }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (Array.isArray(body.documents) && body.documents.length > 3) {
+            return new Response(JSON.stringify({ error: 'Maksimal 3 dokumen per inspeksi' }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+          }
+          found.photos = body.photos;
+          found.documents = Array.isArray(body.documents) ? body.documents : [];
+          return new Response(JSON.stringify(found), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+
+      if (urlStr.match(/\/api\/hse\/inspections\/[^/]+$/) && !urlStr.includes('/templates') && !urlStr.includes('/schedules') && !urlStr.includes('/targets') && !urlStr.includes('/compliance') && !urlStr.includes('/mandates')) {
+        const insId = urlStr.split('/inspections/')[1]?.split('?')[0];
+        const found = mockInspections.find(item => item.id === insId) || mockInspections[0];
+        return new Response(JSON.stringify(found), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // --- FASE 5: OCCUPATIONAL HEALTH API ROUTES ---
+      if (urlStr.includes('/api/hse/health/overview')) {
+        return new Response(JSON.stringify(mockOccHealthOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/health/mcu')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const emp = mockMasters.employees.find(e => e.id === body.employee_id);
+          const newMcu = {
+            id: 'mcu-' + Date.now(),
+            ...body,
+            employee_name: emp?.nama || 'Karyawan',
+            employee_nrp: emp?.employee_id || 'NRP',
+            department_name: 'Mining Operation',
+            position_name: emp?.jabatan || 'Worker',
+            validity_status: 'VALID',
+          };
+          mockMcuRecords.unshift(newMcu);
+          return new Response(JSON.stringify(newMcu), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'PUT') {
+          const mcuId = urlStr.split('/mcu/')[1]?.split('?')[0];
+          const body = JSON.parse(opts.body || '{}');
+          const idx = mockMcuRecords.findIndex(r => r.id === mcuId);
+          if (idx !== -1) {
+            mockMcuRecords[idx] = { ...mockMcuRecords[idx], ...body };
+            return new Response(JSON.stringify(mockMcuRecords[idx]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        return new Response(JSON.stringify(mockMcuRecords), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/health/ffw')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const emp = mockMasters.employees.find(e => e.id === body.employee_id);
+          const newFfw = {
+            id: 'ffw-' + Date.now(),
+            ...body,
+            employee_name: emp?.nama || 'Pekerja',
+            employee_nrp: emp?.employee_id || 'NRP',
+            department_name: 'Mining Operation',
+          };
+          mockFfwChecks.unshift(newFfw);
+          return new Response(JSON.stringify(newFfw), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockFfwChecks), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/health/substance-tests')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const emp = mockMasters.employees.find(e => e.id === body.employee_id);
+          const newSub = {
+            id: 'sub-' + Date.now(),
+            ...body,
+            employee_name: emp?.nama || 'Pekerja',
+            employee_nrp: emp?.employee_id || 'NRP',
+            department_name: 'Mining Operation',
+          };
+          mockSubstanceTests.unshift(newSub);
+          return new Response(JSON.stringify(newSub), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockSubstanceTests), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/health/cases')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const emp = mockMasters.employees.find(e => e.id === body.employee_id);
+          const newCase = {
+            id: 'cas-' + Date.now(),
+            case_no: 'MED-2610-' + String(mockHealthCases.length + 1).padStart(3, '0'),
+            ...body,
+            employee_name: emp?.nama || 'Pekerja',
+            employee_nrp: emp?.employee_id || 'NRP',
+            department_name: 'Mining Operation',
+          };
+          mockHealthCases.unshift(newCase);
+          return new Response(JSON.stringify(newCase), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'PUT') {
+          const caseId = urlStr.split('/cases/')[1]?.split('?')[0];
+          const body = JSON.parse(opts.body || '{}');
+          const idx = mockHealthCases.findIndex(c => c.id === caseId);
+          if (idx !== -1) {
+            mockHealthCases[idx] = { ...mockHealthCases[idx], ...body };
+            return new Response(JSON.stringify(mockHealthCases[idx]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        return new Response(JSON.stringify(mockHealthCases), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/health/hygiene')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const loc = mockMasters.locations.find(l => l.id === body.location_id);
+          let nabStatus = 'OK';
+          if (body.parameter === 'LIGHTING') {
+            if (body.measured_value < body.threshold_nab) nabStatus = 'EXCEEDED';
+            else if (body.measured_value <= body.threshold_nab * 1.15) nabStatus = 'NEAR_LIMIT';
+          } else {
+            if (body.measured_value > body.threshold_nab) nabStatus = 'EXCEEDED';
+            else if (body.measured_value >= body.threshold_nab * 0.85) nabStatus = 'NEAR_LIMIT';
+          }
+          const newHyg = {
+            id: 'hyg-' + Date.now(),
+            ...body,
+            location_name: loc?.name || 'Area Site',
+            nab_status: nabStatus,
+          };
+          mockHygieneMeasurements.unshift(newHyg);
+          return new Response(JSON.stringify(newHyg), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockHygieneMeasurements), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // ======================================================================
+      // FASE 6 INTERCEPTORS: EMERGENCY & PPE
+      // ======================================================================
+      if (urlStr.includes('/api/hse/emergency/overview')) {
+        return new Response(JSON.stringify(mockEmergencyOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/emergency/team')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newMember = { id: 'ert-' + Date.now(), ...body };
+          mockEmergencyTeam.push(newMember);
+          return new Response(JSON.stringify(newMember), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockEmergencyTeam), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/emergency/drills')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const loc = mockMasters.locations.find(l => l.id === body.location_id);
+          const newDrill = {
+            id: 'drl-' + Date.now(),
+            drill_no: 'DRL-2610-' + String(mockEmergencyDrills.length + 1).padStart(3, '0'),
+            ...body,
+            location_name: loc?.name || body.location_name || 'Area Tambang',
+          };
+          mockEmergencyDrills.unshift(newDrill);
+          return new Response(JSON.stringify(newDrill), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockEmergencyDrills), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/emergency/equipment')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const loc = mockMasters.locations.find(l => l.id === body.location_id);
+          const newEq = {
+            id: 'eq-' + Date.now(),
+            ...body,
+            location_name: loc?.name || 'Area Tambang',
+            status: 'GOOD',
+          };
+          mockEmergencyEquipment.push(newEq);
+          return new Response(JSON.stringify(newEq), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockEmergencyEquipment), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/emergency/assembly-points')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const loc = mockMasters.locations.find(l => l.id === body.location_id);
+          const newAp = {
+            id: 'ap-' + Date.now(),
+            ...body,
+            location_name: loc?.name || 'Area Tambang',
+            is_active: true,
+          };
+          mockAssemblyPoints.push(newAp);
+          return new Response(JSON.stringify(newAp), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockAssemblyPoints), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/emergency/contacts')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newCont = { id: 'cont-' + Date.now(), ...body };
+          mockEmergencyContacts.push(newCont);
+          return new Response(JSON.stringify(newCont), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockEmergencyContacts), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/ppe/overview')) {
+        return new Response(JSON.stringify(mockPpeOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/ppe/items')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newPpe = {
+            id: 'ppe-' + Date.now(),
+            ...body,
+            is_critical_stock: (body.current_stock || 0) <= (body.minimum_stock || 10),
+          };
+          mockPpeItems.push(newPpe);
+          return new Response(JSON.stringify(newPpe), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockPpeItems), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/ppe/standards')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const it = mockPpeItems.find(p => p.id === body.ppe_item_id);
+          const newStd = {
+            id: 'std-' + Date.now(),
+            ...body,
+            ppe_name: it?.name || 'Item APD',
+            ppe_category: it?.category || 'OTHER',
+            replace_interval_months: it?.replace_interval_months || 12,
+            standard_specification: it?.standard_specification || '-',
+          };
+          mockPpeStandards.push(newStd);
+          return new Response(JSON.stringify(newStd), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockPpeStandards), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/ppe/issuances')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const it = mockPpeItems.find(p => p.id === body.ppe_item_id);
+          const newIss = {
+            id: 'iss-' + Date.now(),
+            ...body,
+            ppe_item_name: it?.name || body.ppe_item_name,
+            ppe_category: it?.category || body.ppe_category,
+            replace_due_date: '2027-10-15',
+            status: 'ACTIVE',
+          };
+          mockPpeIssuances.unshift(newIss);
+          return new Response(JSON.stringify(newIss), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'PUT' && urlStr.includes('/return')) {
+          const issId = urlStr.split('/issuances/')[1]?.split('/return')[0];
+          const idx = mockPpeIssuances.findIndex(i => i.id === issId);
+          if (idx !== -1) {
+            mockPpeIssuances[idx].status = 'RETURNED';
+            return new Response(JSON.stringify(mockPpeIssuances[idx]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        return new Response(JSON.stringify(mockPpeIssuances), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // Fase 7: Kontraktor & CSMS
+      if (urlStr.includes('/api/hse/contractors/overview')) {
+        return new Response(JSON.stringify(mockContractorOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/contractors/assessments')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const ctr = mockContractors.find(c => c.id === body.contractor_id);
+          let res = 'REJECTED';
+          if (body.score >= 75) res = 'APPROVED';
+          else if (body.score >= 60) res = 'CONDITIONAL';
+          const newAss = {
+            id: 'ass-' + Date.now(),
+            contractor_id: body.contractor_id,
+            contractor_name: ctr?.name || '-',
+            contractor_code: ctr?.code || '-',
+            contractor_business: ctr?.business_type || '-',
+            assessment_date: body.assessment_date,
+            assessment_type: body.assessment_type,
+            score: body.score,
+            result: res,
+            valid_until: body.valid_until,
+            assessor_name: body.assessor_name,
+            notes: body.notes || null,
+          };
+          mockContractorAssessments.unshift(newAss);
+          if (ctr) {
+            ctr.latest_csms_score = body.score;
+            ctr.csms_status = res;
+          }
+          return new Response(JSON.stringify(newAss), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockContractorAssessments), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/contractors/documents')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const ctr = mockContractors.find(c => c.id === body.contractor_id);
+          const newDoc = {
+            id: 'doc-' + Date.now(),
+            contractor_id: body.contractor_id,
+            contractor_name: ctr?.name || '-',
+            contractor_code: ctr?.code || '-',
+            doc_type: body.doc_type,
+            doc_number: body.doc_number,
+            issued_date: body.issued_date,
+            expiry_date: body.expiry_date || null,
+            status: 'VALID',
+            notes: body.notes || null,
+          };
+          mockContractorDocuments.unshift(newDoc);
+          return new Response(JSON.stringify(newDoc), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockContractorDocuments), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/contractors/violations')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const ctr = mockContractors.find(c => c.id === body.contractor_id);
+          const newViol = {
+            id: 'viol-' + Date.now(),
+            contractor_id: body.contractor_id,
+            contractor_name: ctr?.name || '-',
+            contractor_code: ctr?.code || '-',
+            violation_date: body.violation_date,
+            severity: body.severity,
+            description: body.description,
+            sanction_type: body.sanction_type,
+            status: 'OPEN',
+            reported_by_name: body.reported_by_name || null,
+          };
+          mockContractorViolations.unshift(newViol);
+          return new Response(JSON.stringify(newViol), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'PUT' && urlStr.includes('/resolve')) {
+          const vId = urlStr.split('/violations/')[1]?.split('/resolve')[0];
+          const item = mockContractorViolations.find(v => v.id === vId);
+          if (item) {
+            item.status = 'RESOLVED';
+            return new Response(JSON.stringify(item), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        return new Response(JSON.stringify(mockContractorViolations), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/contractors')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newCtr = {
+            id: 'ctr-' + Date.now(),
+            code: body.code,
+            name: body.name,
+            business_type: body.business_type,
+            pic_name: body.pic_name,
+            pic_phone: body.pic_phone,
+            pic_email: body.pic_email || null,
+            worker_count: body.worker_count || 0,
+            address: body.address || null,
+            is_active: body.is_active ?? true,
+            latest_csms_score: null,
+            csms_status: null,
+          };
+          mockContractors.push(newCtr);
+          return new Response(JSON.stringify(newCtr), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockContractors), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // Fase 7: Lingkungan Hidup
+      if (urlStr.includes('/api/hse/environment/overview')) {
+        return new Response(JSON.stringify(mockEnvironmentOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/environment/waste-b3')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newWaste = {
+            id: 'b3-' + Date.now(),
+            log_date: body.log_date,
+            waste_code: body.waste_code,
+            waste_name: body.waste_name,
+            source_location: body.source_location,
+            source_unit: body.source_unit || null,
+            quantity: body.quantity,
+            unit: body.unit,
+            storage_deadline: new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString().slice(0, 10),
+            days_to_deadline: 90,
+            is_deadline_alert: false,
+            is_overdue: false,
+            status: body.status || 'STORED',
+            transporter_name: null,
+            manifest_number: null,
+          };
+          mockWasteB3Logs.unshift(newWaste);
+          return new Response(JSON.stringify(newWaste), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockWasteB3Logs), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/environment/points')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newPt = {
+            id: 'pt-' + Date.now(),
+            point_code: body.point_code,
+            name: body.name,
+            category: body.category,
+            location_description: body.location_description || null,
+            coordinates: body.coordinates || null,
+          };
+          mockEnvPoints.push(newPt);
+          return new Response(JSON.stringify(newPt), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockEnvPoints), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/environment/parameters')) {
+        return new Response(JSON.stringify(mockEnvParameters), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/environment/measurements')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const pt = mockEnvPoints.find(p => p.id === body.point_id);
+          const prm = mockEnvParameters.find(p => p.id === body.parameter_id);
+          let st = 'COMPLIES';
+          if (prm) {
+            const v = body.measured_value;
+            if (prm.standard_min_val !== null && v < prm.standard_min_val) st = 'EXCEEDED';
+            else if (prm.standard_max_val !== null && v > prm.standard_max_val) st = 'EXCEEDED';
+            else if (prm.standard_max_val !== null && v >= 0.85 * prm.standard_max_val) st = 'NEAR_LIMIT';
+          }
+          const newMeas = {
+            id: 'meas-' + Date.now(),
+            point_id: body.point_id,
+            point_code: pt?.point_code || '-',
+            point_name: pt?.name || '-',
+            point_category: pt?.category || '-',
+            parameter_id: body.parameter_id,
+            param_code: prm?.code || '-',
+            parameter_name: prm?.name || '-',
+            param_unit: prm?.unit || '-',
+            param_min_val: prm?.standard_min_val ?? null,
+            param_max_val: prm?.standard_max_val ?? null,
+            measurement_date: body.measurement_date,
+            measured_value: body.measured_value,
+            compliance_status: st,
+            lab_name: body.lab_name || null,
+            tested_by_name: body.tested_by_name || null,
+          };
+          mockEnvMeasurements.unshift(newMeas);
+          return new Response(JSON.stringify(newMeas), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockEnvMeasurements), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/environment/reclamation')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newRec = {
+            id: 'rec-' + Date.now(),
+            activity_date: body.activity_date,
+            location_name: body.location_name,
+            activity_type: body.activity_type,
+            plan_area_ha: body.plan_area_ha,
+            actual_area_ha: body.actual_area_ha,
+            seedling_types: body.seedling_types || null,
+            seedling_count: body.seedling_count || 0,
+            mortality_rate_pct: body.mortality_rate_pct || 0,
+            supervisor_name: body.supervisor_name || null,
+          };
+          mockReclamationRecords.unshift(newRec);
+          return new Response(JSON.stringify(newRec), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockReclamationRecords), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // Fase 8: Audit & Kepatuhan SMKP Minerba
+      if (urlStr.includes('/api/hse/audits/overview')) {
+        return new Response(JSON.stringify(mockAuditOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/audits/smkp-elements')) {
+        return new Response(JSON.stringify(mockSmkpElements), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/audits/findings')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const audit = mockAudits.find(a => a.id === body.audit_id);
+          let capaId = null;
+          let capaNo = null;
+          if (body.create_capa || ['MAJOR', 'MINOR'].includes(body.category)) {
+            capaId = 'act-aud-' + Date.now();
+            capaNo = 'CAPA-AUD-' + String(mockActions.length + 1).padStart(3, '0');
+            mockActions.unshift({
+              id: capaId,
+              action_no: capaNo,
+              source_type: 'AUDIT',
+              description: `[Temuan Audit ${body.finding_no}] ${body.description}`,
+              action_type: 'CORRECTIVE',
+              pic_name: body.pic_name,
+              due_date: body.due_date,
+              status: 'OPEN',
+              is_overdue: false,
+            });
+          }
+          const newFnd = {
+            id: 'fnd-' + Date.now(),
+            audit_id: body.audit_id,
+            audit_no: audit?.audit_no || '-',
+            audit_title: audit?.audit_title || '-',
+            finding_no: body.finding_no,
+            smkp_element_no: body.smkp_element_no ? parseInt(body.smkp_element_no, 10) : null,
+            clause_reference: body.clause_reference,
+            category: body.category,
+            description: body.description,
+            evidence_summary: body.evidence_summary || null,
+            pic_name: body.pic_name,
+            due_date: body.due_date,
+            status: 'OPEN',
+            action_id: capaId,
+            action_no: capaNo,
+            resolution_notes: null,
+          };
+          mockAuditFindings.unshift(newFnd);
+          mockAuditOverview.total_open_findings = (mockAuditOverview.total_open_findings || 0) + 1;
+          if (body.category === 'MAJOR') mockAuditOverview.open_major_findings = (mockAuditOverview.open_major_findings || 0) + 1;
+          return new Response(JSON.stringify(newFnd), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'PUT' && urlStr.includes('/resolve')) {
+          const parts = urlStr.split('/findings/')[1].split('/resolve')[0];
+          const fnd = mockAuditFindings.find(f => f.id === parts);
+          if (fnd) {
+            const body = JSON.parse(opts.body || '{}');
+            fnd.status = body.status;
+            fnd.resolution_notes = body.resolution_notes || null;
+            return new Response(JSON.stringify(fnd), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        return new Response(JSON.stringify(mockAuditFindings), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/audits')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newAud = {
+            id: 'aud-' + Date.now(),
+            audit_no: body.audit_no,
+            audit_title: body.audit_title,
+            audit_type: body.audit_type,
+            scope_standard: body.scope_standard,
+            start_date: body.start_date,
+            end_date: body.end_date,
+            lead_auditor: body.lead_auditor,
+            audit_team: body.audit_team || null,
+            audit_body: body.audit_body || null,
+            status: body.status || 'PLANNED',
+            compliance_score_pct: body.compliance_score_pct !== undefined ? parseFloat(body.compliance_score_pct) : null,
+            summary_notes: body.summary_notes || null,
+          };
+          mockAudits.unshift(newAud);
+          mockAuditOverview.total_audits = (mockAuditOverview.total_audits || 0) + 1;
+          return new Response(JSON.stringify(newAud), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockAudits), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // Fase 8: Dokumen & Regulasi HSE
+      if (urlStr.includes('/api/hse/docs/overview')) {
+        return new Response(JSON.stringify(mockDocsOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (urlStr.includes('/api/hse/docs') && urlStr.includes('/revisions') && opts.method === 'POST') {
+        const docId = urlStr.split('/docs/')[1].split('/revisions')[0];
+        const doc = mockDocuments.find(d => d.id === docId);
+        if (doc) {
+          const body = JSON.parse(opts.body || '{}');
+          doc.revision_no = body.revision_no;
+          doc.effective_date = body.effective_date;
+          if (body.file_url) doc.file_url = body.file_url;
+          return new Response(JSON.stringify({ id: 'rev-' + Date.now(), ...body }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+      if (urlStr.includes('/api/hse/docs')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newDoc = {
+            id: 'doc-k3-' + Date.now(),
+            doc_number: body.doc_number,
+            title: body.title,
+            doc_type: body.doc_type,
+            revision_no: body.revision_no || 0,
+            status: body.status || 'ACTIVE',
+            effective_date: body.effective_date,
+            next_review_date: body.next_review_date,
+            owner_dept: body.owner_dept,
+            approved_by: body.approved_by || null,
+            file_url: body.file_url || null,
+            summary: body.summary || null,
+          };
+          mockDocuments.unshift(newDoc);
+          mockDocsOverview.total_active_docs = (mockDocsOverview.total_active_docs || 0) + 1;
+          return new Response(JSON.stringify(newDoc), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockDocuments), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/legal-register')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newLeg = {
+            id: 'leg-' + Date.now(),
+            reg_number: body.reg_number,
+            title: body.title,
+            issuing_body: body.issuing_body,
+            compliance_requirements: body.compliance_requirements,
+            relevant_articles: body.relevant_articles || null,
+            compliance_status: body.compliance_status || 'NOT_ASSESSED',
+            evidence_records: body.evidence_records || null,
+            evaluator_name: body.evaluator_name || null,
+            last_evaluated_date: body.last_evaluated_date || null,
+          };
+          mockLegalRegister.unshift(newLeg);
+          if (newLeg.compliance_status === 'COMPLIANT') {
+            mockDocsOverview.fully_compliant_regulations = (mockDocsOverview.fully_compliant_regulations || 0) + 1;
+          }
+          return new Response(JSON.stringify(newLeg), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockLegalRegister), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/mandatory-reports')) {
+        if (opts.method === 'PUT' && urlStr.includes('/status')) {
+          const repId = urlStr.split('/mandatory-reports/')[1].split('/status')[0];
+          const rep = mockMandatoryReports.find(r => r.id === repId);
+          if (rep) {
+            const body = JSON.parse(opts.body || '{}');
+            rep.status = body.status;
+            rep.submission_date = body.submission_date || rep.submission_date;
+            rep.receipt_no = body.receipt_no || rep.receipt_no;
+            rep.receipt_file_url = body.receipt_file_url || rep.receipt_file_url;
+            rep.notes = body.notes || rep.notes;
+            return new Response(JSON.stringify(rep), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newRep = {
+            id: 'rep-' + Date.now(),
+            report_name: body.report_name,
+            legal_basis: body.legal_basis,
+            recipient_agency: body.recipient_agency,
+            period_type: body.period_type,
+            period_label: body.period_label,
+            deadline_date: body.deadline_date,
+            status: body.status || 'PENDING',
+            receipt_no: body.receipt_no || null,
+            receipt_file_url: null,
+            notes: null,
+          };
+          mockMandatoryReports.unshift(newRep);
+          if (newRep.status === 'PENDING') {
+            mockDocsOverview.pending_reports = (mockDocsOverview.pending_reports || 0) + 1;
+          }
+          return new Response(JSON.stringify(newRep), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockMandatoryReports), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // Register Risiko (IBPR / HIRADC)
+      if (urlStr.includes('/api/hse/risk-register/overview')) {
+        return new Response(JSON.stringify(mockRiskOverview), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.includes('/api/hse/risk-register')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const initL = Number(body.initial_likelihood) || 1;
+          const initC = Number(body.initial_consequence) || 1;
+          const initScore = initL * initC;
+          const resL = Number(body.residual_likelihood) || 1;
+          const resC = Number(body.residual_consequence) || 1;
+          const resScore = resL * resC;
+
+          const getLvl = s => s >= 17 ? 'EXTREME' : (s >= 10 ? 'HIGH' : (s >= 5 ? 'MEDIUM' : 'LOW'));
+
+          const newR = {
+            id: 'rsk-' + Date.now(),
+            risk_no: 'RSK-2610-' + String(mockRiskRegister.length + 1).padStart(3, '0'),
+            activity: body.activity,
+            department_name: body.department_name,
+            hazard: body.hazard,
+            consequence_desc: body.consequence_desc,
+            initial_likelihood: initL,
+            initial_consequence: initC,
+            initial_score: initScore,
+            initial_level: getLvl(initScore),
+            controls: body.controls || [],
+            residual_likelihood: resL,
+            residual_consequence: resC,
+            residual_score: resScore,
+            residual_level: getLvl(resScore),
+            owner_name: body.owner_name,
+            review_date: body.review_date,
+            status: body.status || 'ACTIVE',
+            created_at: new Date().toISOString()
+          };
+          mockRiskRegister.unshift(newR);
+          mockRiskOverview.totalRisks = (mockRiskOverview.totalRisks || 0) + 1;
+          return new Response(JSON.stringify(newR), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockRiskRegister), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (url.includes('/api/hse/locations/tree')) {
+        const parents = [];
+        const map = new Map();
+        const children = [];
+        mockLocationsList.forEach(l => {
+          if (!l.parent_id) {
+            const p = { ...l, sub_areas: [], sub_area_count: 0 };
+            parents.push(p);
+            map.set(l.id, p);
+          } else {
+            children.push(l);
+          }
+        });
+        children.forEach(c => {
+          const p = map.get(c.parent_id);
+          if (p) {
+            p.sub_areas.push(c);
+            p.sub_area_count++;
+          } else {
+            parents.push({ ...c, sub_areas: [], sub_area_count: 0 });
+          }
+        });
+        return new Response(JSON.stringify({ items: parents, totalAreas: parents.length, totalSubAreas: children.length }), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (url.match(/\/api\/hse\/locations\/[^/]+$/) && opts.method === 'PUT') {
+        const id = url.split('/').pop();
+        const body = JSON.parse(opts.body || '{}');
+        const item = mockLocationsList.find(l => l.id === id);
+        if (item) {
+          Object.assign(item, body);
+        }
+        return new Response(JSON.stringify(item || {}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (url.match(/\/api\/hse\/locations\/[^/]+$/) && opts.method === 'DELETE') {
+        const id = url.split('/').pop();
+        const hasChild = mockLocationsList.some(l => l.parent_id === id);
+        if (hasChild) {
+          return new Response(JSON.stringify({ error: 'Area ini masih memiliki Sub-Area aktif. Hapus atau pindahkan Sub-Area terlebih dahulu.' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        mockLocationsList = mockLocationsList.filter(l => l.id !== id);
+        mockMasters.locations = mockLocationsList;
+        return new Response(JSON.stringify({ success: true, id }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (url.endsWith('/api/hse/locations') && opts.method === 'POST') {
+        const body = JSON.parse(opts.body || '{}');
+        const newLoc = {
+          id: 'loc-' + Date.now(),
+          code: body.code || 'LOC-' + Math.floor(Math.random() * 1000),
+          name: body.name,
+          type: body.type || 'OTHER',
+          parent_id: body.parent_id || null,
+          latitude: body.latitude || null,
+          longitude: body.longitude || null,
+          is_active: true
+        };
+        mockLocationsList.push(newLoc);
+        mockMasters.locations = mockLocationsList;
+        return new Response(JSON.stringify(newLoc), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // ======================================================================
+      // HSE SETUP INSPECTIONS INTERCEPTORS
+      // ======================================================================
+      if (urlStr.includes('/api/hse/inspections/templates')) {
+        if (opts.method === 'POST' && urlStr.includes('/version')) {
+          const origId = urlStr.split('/templates/')[1].split('/version')[0];
+          const orig = mockInspectionTemplates.find(t => t.id === origId);
+          const body = JSON.parse(opts.body || '{}');
+          const newTmpl = {
+            id: 'tmpl-' + Date.now(),
+            root_id: orig ? orig.root_id : 'tmpl-' + Date.now(),
+            code: orig ? orig.code : 'TMPL-CUSTOM',
+            name: body.name || orig?.name,
+            inspection_type: body.inspection_type || orig?.inspection_type,
+            schedule_cycle: body.schedule_cycle || orig?.schedule_cycle,
+            custom_interval_days: body.custom_interval_days ?? orig?.custom_interval_days,
+            object_type: body.object_type || orig?.object_type,
+            version_no: (orig?.version_no || 1) + 1,
+            is_active: true,
+            is_current: true,
+            setup_reviewed: true,
+            locked_at: null,
+            items_count: body.items ? body.items.length : (orig?.items_count || 0),
+            critical_items_count: body.items ? body.items.filter(i => i.is_critical).length : 0,
+            items: body.items || orig?.items || []
+          };
+          if (orig) orig.is_current = false;
+          mockInspectionTemplates.unshift(newTmpl);
+          return new Response(JSON.stringify(newTmpl), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newId = 'tmpl-' + Date.now();
+          const newTmpl = {
+            id: newId,
+            root_id: newId,
+            code: body.code,
+            name: body.name,
+            inspection_type: body.inspection_type || 'PLANNED',
+            schedule_cycle: body.schedule_cycle || 'MONTHLY',
+            custom_interval_days: body.custom_interval_days || null,
+            object_type: body.object_type || 'AREA',
+            version_no: 1,
+            is_active: true,
+            is_current: true,
+            setup_reviewed: true,
+            locked_at: null,
+            items_count: body.items ? body.items.length : 0,
+            critical_items_count: body.items ? body.items.filter(i => i.is_critical).length : 0,
+            items: body.items || []
+          };
+          mockInspectionTemplates.unshift(newTmpl);
+          return new Response(JSON.stringify(newTmpl), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'PUT') {
+          const tmplId = urlStr.split('/templates/')[1]?.split('?')[0];
+          const tmpl = mockInspectionTemplates.find(t => t.id === tmplId);
+          if (tmpl) {
+            const body = JSON.parse(opts.body || '{}');
+            Object.assign(tmpl, body);
+            if (body.items) {
+              tmpl.items = body.items;
+              tmpl.items_count = body.items.length;
+              tmpl.critical_items_count = body.items.filter(i => i.is_critical).length;
+            }
+            return new Response(JSON.stringify(tmpl), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        if (opts.method === 'DELETE') {
+          const tmplId = urlStr.split('/templates/')[1]?.split('?')[0];
+          const tmpl = mockInspectionTemplates.find(t => t.id === tmplId);
+          if (tmpl) tmpl.is_active = false;
+          return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockInspectionTemplates.filter(t => t.is_active)), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/inspections/mandates/overview')) {
+        const items = mockMasters.employees.map(emp => {
+          const target = mockInspectionTargets.find(t => t.employee_id === emp.id) ||
+            mockInspectionTargets.find(t => t.target_type === 'BY_ROLE' && t.position_name === emp.jabatan);
+          const hasRule = Boolean(target);
+          const quota = target ? target.target_quota : 0;
+          let quota_status = 'BELUM_DIATUR';
+          if (hasRule) {
+            quota_status = quota > 0 ? 'WAJIB' : 'BEBAS';
+          }
+          return {
+            id: emp.id,
+            employee_id: emp.employee_id,
+            nama: emp.nama,
+            jabatan: emp.jabatan,
+            departemen: emp.departemen || 'Mining Operation',
+            target_quota: quota,
+            quota_status,
+            rule_source: target ? (target.target_type === 'BY_EMPLOYEE' ? 'INDIVIDUAL' : 'ROLE') : null,
+            target_id: target?.id || null
+          };
+        });
+
+        const kpi = {
+          totalEmployees: items.length,
+          wajibCount: items.filter(i => i.quota_status === 'WAJIB').length,
+          bebasCount: items.filter(i => i.quota_status === 'BEBAS').length,
+          belumDiaturCount: items.filter(i => i.quota_status === 'BELUM_DIATUR').length
+        };
+
+        return new Response(JSON.stringify({ kpi, items }), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/inspections/targets')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newTgt = {
+            id: 'tgt-' + Date.now(),
+            ...body,
+            is_active: true
+          };
+          mockInspectionTargets.push(newTgt);
+          return new Response(JSON.stringify(newTgt), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'DELETE') {
+          const id = urlStr.split('/targets/')[1]?.split('?')[0];
+          mockInspectionTargets = mockInspectionTargets.filter(t => t.id !== id);
+          return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockInspectionTargets), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/hazard/mandates/overview')) {
+        const items = mockMasters.employees.map(emp => {
+          const target = mockHazardReportTargets.find(t => t.employee_id === emp.id) ||
+            mockHazardReportTargets.find(t => t.target_type === 'BY_ROLE' && t.position_name === emp.jabatan);
+          const hasRule = Boolean(target);
+          const quota = target ? target.target_quota : 0;
+          let quota_status = 'BELUM_DIATUR';
+          if (hasRule) {
+            quota_status = quota > 0 ? 'WAJIB' : 'BEBAS';
+          }
+          return {
+            id: emp.id,
+            employee_id: emp.employee_id,
+            nama: emp.nama,
+            jabatan: emp.jabatan,
+            departemen: emp.departemen || 'Mining Operation',
+            target_quota: quota,
+            quota_status,
+            rule_source: target ? (target.target_type === 'BY_EMPLOYEE' ? 'INDIVIDUAL' : 'ROLE') : null,
+            target_id: target?.id || null
+          };
+        });
+
+        const kpi = {
+          totalEmployees: items.length,
+          wajibCount: items.filter(i => i.quota_status === 'WAJIB').length,
+          bebasCount: items.filter(i => i.quota_status === 'BEBAS').length,
+          belumDiaturCount: items.filter(i => i.quota_status === 'BELUM_DIATUR').length
+        };
+
+        return new Response(JSON.stringify({ kpi, scope: mockHazardReportScope, items }), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/hazard/mandates/scope')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          mockHazardReportScope = { ...mockHazardReportScope, ...body };
+          return new Response(JSON.stringify(mockHazardReportScope), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockHazardReportScope), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/hazard/targets')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newTgt = {
+            id: 'hzt-' + Date.now(),
+            ...body,
+            is_active: true
+          };
+          mockHazardReportTargets.push(newTgt);
+          return new Response(JSON.stringify(newTgt), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'DELETE') {
+          const id = urlStr.split('/targets/')[1]?.split('?')[0];
+          mockHazardReportTargets = mockHazardReportTargets.filter(t => t.id !== id);
+          return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockHazardReportTargets), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/p5m/mandates/overview')) {
+        const items = mockMasters.employees.map(emp => {
+          const target = mockP5mTargets.find(t => t.employee_id === emp.id) ||
+            mockP5mTargets.find(t => t.target_type === 'BY_ROLE' && t.position_name === emp.jabatan);
+          const hasRule = Boolean(target);
+          const quota = target ? target.target_quota : 0;
+          let quota_status = 'BELUM_DIATUR';
+          if (hasRule) {
+            quota_status = quota > 0 ? 'WAJIB' : 'BEBAS';
+          }
+          return {
+            id: emp.id,
+            employee_id: emp.employee_id,
+            nama: emp.nama,
+            jabatan: emp.jabatan,
+            departemen: emp.departemen || 'Mining Operation',
+            target_quota: quota,
+            quota_status,
+            rule_source: target ? (target.target_type === 'BY_EMPLOYEE' ? 'INDIVIDUAL' : 'ROLE') : null,
+            target_id: target?.id || null
+          };
+        });
+
+        const kpi = {
+          totalEmployees: items.length,
+          wajibCount: items.filter(i => i.quota_status === 'WAJIB').length,
+          bebasCount: items.filter(i => i.quota_status === 'BEBAS').length,
+          belumDiaturCount: items.filter(i => i.quota_status === 'BELUM_DIATUR').length
+        };
+
+        return new Response(JSON.stringify({ kpi, scope: mockP5mScope, items }), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/p5m/mandates/scope')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          mockP5mScope = { ...mockP5mScope, ...body };
+          return new Response(JSON.stringify(mockP5mScope), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockP5mScope), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/p5m/targets')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newTgt = {
+            id: 'p5m-' + Date.now(),
+            ...body,
+            is_active: true
+          };
+          mockP5mTargets.push(newTgt);
+          return new Response(JSON.stringify(newTgt), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'DELETE') {
+          const id = urlStr.split('/targets/')[1]?.split('?')[0];
+          mockP5mTargets = mockP5mTargets.filter(t => t.id !== id);
+          return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockP5mTargets), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/safetytalk/mandates/overview')) {
+        const items = mockMasters.employees.map(emp => {
+          const target = mockStTargets.find(t => t.employee_id === emp.id) ||
+            mockStTargets.find(t => t.target_type === 'BY_ROLE' && t.position_name === emp.jabatan);
+          const hasRule = Boolean(target);
+          const quota = target ? target.target_quota : 0;
+          let quota_status = 'BELUM_DIATUR';
+          if (hasRule) {
+            quota_status = quota > 0 ? 'WAJIB' : 'BEBAS';
+          }
+          return {
+            id: emp.id,
+            employee_id: emp.employee_id,
+            nama: emp.nama,
+            jabatan: emp.jabatan,
+            departemen: emp.departemen || 'Mining Operation',
+            target_quota: quota,
+            quota_status,
+            rule_source: target ? (target.target_type === 'BY_EMPLOYEE' ? 'INDIVIDUAL' : 'ROLE') : null,
+            target_id: target?.id || null
+          };
+        });
+
+        const kpi = {
+          totalEmployees: items.length,
+          wajibCount: items.filter(i => i.quota_status === 'WAJIB').length,
+          bebasCount: items.filter(i => i.quota_status === 'BEBAS').length,
+          belumDiaturCount: items.filter(i => i.quota_status === 'BELUM_DIATUR').length
+        };
+
+        return new Response(JSON.stringify({ kpi, scope: mockStScope, items }), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/safetytalk/mandates/scope')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          mockStScope = { ...mockStScope, ...body };
+          return new Response(JSON.stringify(mockStScope), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockStScope), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/safetytalk/targets')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const newTgt = {
+            id: 'stt-' + Date.now(),
+            ...body,
+            is_active: true
+          };
+          mockStTargets.push(newTgt);
+          return new Response(JSON.stringify(newTgt), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'DELETE') {
+          const id = urlStr.split('/targets/')[1]?.split('?')[0];
+          mockStTargets = mockStTargets.filter(t => t.id !== id);
+          return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockStTargets), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (urlStr.includes('/api/hse/inspections/schedules')) {
+        if (opts.method === 'POST') {
+          const body = JSON.parse(opts.body || '{}');
+          const tmpl = mockInspectionTemplates.find(t => t.id === body.template_root_id || t.root_id === body.template_root_id);
+          const loc = mockMasters.locations.find(l => l.id === body.location_id);
+          const pos = mockMasters.positions.find(p => p.id === body.assignee_position_id);
+          const emp = mockMasters.employees.find(e => e.id === body.assignee_employee_id);
+          const newSched = {
+            id: 'sch-' + Date.now(),
+            template_root_id: body.template_root_id,
+            template_name: tmpl?.name || 'Inspeksi',
+            schedule_cycle: tmpl?.schedule_cycle || 'DAILY',
+            location_id: body.location_id,
+            location_name: loc?.name || '-',
+            assignee_type: body.assignee_type,
+            assignee_position_id: body.assignee_position_id || null,
+            assignee_position_name: pos?.name || null,
+            assignee_employee_id: body.assignee_employee_id || null,
+            assignee_employee_name: emp?.nama || null,
+            next_due_date: body.start_date || new Date().toISOString().slice(0, 10),
+            due_status: 'SCHEDULED',
+            notes: body.notes || null,
+            is_active: true
+          };
+          mockInspectionSchedules.unshift(newSched);
+          return new Response(JSON.stringify(newSched), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (opts.method === 'DELETE') {
+          const id = urlStr.split('/schedules/')[1]?.split('?')[0];
+          const sched = mockInspectionSchedules.find(s => s.id === id);
+          if (sched) sched.is_active = false;
+          return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify(mockInspectionSchedules.filter(s => s.is_active)), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      return originalFetch(url, opts);
+    };
+  </script>
+  <script src="hse-photo-viewer-samples.js"></script>
+  <script>
+    // Foto contoh untuk menguji penampil foto (hse-photo-viewer.js).
+    if (window.HPV_SAMPLES && typeof mockHazards !== 'undefined' && mockHazards[0]) mockHazards[0].photos = window.HPV_SAMPLES.slice();
+  </script>
+  <script src="../hse-photo-viewer.js"></script>
+  <script src="../hse.js?v=1"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      window.OMOSHSE.load(document.getElementById('hseRoot'));
+    });
+  </script>
+</body>
+</html>

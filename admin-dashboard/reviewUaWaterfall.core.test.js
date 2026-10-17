@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { buildUaWaterfall } = require('./reviewUaWaterfall.core.js');
+const { buildUaWaterfall, reconcileUaContributions, balanceRoundedImpacts } = require('./reviewUaWaterfall.core.js');
 
 const near = (actual, expected, tol, label) => {
   assert.ok(Math.abs(actual - expected) <= tol, `${label}: expected ~${expected}, got ${actual}`);
@@ -31,6 +31,13 @@ near(hasil.selisih, 0, 0.001, 'selisih cross-check nol');
 assert.equal(hasil.cocok, true, 'badge cocok');
 assert.equal(hasil.cats[0].unit, 'EX-02', 'unit dominan');
 
+const rekonsiliasi = reconcileUaContributions(hasil, -2550, true);
+near(rekonsiliasi.rawTotal, -17850, 0.001, 'loss kategori UA');
+near(rekonsiliasi.adjustment, 15300, 0.001, 'gain vs plan/scope UA');
+near(rekonsiliasi.total, -2550, 0.001, 'total UA sama dengan ΔUA utama');
+near(rekonsiliasi.difference, 0, 0.001, 'rekonsiliasi UA tertutup');
+assert.equal(rekonsiliasi.rows.at(-1).isAdjustment, true, 'baris penyesuaian UA eksplisit');
+
 // Guard
 assert.equal(buildUaWaterfall({ pPlan: 37800, paPlan: 0, paAktual: 0.85, uaPlan: 0.7, tUaJam: 340, sbItems: [] }), null, 'PA plan 0 -> null');
 assert.equal(buildUaWaterfall({ pPlan: 37800, paPlan: 0.9, paAktual: 0.85, uaPlan: 0, tUaJam: 340, sbItems: [] }), null, 'UA plan 0 -> null');
@@ -40,5 +47,18 @@ assert.equal(buildUaWaterfall({ pPlan: 37800, paPlan: 0.9, paAktual: 0.85, uaPla
 const kosong = buildUaWaterfall({ pPlan: 1000, paPlan: 0.8, paAktual: 0.8, uaPlan: 0.6, tUaJam: 100, dpuaServer: 0, sbItems: [] });
 assert.equal(kosong.cats.length, 0, 'tanpa kategori');
 assert.equal(kosong.totalCat, 0, 'total nol');
+const kosongRekonsiliasi = reconcileUaContributions(kosong, -400, true);
+near(kosongRekonsiliasi.adjustment, -400, 0.001, 'tanpa event seluruh ΔUA menjadi penyesuaian scope');
+near(kosongRekonsiliasi.total, -400, 0.001, 'tanpa event tetap cocok ΔUA utama');
+
+const balanced = balanceRoundedImpacts([
+  { code: 'S01', impact: -10.4 },
+  { code: 'S06', impact: -10.4 },
+  { code: 'S05', impact: 0.2 },
+], -20.6, 0);
+assert.equal(balanced.reduce((sum, row) => sum + row.displayImpact, 0), -21, 'jumlah tampilan sama dengan ΔUA dibulatkan');
+assert.deepEqual(balanced.map(row => row.impact), [-10.4, -10.4, 0.2], 'nilai sumber tidak berubah');
 
 console.log('reviewUaWaterfall.core.test.js: semua assertion lolos');
+assert.equal(balanceRoundedImpacts([{impact:0}],150,0)[0].displayImpact,0,'never fabricate impact to conceal missing data');
+assert.equal(balanceRoundedImpacts([{impact:0},{impact:1.4},{impact:1.4}],2.8,0)[0].displayImpact,0,'zero impact remains zero');

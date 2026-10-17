@@ -1,0 +1,11 @@
+[Unit]
+Description=Run OMOS People v2 daily job at 00:10 WIB
+
+[Timer]
+OnCalendar=*-*-* 00:10:00 Asia/Jakarta
+Persistent=true
+RandomizedDelaySec=30
+Unit=omos-people-daily.service
+
+[Install]
+WantedBy=timers.target

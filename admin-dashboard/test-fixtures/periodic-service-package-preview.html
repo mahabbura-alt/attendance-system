@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Periodic Service Package Form Preview</title>
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="../periodicService.css?v=9">
+  <style>
+    body{margin:0;background:#f5f4f0;font-family:Arial;color:#172033}.preview{padding:28px;max-width:1200px;margin:auto}.tombol{border:1px solid #d2dbe6;border-radius:8px;background:#fff;padding:8px 11px;cursor:pointer}.tombol--utama{background:#168b69;color:#fff}.modal-overlay{position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:rgba(15,23,42,.52);z-index:100}.modal-overlay[hidden]{display:none}.modal-konten{max-height:calc(100vh - 32px);overflow:auto;padding:22px;background:#fff;border-radius:14px;box-shadow:0 22px 60px rgba(15,23,42,.28)}
+  </style>
+</head>
+<body>
+  <main class="preview"><section id="periodicServiceWorkspace" class="periodic-service-workspace"><header class="periodic-service-header"><div class="periodic-service-header-main"><div class="periodic-service-heading"><span>PLANNED MAINTENANCE</span><h2>🧰 Periodic Service Control</h2><p>Area Setup, jadwal service, dan kebutuhan per unit.</p></div><div class="periodic-service-header-actions"><label>Dari<input id="psPeriodFrom" type="date"></label><label>Sampai<input id="psPeriodTo" type="date"></label><button class="tombol" onclick="muatPeriodicService()">↻ Refresh</button><button class="tombol periodic-forecast-button" onclick="bukaForecastPaPeriodicService()">📈 Forecast PA</button><button class="tombol tombol--utama" onclick="bukaModalAreaSetupPeriodicService()">⚙ Service Setup</button></div></div><p class="periodic-period-note">Range memfilter realisasi dan temuan terselesaikan. Jadwal HM, service berjalan, dan temuan terbuka tetap realtime.</p><div class="periodic-kpi-grid"><article><small>Unit Terkonfigurasi</small><strong id="psKpiConfigured">0</strong><span>punya interval HM</span></article><article class="is-warning"><small>Mendekati Service</small><strong id="psKpiUpcoming">0</strong><span>dalam warning range</span></article><article class="is-danger"><small>Jatuh Tempo</small><strong id="psKpiOverdue">0</strong><span>due / overdue</span></article><article class="is-progress"><small>Service Berjalan</small><strong id="psKpiProgress">0</strong><span>Breakdown PS aktif</span></article><article><small>Temuan Terbuka</small><strong id="psKpiFindings">0</strong><span>perlu ditindaklanjuti</span></article></div></header><div class="periodic-view-tabs"><button data-ps-view="schedule" onclick="switchPeriodicView('schedule')">Jadwal Service</button><button class="is-active" data-ps-view="packages" onclick="switchPeriodicView('packages')">Paket &amp; Kebutuhan</button><button data-ps-view="history" onclick="switchPeriodicView('history')">Realisasi &amp; Riwayat</button><button data-ps-view="findings" onclick="switchPeriodicView('findings')">Temuan</button></div><div id="psViewSchedule" hidden><div class="tabel-wrap"><table class="tabel periodic-table"><thead><tr><th>Unit</th><th>HM Aktual</th><th>Service Terakhir</th><th>Interval</th><th>Next Due</th><th>Sisa HM</th><th>Status</th><th>Work Order</th><th>Aksi</th></tr></thead><tbody id="psScheduleBody"></tbody></table></div></div><div id="psViewPackages"><div id="psPackageGrid"></div></div><div id="psViewHistory" hidden><div class="tabel-wrap"><table class="tabel periodic-table"><thead><tr><th>Unit</th><th>Paket &amp; Kebutuhan</th><th>Status</th><th>Due HM</th><th>Jadwal / Realisasi</th><th>Durasi</th><th>HM</th><th>Temuan</th><th>Aksi</th></tr></thead><tbody id="psHistoryBody"></tbody></table></div></div><div id="psViewFindings" hidden><div id="psFindingList"></div></div></section></main>
+  <section id="breakdownControlWorkspace" hidden></section><button id="btnBreakdownControlWorkspace" hidden></button><button id="btnPeriodicServiceWorkspace" hidden></button>
+  <select id="psTypeFilter" hidden></select><input id="psSearch" hidden><select id="psStatusFilter" hidden></select><span id="psUpdatedAt" hidden></span>
+  <div id="modalOverlay" class="modal-overlay" hidden><div id="modalKonten" class="modal modal-konten"></div></div>
+  <script>
+    window.escapeMinePlanning = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    window.getProdAuthHeaders = () => ({Authorization:'Bearer fixture'}); window.getProdApiUrl = path => path;
+    window.tutupModalGenerik = () => { document.getElementById('modalOverlay').hidden = true; };
+    window.muatProdBreakdown = () => {};
+    window.OMOSActionFeedback = { run: async (_button, action) => action() };
+    window.fixtureOrders = [];
+    const fixturePackages = [{id:'pack-250',equipment_class:'Excavator',equipment_model:'HITACHI ZX350H',service_code:'PS250',service_name:'Service 250 HM',cycle_hm:250,estimated_duration_hours:1,version:2,items:[{item_type:'lubricant',item_name:'Engine Oil 15W-40',planned_qty:28,uom:'Liter'},{item_type:'part',item_name:'Oil Filter',planned_qty:1,uom:'Pcs'}]},{id:'pack-500',equipment_class:'Excavator',equipment_model:'HITACHI ZX350H',service_code:'PS500',service_name:'Service 500 HM',cycle_hm:500,estimated_duration_hours:2.5,version:1,items:[{item_type:'task',item_name:'Inspection hydraulic system',planned_qty:null,uom:null}]}];
+    window.fetch = async (url, options = {}) => {
+      if (options.method === 'POST' && String(url).endsWith('/periodic-service/forecast-pa')) {
+        const payload = JSON.parse(options.body); const dates=[]; const cursor=new Date(`${payload.date_from}T00:00:00Z`); const end=new Date(`${payload.date_to}T00:00:00Z`);
+        while(cursor<=end){dates.push(cursor.toISOString().slice(0,10));cursor.setUTCDate(cursor.getUTCDate()+1);}
+        const makeDays=(eventDate,complete=true)=>dates.map(date=>({date,ewh:complete?14:null,downtimeHours:date===eventDate?1:0,pa:complete?(date===eventDate?95.833333:100):null,complete,events:date===eventDate?[{source:'estimate',serviceCode:'PS250',dueHm:10750,durationHours:1}]:[]}));
+        const days=makeDays('2026-10-21');
+        return {ok:true,json:async()=>({period:{dateFrom:payload.date_from,dateTo:payload.date_to},source:payload.source,dates,formula:'PA = (Σ MOHH - Σ downtime PS) / Σ MOHH; MOHH = 24 jam/hari',rows:[{equipmentId:'eq-1',unitCode:'EX30 350-14',equipmentClass:'Excavator',equipmentModel:'HITACHI ZX350H',currentHm:1000,hmDate:'2026-10-03',sourceJob:'OB',nextDueHm:1250,remainingHm:250,serviceCode:'PS250',days,totalMohh:dates.length*24,totalDowntimeHours:1,periodPa:((dates.length*24-1)/(dates.length*24))*100,complete:true},{equipmentId:'eq-2',unitCode:'EX30 350-15',equipmentClass:'Excavator',equipmentModel:'HITACHI ZX350H',currentHm:9040,hmDate:'2026-10-03',sourceJob:'OB',nextDueHm:9250,remainingHm:210,serviceCode:'PS250',days:makeDays('2026-10-18'),totalMohh:dates.length*24,totalDowntimeHours:1,periodPa:((dates.length*24-1)/(dates.length*24))*100,complete:true},{equipmentId:'eq-3',unitCode:'DT30 130',equipmentClass:'Dump Truck',equipmentModel:'SANY 430',currentHm:6218.2,hmDate:'2026-10-03',sourceJob:null,nextDueHm:null,remainingHm:null,serviceCode:null,days:makeDays(null,false),totalMohh:dates.length*24,totalDowntimeHours:0,periodPa:null,complete:false}]})};
+      }
+      if (options.method === 'POST' && String(url).endsWith('/periodic-service/orders')) {
+        window.fixturePayload = JSON.parse(options.body);
+        const pack = fixturePackages.find(item => item.id === fixturePayload.package_id);
+        fixtureOrders.unshift({id:'order-preview',equipment_id:fixturePayload.equipment_id,kode_alat:'EX30 350-14',service_code:pack.service_code,service_name:pack.service_name,status:'completed',due_hm:10750,scheduled_start:fixturePayload.actual_start,actual_start:fixturePayload.actual_start,actual_finish:fixturePayload.actual_finish,actual_service_hm:fixturePayload.actual_service_hm,breakdown_id:'bd-ps-preview',breakdown_code:'PS',planned_items:[...pack.items,...fixturePayload.additional_items],open_findings:0});
+        return {ok:true,json:async()=>fixtureOrders[0]};
+      }
+      if (options.method === 'POST') { window.fixturePayload = JSON.parse(options.body); return {ok:true,json:async()=>({id:'package-preview'})}; }
+      const units = [{id:'eq-1',kode_alat:'EX30 350-14',kelas_alat:'Excavator',class_unit:'EX 30 T',tipe_alat:'HITACHI ZX350H',current_hm:10612.4,due:{status:'upcoming',baseCycleHm:250,nextDueHm:10750,remainingHm:137.6,packageId:'pack-250',serviceCode:'PS250'}},{id:'eq-2',kode_alat:'EX30 350-15',kelas_alat:'Excavator',class_unit:'EX 30 T',tipe_alat:'HITACHI ZX350H',current_hm:9040,due:{status:'normal',baseCycleHm:250,nextDueHm:9250,remainingHm:210,packageId:'pack-250',serviceCode:'PS250'}},{id:'eq-3',kode_alat:'DT30 130',kelas_alat:'Dump Truck',class_unit:'DT 30 T',tipe_alat:'SANY 430',current_hm:6218.2,due:{status:'not_configured'}}];
+      const openOrder = fixtureOrders.find(order => ['scheduled','in_progress','awaiting_verification'].includes(order.status));
+      if (openOrder) { units[0].open_order_id=openOrder.id; units[0].open_order_status=openOrder.status; }
+      return {ok:true,json:async()=>({period:{dateFrom:'2026-10-01',dateTo:'2026-10-03'},units,packages:fixturePackages,orders:fixtureOrders,findings:[],shifts:[{id:'shift-1',nama_shift:'Siang'}],personnel:[],counts:{upcoming:1}})};
+    };
+  </script>
+  <script src="../periodicService.js?v=9"></script>
+  <script>
+    ['configured','upcoming','overdue','in_progress','findings'].forEach((indicator, index) => {
+      const article = document.querySelectorAll('.periodic-kpi-grid article')[index];
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'periodic-kpi-link'; button.dataset.psIndicator = indicator;
+      button.onclick = () => bukaDataIndikatorPeriodicService(indicator);
+      while (article.firstChild) button.appendChild(article.firstChild);
+      button.insertAdjacentHTML('beforeend', '<i>Lihat data →</i>'); article.appendChild(button);
+    });
+    muatPeriodicService().then(() => switchPeriodicView(new URLSearchParams(location.search).get('view') || 'packages'));
+  </script>
+</body>
+</html>

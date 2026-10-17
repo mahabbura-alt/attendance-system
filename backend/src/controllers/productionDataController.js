@@ -1,8 +1,13 @@
 'use strict';
 const { pool } = require('../config/db');
 const domain = require('../services/productionData');
-const { buildFleetPlanCatalogData, buildDeployedSpoJobsData, calculateWeightedFleetDistance } = require('./production.controller');
+const MtdReport = require('../services/mtdReport');
+const { performance } = require('node:perf_hooks');
+const { buildFleetPlanCatalogByDatesData, buildDeployedSpoJobsData, calculateWeightedFleetDistance } = require('./production.controller');
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REPORT_CACHE_TTL_MS = 60_000;
+const REPORT_CACHE_MAX_ENTRIES = 12;
+const reportCache = new Map();
 const allocationKey = parts => JSON.stringify(parts.map(p => [p.area, p.jobCode, Number(p.liters)])
   .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
 
@@ -23,13 +28,31 @@ function isoDate(value, label) {
   return text;
 }
 
+function manualOverridesPayload(body = {}) {
+  const provided = Object.prototype.hasOwnProperty.call(body, 'overrides');
+  if (!provided) return { provided: false, rows: [] };
+  if (!Array.isArray(body.overrides)) {
+    throw Object.assign(new Error('Daftar nilai manual tidak valid.'), { status: 422 });
+  }
+  return { provided: true, rows: body.overrides };
+}
+
 async function loadReport(db, selected) {
+  const startedAt = performance.now();
+  const diagnostics = { queryCount: 0, sqlMs: 0, sourceMs: 0, catalogMs: 0, domainMs: 0 };
   // One transaction connection cannot execute queries concurrently. Catalog
   // helpers also use Promise.all; serialize them on this same snapshot.
   const connection = db;
   let pending = Promise.resolve();
   db = { query(...args) {
-    const task = pending.then(() => connection.query(...args));
+    const task = pending.then(async () => {
+      const queryStartedAt = performance.now();
+      try { return await connection.query(...args); }
+      finally {
+        diagnostics.queryCount += 1;
+        diagnostics.sqlMs += performance.now() - queryStartedAt;
+      }
+    });
     pending = task.catch(() => {});
     return task;
   } };
@@ -38,7 +61,7 @@ async function loadReport(db, selected) {
   let reportQueries;
   try {
     reportQueries = await Promise.all([
-    buildDeployedSpoJobsData(db), buildFleetPlanCatalogData(db),
+    buildDeployedSpoJobsData(db, { productionMode: 'prod', operationalDate: p.start }),
     db.query("SELECT DISTINCT TRIM(lokasi) AS name FROM equipment WHERE deleted_at IS NULL AND NULLIF(TRIM(lokasi), '') IS NOT NULL ORDER BY name"),
     db.query(`SELECT id, nama_shift, operational_start FROM shifts WHERE LOWER(nama_shift) LIKE '%siang%' OR LOWER(nama_shift) LIKE '%malam%'
       OR id IN (SELECT shift_id FROM fleet_mappings WHERE deleted_at IS NULL AND tanggal >= $1 AND tanggal < $2
@@ -47,7 +70,8 @@ async function loadReport(db, selected) {
       ORDER BY CASE WHEN LOWER(nama_shift) LIKE '%siang%' THEN 0 ELSE 1 END, nama_shift`, args),
     db.query(`SELECT fm.*, fm.tanggal::text AS tanggal, e.kode_alat AS excavator_kode FROM fleet_mappings fm
       JOIN equipment e ON e.id=fm.excavator_id WHERE fm.deleted_at IS NULL AND fm.tanggal >= $1 AND fm.tanggal < $2`, args),
-    db.query(`SELECT rl.id, rl.fleet_mapping_id, rl.dump_truck_id, rl.period_hour, rl.ritase_count, tf.factor_value
+    db.query(`SELECT rl.id, rl.fleet_mapping_id, rl.dump_truck_id, rl.period_hour, rl.ritase_count,
+      COALESCE(rl.nonprod_ritase_count, 0) AS nonprod_ritase_count, tf.factor_value
       FROM ritase_logs rl JOIN fleet_mappings fm ON fm.id=rl.fleet_mapping_id
       JOIN equipment e ON e.id=rl.dump_truck_id
       LEFT JOIN LATERAL (SELECT factor_value FROM truck_factors WHERE tanggal <= fm.tanggal
@@ -74,7 +98,10 @@ async function loadReport(db, selected) {
       FROM production_fuel_allocation_sets a JOIN fuel_logs f ON f.id=a.fuel_log_id
       WHERE f.deleted_at IS NULL AND f.tanggal < $1
       ORDER BY f.equipment_id,f.tanggal DESC,a.updated_at DESC`, [p.start]),
-    db.query(`SELECT id,kode_alat FROM equipment WHERE deleted_at IS NULL ORDER BY kode_alat`)
+    db.query(`SELECT id,kode_alat FROM equipment WHERE deleted_at IS NULL ORDER BY kode_alat`),
+    db.query(`SELECT area, job_code, source FROM production_manual_sources`),
+    db.query(`SELECT area, job_code, tanggal::text AS tanggal, shift_id, material, value
+      FROM production_manual_overrides WHERE tanggal >= $1 AND tanggal < $2`, args)
     ]);
   } finally {
     // Promise.all rejects on the first SQL error, while serialized queries that
@@ -83,21 +110,54 @@ async function loadReport(db, selected) {
     // overlapping commands.
     await pending;
   }
-  let [jobs, catalog, areas, shifts, fleets, hours, distances, rain, fuel, work, manual, snapshots, rules, allocationHistory, ruleUnits] = reportQueries;
+  diagnostics.sourceMs = performance.now() - startedAt;
+  const [jobs, areas, shifts, fleets, hours, distances, rain, fuel, work, manual, snapshots, rules, allocationHistory, ruleUnits, manualSources, manualOverrides] = reportQueries;
   // A monthly report can cross multiple effective planning versions. Resolve
   // the catalog for each operational date represented by a fleet so density
   // and plan provenance remain historically correct.
   const fleetDates = [...new Set(fleets.rows.map(fleet => String(fleet.tanggal).slice(0, 10)))];
-  const datedCatalog = [];
-  for (const fleetDate of fleetDates) {
-    const rows = await buildFleetPlanCatalogData(db, fleetDate);
-    rows.forEach(row => datedCatalog.push({ ...row, catalogDate: fleetDate }));
-  }
-  if (datedCatalog.length) catalog = datedCatalog;
-  return domain.buildReport({ period: p, jobs, catalog, areas: areas.rows.map(a => a.name), shifts: shifts.rows,
+  const catalogStartedAt = performance.now();
+  const catalog = await buildFleetPlanCatalogByDatesData(db, fleetDates.length ? fleetDates : [p.start]);
+  diagnostics.catalogMs = performance.now() - catalogStartedAt;
+  const domainStartedAt = performance.now();
+  const report = domain.buildReport({ period: p, jobs, catalog, areas: areas.rows.map(a => a.name), shifts: shifts.rows,
     fleets: fleets.rows, hours: hours.rows, distances: distances.rows, rain: rain.rows,
     fuel: fuel.rows, workLogs: work.rows, manual: manual.rows, snapshots: snapshots.rows,
-    rules: rules.rows, allocationHistory: allocationHistory.rows, ruleUnits: ruleUnits.rows }, calculateWeightedFleetDistance);
+    rules: rules.rows, allocationHistory: allocationHistory.rows, ruleUnits: ruleUnits.rows,
+    manualSources: manualSources.rows, manualOverrides: manualOverrides.rows }, calculateWeightedFleetDistance);
+  diagnostics.domainMs = performance.now() - domainStartedAt;
+  diagnostics.totalMs = performance.now() - startedAt;
+  console.info('[Data Produksi Performance]', {
+    period: `${p.year}-${String(p.month).padStart(2, '0')}`, fleetDates: fleetDates.length,
+    queryCount: diagnostics.queryCount, sqlMs: Math.round(diagnostics.sqlMs),
+    sourceMs: Math.round(diagnostics.sourceMs), catalogMs: Math.round(diagnostics.catalogMs),
+    domainMs: Math.round(diagnostics.domainMs), totalMs: Math.round(diagnostics.totalMs),
+  });
+  return report;
+}
+
+async function loadReportRevision(db, selected) {
+  const p = domain.period(selected.year, selected.month);
+  const result = await db.query(`SELECT md5(concat_ws('|',
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT * FROM fleet_mappings WHERE tanggal >= $1 AND tanggal < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT rl.* FROM ritase_logs rl JOIN fleet_mappings fm ON fm.id=rl.fleet_mapping_id WHERE fm.tanggal >= $1 AND fm.tanggal < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT a.* FROM ritase_distance_allocations a JOIN fleet_mappings fm ON fm.id=a.fleet_mapping_id WHERE fm.tanggal >= $1 AND fm.tanggal < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT * FROM rainfall_logs WHERE operational_date >= $1 AND operational_date < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT * FROM fuel_logs WHERE tanggal >= $1 AND tanggal < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT * FROM mining_production_logs WHERE tanggal >= $1 AND tanggal < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.fuel_log_id)::text FROM (SELECT a.* FROM production_fuel_allocation_sets a JOIN fuel_logs f ON f.id=a.fuel_log_id WHERE f.tanggal < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.fleet_mapping_id, x.identity_key)::text FROM (SELECT s.* FROM production_density_snapshots s JOIN fleet_mappings fm ON fm.id=s.fleet_mapping_id WHERE fm.tanggal >= $1 AND fm.tanggal < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT * FROM production_fuel_allocation_rules WHERE effective_from < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.planning_type, x.effective_from, x.revision)::text FROM (SELECT * FROM productivity_plan_versions WHERE effective_from < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.planning_type)::text FROM (SELECT * FROM productivity_plans WHERE planning_type IN ('spo','ob','coal','pa-ua-ewh')) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT * FROM equipment) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.job_code)::text FROM (SELECT * FROM master_job_codes) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id)::text FROM (SELECT * FROM shifts) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.area, x.job_code)::text FROM (SELECT * FROM production_manual_sources) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.area, x.job_code, x.tanggal, x.shift_id, x.material)::text FROM (SELECT * FROM production_manual_overrides WHERE tanggal >= $1 AND tanggal < $2) x), '[]'),
+    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.tanggal, x.kategori, x.tipe_alat, x.material)::text FROM (SELECT * FROM truck_factors WHERE tanggal < $2) x), '[]')
+  )) AS revision`, [p.start, p.end]);
+  return { period: p, revision: result.rows[0]?.revision || 'empty' };
 }
 
 function respondError(res, err) {
@@ -106,6 +166,9 @@ function respondError(res, err) {
   }
   if ((err.code === '42P01' || err.code === '42703') && /production_fuel_allocation_batches|batch_id/i.test(err.message || '')) {
     return res.status(503).json({ error: 'Alokasi Cepat belum siap. Migrasi 036 perlu diterapkan.' });
+  }
+  if (err.code === '42P01' && /production_manual_sources|production_manual_overrides/i.test(err.message || '')) {
+    return res.status(503).json({ error: 'Sumber data manual belum siap. Migrasi 047 perlu diterapkan.' });
   }
   if (err.code === '42P01') return res.status(503).json({ error: 'Data Produksi belum siap. Migrasi 035 perlu diterapkan.' });
   console.error('[Data Produksi]', {
@@ -118,12 +181,38 @@ function respondError(res, err) {
 
 async function getReport(req, res) {
   let db;
+  const requestStartedAt = performance.now();
   try {
     db = await pool.connect();
     await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const report = await loadReport(db, req.query);
+    const revisionStartedAt = performance.now();
+    const revision = await loadReportRevision(db, req.query);
+    const revisionMs = performance.now() - revisionStartedAt;
+    // Version the representation so pre-fix reports are not reused by browsers.
+    const etag = `"pd-v3-${revision.period.year}-${revision.period.month}-${revision.revision}"`;
+    if (String(req.headers['if-none-match'] || '').split(',').map(value => value.trim()).includes(etag)) {
+      await db.query('COMMIT');
+      console.info('[Data Produksi Cache]', { state: 'validated', revisionMs: Math.round(revisionMs), totalMs: Math.round(performance.now() - requestStartedAt) });
+      return res.status(304).set('ETag', etag).set('Cache-Control', 'private, no-cache, must-revalidate')
+        .set('Vary', 'Authorization').set('Server-Timing', `revision;dur=${revisionMs.toFixed(1)}`).end();
+    }
+    const scope = String(req.user?.tenant_id || req.user?.tenantId || req.user?.project_id || req.user?.projectId || 'isolated-client-db');
+    const cacheKey = `${scope}:${revision.period.year}:${revision.period.month}:${revision.revision}`;
+    const cached = reportCache.get(cacheKey);
+    const cacheHit = Boolean(cached && Date.now() - cached.storedAt <= REPORT_CACHE_TTL_MS);
+    const reportStartedAt = performance.now();
+    const report = cacheHit ? cached.report : await loadReport(db, req.query);
+    const reportMs = performance.now() - reportStartedAt;
+    if (!cacheHit) {
+      reportCache.set(cacheKey, { storedAt: Date.now(), report });
+      while (reportCache.size > REPORT_CACHE_MAX_ENTRIES) reportCache.delete(reportCache.keys().next().value);
+    }
     await db.query('COMMIT');
-    res.set('Cache-Control', 'no-store').json(report);
+    console.info('[Data Produksi Cache]', { state: cacheHit ? 'hit' : 'miss', revisionMs: Math.round(revisionMs),
+      reportMs: Math.round(reportMs), totalMs: Math.round(performance.now() - requestStartedAt) });
+    res.set('ETag', etag).set('Cache-Control', 'private, no-cache, must-revalidate')
+      .set('Vary', 'Authorization')
+      .set('Server-Timing', `revision;dur=${revisionMs.toFixed(1)}, report;dur=${reportMs.toFixed(1)}`).json(report);
   } catch (err) { if (db) await db.query('ROLLBACK'); respondError(res, err); }
   finally { db?.release(); }
 }
@@ -321,4 +410,148 @@ async function captureDensity(req, res) {
   finally { db?.release(); }
 }
 
-module.exports = { getReport, saveAllocation, saveAllocationBatch, createAllocationRule, captureDensity, loadReport };
+async function saveManualSource(req, res) {
+  let db; let transactionActive = false;
+  try {
+    const area = String(req.body?.area || '').trim();
+    const jobCode = String(req.body?.jobCode || '').trim();
+    const source = String(req.body?.source || '');
+    if (!area || !jobCode) throw Object.assign(new Error('Area dan JOB wajib diisi.'), { status: 422 });
+    if (!['ritase', 'manual'].includes(source)) throw Object.assign(new Error('Sumber data tidak valid.'), { status: 422 });
+    const overridePayload = manualOverridesPayload(req.body);
+    const overridesRaw = overridePayload.rows;
+    const overrides = []; const seen = new Set();
+    for (const item of overridesRaw) {
+      const material = String(item?.material || '').trim();
+      const value = Number(item?.value);
+      const tanggal = isoDate(item?.tanggal, 'Tanggal nilai manual');
+      const shiftId = String(item?.shiftId || '');
+      if (!material || !shiftId) throw Object.assign(new Error('Material, tanggal, dan shift nilai manual wajib diisi.'), { status: 422 });
+      if (material !== 'TOTAL' && (!Number.isFinite(value) || value < 0)) {
+        throw Object.assign(new Error('Nilai manual harus angka tidak negatif.'), { status: 422 });
+      }
+      const id = `${tanggal}\u0000${shiftId}\u0000${material}`;
+      if (seen.has(id)) throw Object.assign(new Error('Ada nilai manual duplikat (tanggal/shift/material sama).'), { status: 422 });
+      seen.add(id);
+      overrides.push({ tanggal, shiftId, material, value });
+    }
+    db = await pool.connect(); await db.query('BEGIN'); transactionActive = true;
+    const report = await loadReport(db, { year: req.body.year, month: req.body.month });
+    if (!report.areas.some(a => domain.key(a) === domain.key(area))) {
+      throw Object.assign(new Error('Area tidak tersedia pada laporan.'), { status: 422 });
+    }
+    if (!report.jobs.some(j => domain.key(j.jobCode) === domain.key(jobCode))) {
+      throw Object.assign(new Error('JOB tidak tersedia pada laporan.'), { status: 422 });
+    }
+    const shiftIds = new Set(report.shifts.map(s => s.id));
+    for (const o of overrides) {
+      if (!shiftIds.has(o.shiftId)) throw Object.assign(new Error('Shift nilai manual tidak tersedia pada laporan.'), { status: 422 });
+    }
+    const previousSource = (await db.query('SELECT * FROM production_manual_sources WHERE area=$1 AND job_code=$2 FOR UPDATE',
+      [area, jobCode])).rows[0];
+    const previousOverrides = (await db.query('SELECT * FROM production_manual_overrides WHERE area=$1 AND job_code=$2',
+      [area, jobCode])).rows;
+    const sameSource = previousSource?.source === source;
+    const sameOverrides = !overridePayload.provided || (previousOverrides.length === overrides.length
+      && overrides.every(o => previousOverrides.some(p => p.tanggal === o.tanggal && p.shift_id === o.shiftId
+        && domain.key(p.material) === domain.key(o.material) && Number(p.value) === o.value)));
+    if (sameSource && sameOverrides) {
+      await db.query('COMMIT'); transactionActive = false;
+      return res.json({ saved: true, idempotent: true, source,
+        overrides: overridePayload.provided ? overrides.length : previousOverrides.length });
+    }
+    await db.query(`INSERT INTO production_manual_sources(area, job_code, source, updated_by, updated_at)
+      VALUES($1,$2,$3,$4,now()) ON CONFLICT(area, job_code) DO UPDATE SET source=EXCLUDED.source,
+      updated_by=EXCLUDED.updated_by, updated_at=now()`, [area, jobCode, source, req.user.id]);
+    if (overridePayload.provided) {
+      await db.query('DELETE FROM production_manual_overrides WHERE area=$1 AND job_code=$2', [area, jobCode]);
+      for (const o of overrides) {
+        await db.query(`INSERT INTO production_manual_overrides(area, job_code, tanggal, shift_id, material, value, updated_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7)`, [area, jobCode, o.tanggal, o.shiftId, o.material, o.value, req.user.id]);
+      }
+    }
+    const persistedCount = overridePayload.provided
+      ? Number((await db.query('SELECT COUNT(*)::int AS count FROM production_manual_overrides WHERE area=$1 AND job_code=$2',
+        [area, jobCode])).rows[0]?.count || 0)
+      : previousOverrides.length;
+    if (overridePayload.provided && persistedCount !== overrides.length) {
+      throw Object.assign(new Error('Jumlah nilai manual tersimpan tidak sesuai payload.'), { status: 409 });
+    }
+    await db.query('COMMIT'); transactionActive = false;
+    res.json({ saved: true, source, overrides: persistedCount });
+  } catch (err) { if (db && transactionActive) await db.query('ROLLBACK'); respondError(res, err); }
+  finally { db?.release(); }
+}
+
+async function loadMtdSources(db, filters) {
+  const productionReport = await loadReport(db, { year: filters.year, month: filters.month });
+  const planRows = (await db.query(`SELECT d.*, d.operational_date::text AS operational_date
+    FROM fleet_deployment_days d
+    WHERE d.deleted_at IS NULL AND d.is_published=TRUE
+      AND d.operational_date >= $1 AND d.operational_date < $2
+    ORDER BY d.operational_date, d.loader_code_snapshot`, [filters.start, filters.end])).rows;
+  const targetRow = (await db.query(`SELECT * FROM production_targets
+    WHERE periode=DATE_TRUNC('month', $1::date) LIMIT 1`, [filters.start])).rows[0] || null;
+  const workRows = (await db.query(`SELECT l.tanggal::text AS tanggal, l.shift_id, l.equipment_id,
+      l.area_name, l.job, l.total_hm::float, e.kode_alat
+    FROM mining_production_logs l JOIN equipment e ON e.id=l.equipment_id
+    WHERE l.deleted_at IS NULL AND l.tanggal >= $1 AND l.tanggal < $2
+    ORDER BY l.tanggal, e.kode_alat`, [filters.start, filters.end])).rows;
+  const breakdownRows = (await db.query(`SELECT tanggal::text AS tanggal, shift_id, equipment_id,
+      total_breakdown_hours::float
+    FROM breakdown_logs WHERE deleted_at IS NULL AND tanggal >= $1 AND tanggal < $2`, [filters.start, filters.end])).rows;
+  const standbyRows = (await db.query(`SELECT tanggal::text AS tanggal, shift_id, equipment_id,
+      total_standby_hours::float
+    FROM standby_logs WHERE deleted_at IS NULL AND lifecycle_status IN ('open','confirmed')
+      AND tanggal >= $1 AND tanggal < $2`, [filters.start, filters.end])).rows;
+  const nonprodRows = (await db.query(`SELECT fm.tanggal::text AS tanggal, fm.shift_id, fm.pit_area,
+      fm.job_code, fm.material_detail,
+      CASE WHEN LOWER(COALESCE(fm.material_type,''))='coal' THEN 'coal' ELSE 'ob' END AS planning_type,
+      COALESCE(SUM(rl.nonprod_ritase_count * COALESCE(tf.factor_value,0)),0)::float AS nonprod_volume
+    FROM ritase_logs rl
+    JOIN fleet_mappings fm ON fm.id=rl.fleet_mapping_id
+    JOIN equipment e ON e.id=rl.dump_truck_id
+    LEFT JOIN LATERAL (
+      SELECT factor_value FROM truck_factors
+      WHERE tanggal <= fm.tanggal
+        AND kategori=CASE WHEN LOWER(COALESCE(fm.material_type,''))='coal' THEN 'Coal' ELSE 'OB' END
+        AND tipe_alat=e.tipe_alat
+        AND UPPER(material)=UPPER(COALESCE(fm.material_detail,''))
+      ORDER BY tanggal DESC LIMIT 1
+    ) tf ON TRUE
+    WHERE rl.deleted_at IS NULL AND fm.deleted_at IS NULL
+      AND fm.tanggal >= $1 AND fm.tanggal < $2
+    GROUP BY fm.tanggal, fm.shift_id, fm.pit_area, fm.job_code, fm.material_detail, fm.material_type
+    ORDER BY fm.tanggal`, [filters.start, filters.end])).rows;
+  return { productionReport, planRows, targetRow, workRows, breakdownRows, standbyRows, nonprodRows };
+}
+
+async function getMtdReport(req, res) {
+  let db;
+  try {
+    const filters = MtdReport.parseFilters(req.query || {});
+    db = await pool.connect();
+    await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const sources = await loadMtdSources(db, filters);
+    const report = MtdReport.buildReport({ ...sources, filters });
+    if (filters.compare) {
+      const previousDate = new Date(Date.UTC(filters.year, filters.month - 2, 1));
+      const previousYear = previousDate.getUTCFullYear();
+      const previousMonth = previousDate.getUTCMonth() + 1;
+      const previousLastDay = new Date(Date.UTC(previousYear, previousMonth, 0)).toISOString().slice(0, 10);
+      const previousFilters = MtdReport.parseFilters({ year: previousYear, month: previousMonth, cutoff: previousLastDay,
+        area: filters.area, job: filters.job, material: filters.material, shift_id: filters.shiftId });
+      const previousSources = await loadMtdSources(db, previousFilters);
+      const previousReport = MtdReport.buildReport({ ...previousSources, filters: previousFilters });
+      report.comparison = { period: { year: previousYear, month: previousMonth }, summary: previousReport.summary };
+    }
+    await db.query('COMMIT');
+    res.set('Cache-Control', 'private, no-cache, must-revalidate').set('Vary', 'Authorization').json(report);
+  } catch (err) {
+    if (db) await db.query('ROLLBACK').catch(() => {});
+    respondError(res, err);
+  } finally { db?.release(); }
+}
+
+module.exports = { getReport, saveAllocation, saveAllocationBatch, createAllocationRule, captureDensity,
+  saveManualSource, getMtdReport, loadReport, loadReportRevision, manualOverridesPayload };

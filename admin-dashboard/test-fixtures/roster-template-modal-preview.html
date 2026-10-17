@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Preview Template Roster</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../style.css?v=64">
+  <style>body{background:#f6f5f1;padding:24px}.modal-overlay{position:fixed!important;inset:0}.modal-overlay[hidden]{display:none!important}</style>
+</head>
+<body>
+  <div id="modalOverlay" class="modal-overlay">
+    <div class="modal" id="modalKonten">
+      <section class="roster-template-modal">
+        <h3>Buat Template Roster</h3>
+        <form class="roster-form">
+          <label class="label">Roster Cuti *</label>
+          <input class="input-teks" value="84:14" placeholder="Contoh: 84:14">
+          <small>Contoh 84:14 = 84 hari mengikuti pola kerja, lalu 14 hari CP (cuti periodik).</small>
+          <label class="label">Hari Kerja *</label>
+          <input class="input-teks" value="7S,6M,OFF" placeholder="Contoh: 7S,6M,OFF">
+          <small>Sistem mengulang pola ini selama fase kerja. Setelah CP selesai, pola kembali dimulai dari 7S.</small>
+          <div class="roster-simple-preview">84 hari pola 7S,6M,OFF berulang → 14 hari CP → reset dari awal</div>
+          <button class="tombol tombol--utama" type="button">Generate Template</button>
+        </form>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

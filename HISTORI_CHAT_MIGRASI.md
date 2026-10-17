@@ -1,12 +1,12 @@
 # Histori Chat & Konteks Proyek — OMOS (ONE MINING)
 
 > File ini disiapkan untuk migrasi histori chat. Setelah workspace berpindah ke
-> `D:\OneDrive\Desktop\ONE MINING`, file ini menjadi referensi konteks untuk task baru.
+> Workspace kanonis dipindahkan pada 2026-10-05 ke `D:\OneDrive\Desktop\OMOS`. Nama `ONE MINING` di bagian historis tetap dipertahankan sebagai konteks asal.
 
 ## 1. Identitas Proyek
 
 - **Nama**: OMOS (One Mining Operating System) / Attendance System
-- **Direktori utama (base final)**: `D:\OneDrive\Desktop\ONE MINING`
+- **Direktori utama saat ini**: `D:\OneDrive\Desktop\OMOS`
 - **Direktori sumber lama**: `D:\OneDrive\Desktop\PROJECT` (sudah di-merge ke ONE MINING)
 - **Pemilik**: User (owner OMOS)
 - **Akun Vercel / GitHub**: `mahabbura-alt` / `wodav`
@@ -23,7 +23,7 @@
 ## 3. Struktur Direktori Penting
 
 ```
-D:\OneDrive\Desktop\ONE MINING\
+D:\OneDrive\Desktop\OMOS\
 ├── api\index.js                 → entry Vercel (require backend/src/server)
 ├── backend\src\
 │   ├── server.js                → app Express + mount semua route
@@ -45,7 +45,7 @@ D:\OneDrive\Desktop\ONE MINING\
 - **orgId**: `team_tnf8wSihvxe6PRb3wt9MnwD5`
 - **Alias produksi**: `attendance-system-eta-opal.vercel.app`
 - **Entry**: `api/index.js` → `require('../backend/src/server')`
-- ONE MINING sudah di-link ke proyek via `vercel link` (folder `.vercel` ada).
+- OMOS sudah di-link ke proyek via `vercel link` (folder `.vercel` ikut dipindahkan).
 
 ## 5. Bug Terakhir yang DIPERBAIKI (Selesai & Terverifikasi)
 
@@ -87,5 +87,5 @@ hilang). Akibatnya seluruh `/api/absensi/*` mengembalikan 404.
 
 ## 8. Task Baru (Setelah Migrasi Workspace)
 
-- [ ] Buka `D:\OneDrive\Desktop\ONE MINING` sebagai workspace baru di VS Code.
+- [ ] Buka `D:\OneDrive\Desktop\OMOS` sebagai workspace baru di VS Code.
 - [ ] Lanjutkan task baru yang diberikan user dengan konteks di atas.

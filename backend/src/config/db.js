@@ -1,10 +1,12 @@
 const { Pool } = require('pg');
 
 const dbUrl = process.env.DATABASE_URL;
+const useSsl = /sslmode=require/i.test(String(dbUrl || ''))
+  || String(process.env.DB_SSL || '').toLowerCase() === 'true';
 
 const pool = new Pool({
   connectionString: dbUrl,
-  ssl: dbUrl ? { rejectUnauthorized: false } : false,
+  ssl: useSsl ? { rejectUnauthorized: false } : false,
   max: Number(process.env.DB_POOL_MAX || 5),
   idleTimeoutMillis: 5_000,
   connectionTimeoutMillis: 15_000,

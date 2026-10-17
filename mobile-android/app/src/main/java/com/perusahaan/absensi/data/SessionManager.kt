@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.perusahaan.absensi.BuildConfig
 
 /**
  * Menyimpan JWT token & data user secara terenkripsi di device (EncryptedSharedPreferences).
@@ -77,7 +78,7 @@ object SessionManager {
     }
     fun getPassword(): String? = prefs.getString(KEY_USER_PASSWORD, null)
 
-    fun getServerUrl(): String = "https://attendance-system-eta-opal.vercel.app/"
+    fun getServerUrl(): String = BuildConfig.API_BASE_URL
 
     fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
     fun getUserNama(): String? = prefs.getString(KEY_USER_NAMA, null)

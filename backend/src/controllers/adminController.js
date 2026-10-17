@@ -6,6 +6,7 @@ const { rosterStatusForShift } = require('../services/attendancePolicy');
 const { statusAbsenDatang } = require('../utils/shiftValidator');
 const { buatWorkbookAbsensi } = require('../services/attendanceExcel');
 const bcrypt = require('bcrypt');
+const Workforce = require('../services/workforce');
 
 /** GET /api/admin/shifts — daftar shift untuk dropdown form karyawan */
 async function daftarShift(req, res, next) {
@@ -92,7 +93,10 @@ function buatQueryAbsensiTerfilter(filter = {}, { batasi = true, tampilkanKamera
 async function semuaAbsensi(req, res, next) {
   try {
     await autoCloseExpiredSessions();
-    const { queryStr, params } = buatQueryAbsensiTerfilter(req.query);
+    // Batas 500 baris hanya bila rentang tanggal tidak eksplisit; bila user
+    // memilih periode, seluruh baris periode itu dikembalikan (pola export).
+    const rentangEksplisit = Boolean(req.query.tanggal_dari && req.query.tanggal_sampai);
+    const { queryStr, params } = buatQueryAbsensiTerfilter(req.query, { batasi: !rentangEksplisit });
 
     const { rows } = await pool.query(queryStr, params);
 
@@ -818,6 +822,13 @@ async function prosesRegistrasi(req, res, next) {
     if (!['disetujui', 'ditolak'].includes(aksi)) {
       return res.status(400).json({ error: 'aksi harus "disetujui" atau "ditolak"' });
     }
+    if (aksi === 'disetujui') {
+      // People v2: akun hanya dibuat lewat Tambah karyawan (jabatan dari master, NRP otomatis, lokasi absen).
+      return res.status(410).json({
+        code: 'REGISTRATION_APPROVAL_REMOVED',
+        error: 'Persetujuan pendaftaran dihentikan. Tolak pengajuan ini lalu input ulang lewat Karyawan → Tambah karyawan.',
+      });
+    }
 
     const { rows } = await client.query(
       `SELECT * FROM registrasi_pending WHERE id = $1 AND status = 'menunggu'`,
@@ -889,7 +900,7 @@ async function prosesRegistrasi(req, res, next) {
         `INSERT INTO users
            (nama, email, jabatan, departemen, password_hash, role, shift_id, lokasi_kantor_id, foto_referensi_url, compreface_subject)
          VALUES ($1,$2,$3,$4,$5,'karyawan',$6,$7,$8,$9)
-         RETURNING id, nama, email, jabatan, departemen`,
+         RETURNING id, employee_id, nama, email, jabatan, departemen`,
         [
           reg.nama, reg.email, reg.jabatan, reg.departemen, reg.password_hash,
           finalShiftId || null, finalLokasiId || null,
@@ -898,6 +909,10 @@ async function prosesRegistrasi(req, res, next) {
         ]
       );
       karyawanBaru = newUser[0];
+      await Workforce.recordInitialHire(client, req.user, karyawanBaru, {
+        department: reg.departemen,
+        position: reg.jabatan,
+      });
     }
 
     await client.query('COMMIT');

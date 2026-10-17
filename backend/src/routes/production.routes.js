@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const ProductionController = require('../controllers/production.controller');
 const ProductionDataController = require('../controllers/productionDataController');
+const FleetDeploymentController = require('../controllers/fleetDeploymentController');
+const SurveyVolumeController = require('../controllers/surveyVolume.controller');
+const PeriodicServiceController = require('../controllers/periodicService.controller');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 // Production endpoints are administrative and must never fall back to an
@@ -14,6 +17,13 @@ router.get('/productivity-plans/:planningType/history', ProductionController.get
 router.get('/productivity-plans/:planningType', ProductionController.getProductivityPlan);
 router.put('/productivity-plans/:planningType', ProductionController.saveProductivityPlan);
 router.get('/fleet-plans/catalog', ProductionController.getFleetPlanCatalog);
+router.get('/fleet-deployments/options', FleetDeploymentController.options);
+router.get('/fleet-deployments', FleetDeploymentController.list);
+router.get('/fleet-deployments/:id', FleetDeploymentController.detail);
+router.post('/fleet-deployments/preview', FleetDeploymentController.preview);
+router.post('/fleet-deployments', FleetDeploymentController.create);
+router.put('/fleet-deployments/:id', FleetDeploymentController.update);
+router.post('/fleet-deployments/:id/status', FleetDeploymentController.transition);
 router.get('/spo-jobs/deployed', ProductionController.getDeployedSpoJobs);
 router.post('/equipment', ProductionController.createEquipment);
 router.post('/equipment/import', ProductionController.importEquipment);
@@ -43,6 +53,9 @@ router.post('/logs/batch', ProductionController.createProductionLogsBatch);
 router.delete('/logs/batch', ProductionController.deleteProductionLogsBatch);
 router.patch('/logs/batch/restore', ProductionController.restoreProductionLogsBatch);
 router.post('/logs/hm-check', ProductionController.checkProductionLogHm);
+router.get('/hm-meter-events', ProductionController.getHmMeterEvents);
+router.post('/hm-meter-events', ProductionController.createHmMeterEvent);
+router.get('/logs/unit-shift-session', ProductionController.getUnitShiftSession);
 router.patch('/logs/:id', ProductionController.updateProductionLog);
 
 // 2. Input Fuel
@@ -59,7 +72,6 @@ router.patch('/fuel/:id', ProductionController.updateFuelLog);
 // 3. Standby
 router.get('/standby', ProductionController.getStandbyLogs);
 router.get('/standby-history', ProductionController.getStandbyHistory);
-router.get('/standby-review', ProductionController.getStandbyReviewQueue);
 router.post('/standby', ProductionController.createStandbyLog);
 router.post('/standby/batch', ProductionController.createStandbyLogsBatch);
 router.delete('/standby/batch', ProductionController.deleteStandbyLogsBatch);
@@ -67,22 +79,36 @@ router.patch('/standby/session', ProductionController.updateStandbyLogsSession);
 router.post('/standby/close', ProductionController.closeStandbyShift);
 router.post('/standby/reopen', ProductionController.reopenStandbyShift);
 router.patch('/standby/:id', ProductionController.updateStandbyLog);
-router.patch('/standby/:id/review', ProductionController.reviewStandbyLog);
 
 // 4. Breakdown
+router.get('/breakdown/unit-status/current', ProductionController.getBreakdownUnitStatus);
+router.get('/breakdown/unit-status/:equipmentId/history', ProductionController.getBreakdownUnitStatusHistory);
 router.get('/breakdown', ProductionController.getBreakdownLogs);
 router.get('/breakdown-history', ProductionController.getBreakdownHistory);
 router.post('/breakdown', ProductionController.createBreakdownLog);
+router.delete('/breakdown/batch', ProductionController.deleteBreakdownLogsBatch);
 router.patch('/breakdown/:id/status', ProductionController.updateBreakdownStatus);
 router.patch('/breakdown/:id/pic', ProductionController.updateBreakdownPic);
+router.patch('/breakdown/:id/damage-code', ProductionController.updateBreakdownDamageCode);
 router.patch('/breakdown/:id/status-history/:segmentId', ProductionController.editBreakdownStatusSegment);
-router.post('/breakdown/:id/ready-verification', ProductionController.verifyBreakdownReady);
-router.post('/breakdown/:id/ready-reconciliation', ProductionController.reconcileBreakdownReady);
 router.post('/breakdown/:id/parts', ProductionController.addBreakdownPart);
+router.delete('/breakdown/:id/parts/:partId', ProductionController.deleteBreakdownPart);
 router.delete('/breakdown/:id', ProductionController.deleteBreakdownLog);
 router.get('/unit-performance', ProductionController.getUnitPerformance);
 router.post('/maintenance-events', ProductionController.createMaintenanceEvent);
 router.patch('/maintenance-events/:id', ProductionController.updateMaintenanceEvent);
+router.get('/periodic-service/dashboard', PeriodicServiceController.dashboard);
+router.post('/periodic-service/forecast-pa', PeriodicServiceController.forecastPa);
+router.put('/periodic-service/policies/:equipmentId', PeriodicServiceController.savePolicy);
+router.post('/periodic-service/packages', PeriodicServiceController.createPackage);
+router.put('/periodic-service/packages/:id', PeriodicServiceController.updatePackage);
+router.post('/periodic-service/orders', PeriodicServiceController.createOrder);
+router.put('/periodic-service/orders/:id', PeriodicServiceController.updateOrder);
+router.delete('/periodic-service/orders/:id', PeriodicServiceController.deleteOrder);
+router.post('/periodic-service/orders/:id/start', PeriodicServiceController.startOrder);
+router.post('/periodic-service/orders/:id/complete', PeriodicServiceController.completeOrder);
+router.patch('/periodic-service/orders/:id/time', PeriodicServiceController.correctTime);
+router.patch('/periodic-service/findings/:id', PeriodicServiceController.updateFinding);
 
 // 5. Input Ritase & Fleet Auto Mapping
 router.get('/fleet-mappings', ProductionController.getFleetMappings);
@@ -111,16 +137,26 @@ router.post('/production-data/fuel/batch', ProductionDataController.saveAllocati
 router.put('/production-data/fuel/:id', ProductionDataController.saveAllocation);
 router.post('/production-data/fuel-allocation-rules', ProductionDataController.createAllocationRule);
 router.post('/production-data/density-snapshots', ProductionDataController.captureDensity);
+router.put('/production-data/manual-source', ProductionDataController.saveManualSource);
+
+// 10. Survey Report (volume survey per PIT, input manual)
+router.get('/survey-volumes', SurveyVolumeController.getSurveyVolumes);
+router.post('/survey-volumes/batch', SurveyVolumeController.saveSurveyVolumes);
+router.get('/survey-volumes/export', SurveyVolumeController.exportSurveyVolumes);
+router.get('/survey-volumes/comparison', SurveyVolumeController.getSurveyComparison);
 
 // 8. Review Produksi (agregasi read-only waterfall loss & gain)
 router.get('/review-produksi', ProductionController.getReviewProduksi);
 router.get('/review-produksi/pareto', ProductionController.getReviewProduksiPareto);
 
-// 9. Productivity Report
+// 9. Productivity Report (ranking achievement + data control)
+router.get('/productivity-report/data-control', ProductionController.getProductivityReportDataControl);
+router.get('/productivity-report/fuel-ratio/data-control', ProductionController.getFuelRatioDataControl);
+router.get('/productivity-report/fuel-ratio', ProductionController.getFuelRatioRanking);
 router.get('/productivity-report', ProductionController.getProductivityReport);
 
-// 9. MTD Report
-router.get('/mtd-report', ProductionController.getMtdReport);
+// 10. MTD Report (Data Produksi is the authoritative actual-production source).
+router.get('/mtd-report', ProductionDataController.getMtdReport);
 
 // 10. YTD Report
 router.get('/ytd-report', ProductionController.getYtdReport);

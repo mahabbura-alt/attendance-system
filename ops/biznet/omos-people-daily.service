@@ -1,0 +1,8 @@
+[Unit]
+Description=OMOS People v2 daily job (pergerakan jatuh tempo + outbox pengingat)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec omos-app node backend/src/scripts/run_people_daily.js

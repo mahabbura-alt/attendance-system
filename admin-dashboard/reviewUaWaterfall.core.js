@@ -44,7 +44,51 @@
     };
   }
 
-  const api = { buildUaWaterfall };
+  function reconcileUaContributions(result, authoritativeDelta, enabled) {
+    if (!result) return null;
+    const rows = result.cats.map(row => ({ ...row }));
+    const rawTotal = rows.reduce((sum, row) => sum + (finite(num(row.delta)) ? num(row.delta) : 0), 0);
+    const delta = num(authoritativeDelta);
+    if (!enabled || !finite(delta)) {
+      return { rows, rawTotal, adjustment: 0, total: rawTotal, difference: finite(delta) ? rawTotal - delta : null };
+    }
+    const adjustment = delta - rawTotal;
+    if (Math.abs(adjustment) > 1e-9) {
+      rows.push({
+        kategori: adjustment >= 0 ? 'Gain vs Plan / Penyesuaian Scope' : 'Loss vs Plan / Penyesuaian Scope',
+        jam: null, delta: adjustment, share: null, unit: null, isAdjustment: true,
+      });
+    }
+    const total = rows.reduce((sum, row) => sum + (finite(num(row.delta)) ? num(row.delta) : 0), 0);
+    return { rows, rawTotal, adjustment, total, difference: total - delta };
+  }
+
+  // Menjaga jumlah angka yang terlihat user tetap sama dengan ΔUA utama.
+  // Nilai sumber tidak diubah; koreksi pembulatan maksimum ditempatkan pada
+  // baris dengan dampak absolut terbesar.
+  function balanceRoundedImpacts(items, authoritativeDelta, digits) {
+    const decimals = Number.isInteger(digits) && digits >= 0 ? digits : 0;
+    const factor = 10 ** decimals;
+    const rows = (Array.isArray(items) ? items : []).map(item => ({
+      ...item,
+      displayImpact: Math.round((Number(item.impact) || 0) * factor) / factor,
+    }));
+    if (!rows.length || !finite(num(authoritativeDelta))) return rows;
+    const raw = rows.reduce((sum, row) => sum + (Number(row.impact) || 0), 0);
+    if (Math.abs(raw - num(authoritativeDelta)) > Math.max(1e-8, Math.abs(raw) * 1e-10)) return rows;
+    const target = Math.round(num(authoritativeDelta) * factor) / factor;
+    const total = rows.reduce((sum, row) => sum + row.displayImpact, 0);
+    const difference = Math.round((target - total) * factor) / factor;
+    if (difference && rows.some(row => Math.abs(Number(row.impact) || 0) > 1e-12)) {
+      const index = rows.reduce((best, row, current) => (
+        Math.abs(Number(row.impact) || 0) > Math.abs(Number(rows[best]?.impact) || 0) ? current : best
+      ), 0);
+      rows[index].displayImpact = Math.round((rows[index].displayImpact + difference) * factor) / factor;
+    }
+    return rows;
+  }
+
+  const api = { buildUaWaterfall, reconcileUaContributions, balanceRoundedImpacts };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ReviewUaWaterfallCore = api;

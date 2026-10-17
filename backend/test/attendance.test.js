@@ -2,7 +2,7 @@ process.env.TZ = 'Asia/Jakarta';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { dalamRadius, dalamRadiusMultiPoint, validasiAkurasi, MAX_ACCURACY_METER } = require('../src/utils/geofence');
+const { dalamRadius, dalamRadiusMultiPoint, validasiAkurasi, MAX_ACCURACY_METER, MAX_BUFFER_METER } = require('../src/utils/geofence');
 const { statusAbsenDatang, statusAbsenPulang } = require('../src/utils/shiftValidator');
 
 test('geofence menerima titik di dalam radius dan menolak titik di luar radius', () => {
@@ -87,4 +87,42 @@ test('multi-point mengabaikan konfigurasi lokasi yang koordinatnya tidak valid',
   ]);
   assert.equal(hasil.valid, true);
   assert.equal(hasil.lokasi_terdekat.nama_lokasi, 'KANTOR');
+});
+
+// --- Buffer akurasi GPS (toleransi drift lapangan) ---
+
+test('buffer akurasi meloloskan drift wajar: 106m + akurasi 30m di radius 100m', () => {
+  // Kasus aktual: jarak terukur 106m, akurasi ±30m -> efektif 76m <= 100m.
+  const kantor = { nama_lokasi: 'KANTOR', latitude: -1.745693, longitude: 102.971912, radius_meter: 100 };
+  // Titik ~106m dari kantor (0.00095 derajat lintang ≈ 105.6m).
+  const drift = dalamRadiusMultiPoint(-1.745693 + 0.00095, 102.971912, [kantor], 30);
+  assert.equal(drift.jarak_meter >= 105 && drift.jarak_meter <= 107, true);
+  assert.equal(drift.valid, true);
+  assert.equal(drift.buffer_meter, 30);
+  // Tanpa akurasi (klien lama): perilaku strict lama dipertahankan.
+  const strict = dalamRadiusMultiPoint(-1.745693 + 0.00095, 102.971912, [kantor]);
+  assert.equal(strict.valid, false);
+  assert.equal(strict.buffer_meter, 0);
+});
+
+test('buffer dibatasi MAX_BUFFER_METER agar bacaan kasar tidak lolos dari jauh', () => {
+  assert.equal(MAX_BUFFER_METER, 100);
+  const kantor = { nama_lokasi: 'KANTOR', latitude: -1.745693, longitude: 102.971912, radius_meter: 100 };
+  // Akurasi 500m (lolos gate 500) hanya memberi buffer 100m.
+  const jauh = dalamRadiusMultiPoint(-1.745693 + 0.0025, 102.971912, [kantor], 500);
+  assert.ok(jauh.jarak_meter > 200);
+  assert.equal(jauh.valid, false);
+  assert.equal(jauh.buffer_meter, 100);
+  // 150m + akurasi 500 -> efektif 50m -> valid (dalam batas buffer).
+  const tepi = dalamRadiusMultiPoint(-1.745693 + 0.00135, 102.971912, [kantor], 500);
+  assert.ok(tepi.jarak_meter >= 148 && tepi.jarak_meter <= 152);
+  assert.equal(tepi.valid, true);
+});
+
+test('dalamRadius tunggal mendukung buffer akurasi opsional', () => {
+  const kantor = { latitude: -6.2, longitude: 106.816666, radius_meter: 100 };
+  assert.equal(dalamRadius(-6.2, 106.816666, kantor).valid, true);
+  assert.equal(dalamRadius(-6.2015, 106.816666, kantor).valid, false);
+  assert.equal(dalamRadius(-6.2015, 106.816666, kantor, 80).valid, true);
+  assert.equal(dalamRadius(-6.2015, 106.816666, kantor, 80).buffer_meter, 80);
 });

@@ -74,11 +74,12 @@
     if (!finite(pPlan) || !finite(dppa) || !finite(dpua) || !finite(aktualFleet)) {
       return { total: null, aktual: finite(aktualFleet) ? aktualFleet : null, selisih: null, selisihPersen: null, reconciled: false };
     }
-    const toleransiPersen = finite(num(input && input.toleransiPersen)) ? num(input && input.toleransiPersen) : 1;
+    const toleransiPersen = finite(num(input && input.toleransiPersen)) ? num(input && input.toleransiPersen) : null;
     const total = pPlan + dppa + dpua + dprod;
     const selisih = aktualFleet - total;
     const selisihPersen = pPlan > 0 ? Math.abs(selisih) / pPlan * 100 : (selisih === 0 ? 0 : 100);
-    return { total, aktual: aktualFleet, selisih, selisihPersen, reconciled: selisihPersen <= toleransiPersen };
+    const tolerance = Math.max(1e-8, Math.abs(aktualFleet) * 1e-10);
+    return { total, aktual: aktualFleet, selisih, selisihPersen, reconciled: toleransiPersen == null ? Math.abs(selisih) <= tolerance : selisihPersen <= toleransiPersen };
   }
 
   // Orkestrator: hitung seluruh komponen waterfall dari input agregat.

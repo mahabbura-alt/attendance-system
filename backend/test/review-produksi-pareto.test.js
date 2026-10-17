@@ -15,8 +15,8 @@ test('Review Pareto mengagregasi breakdown/standby/problem per unit plotting', a
   pool.query = async sql => {
     if (sql.includes('FROM users')) return { rows: [{ id: actor, role: 'admin' }] };
     if (sql.includes('FROM productivity_plan_versions')) {
-      return { rows: [{ planning_type: 'ob', content_html: '', data_json: { fleetCatalog: [
-        { planRef: 'ob:p1', tableId: 'p1', jobCode: 'OB', loaderCode: 'EX30 350-14', material: 'CLAY', fleetProductivity: 100 },
+      return { rows: [{ planning_type: 'ob', content_html: '', data_json: { loaderCatalog: [
+        { planRef: 'ob:p1', tableId: 'p1', jobCode: 'OB', jobCodes: ['OB'], loaderCode: 'EX30 350-14', material: 'CLAY', loaderProductivity: 100, complete: true },
       ] } }] };
     }
     if (sql.includes("planning_type = 'fleet-capacity'")) {
@@ -62,7 +62,7 @@ test('Review Pareto mengagregasi breakdown/standby/problem per unit plotting', a
   const url = `http://127.0.0.1:${server.address().port}/production`;
   const headers = { Authorization: `Bearer ${jwt.sign({ id: actor, role: 'admin' }, process.env.JWT_SECRET)}` };
   try {
-    const res = await fetch(`${url}/review-produksi/pareto?tanggal_dari=2026-09-01&tanggal_sampai=2026-09-01&pit=BEI&job=OB`, { headers });
+    const res = await fetch(`${url}/review-produksi/pareto?tanggal_dari=2026-09-01&tanggal_sampai=2026-09-01&pit=BEI&job=OB&planning_source=conservative`, { headers });
     assert.equal(res.status, 200);
     const data = await res.json();
     assert.deepEqual(data.units.map(u => u.unit), ['EX30 350-14']);

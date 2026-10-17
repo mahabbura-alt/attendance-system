@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Coal Hauler Legacy Capacity Regression</title>
+  <link rel="stylesheet" href="../style.css?v=legacy-capacity-fix">
+  <style>
+    body{margin:0;background:#f6f5f1;font-family:Arial,sans-serif}.preview-shell{max-width:1500px;margin:24px auto;padding:0 20px}
+    .preview-shell>h1{margin:0 0 5px;color:#0f172a}.preview-shell>p{margin:0 0 18px;color:#64748b}.tab-konten{display:block!important}
+    #runtime{position:fixed;right:12px;bottom:8px;color:#64748b;font-size:11px}
+  </style>
+</head>
+<body>
+  <main class="preview-shell">
+    <h1>Coal Productivity Planning · Capacity Legacy</h1>
+    <p>Regression sample: 16 Sep 2026 · EX30 350-14 · DT20 6-76 · PASIR.</p>
+    <button id="btnAddCoalProductivityTable">+ Tambah Fleet</button>
+    <section class="tab-konten"><div id="coalProductivityTables" data-plan-productivity-container="coal"></div></section>
+    <output id="runtime">Memuat…</output>
+  </main>
+  <script>
+    window.getProdApiUrl=path=>path; window.getProdAuthHeaders=()=>({});
+    window.fetch=async url=>{
+      const value=String(url);
+      if(value.includes('/spo-jobs/deployed')) return new Response(JSON.stringify({jobs:[{jobCode:'CG',jobDescription:'Coal Getting'}]}),{status:200,headers:{'Content-Type':'application/json'}});
+      if(value.includes('/productivity-plans/coal')) return new Response(JSON.stringify({planningData:{version:8,
+        parameters:[{id:'pasir',material:'PASIR',density:1.6,fill:0.9,swell:1.2}],
+        fleets:[{loaderId:'ex-1',loaderCode:'EX30 350-14'}],
+        scenarios:[{id:'loader-pasir',loaderId:'ex-1',loaderCode:'EX30 350-14',material:'PASIR',jobCodes:['CG'],cycleTimeLoading:25,workEffLoader:0.72}],
+        haulerRows:[{loaderId:'ex-1',truckId:'dt-1',material:'PASIR',capacity:19,capacityUom:'M3',loadedSpeed:20,emptySpeed:40,spotDumpTime:3,workEfficiency:0.75}],
+        distanceHeadersMeters:[500,600,700]},effectiveFrom:'2026-09-16',revision:1,periodEnd:'2026-12-31'}),{status:200,headers:{'Content-Type':'application/json'}});
+      return new Response('{}',{status:404});
+    };
+  </script>
+  <script src="../planProductivity.workspace.js?v=legacy-capacity-fix"></script>
+  <script>
+    (async()=>{try{
+      PlanProductivity.setFleetOptions([{id:'ex-1',code:'EX30 350-14',classUnit:'EX 30 T',type:'HITACHI ZX350',capacity:2.1,capacityUom:'M3',active:true}]);
+      PlanProductivity.setDumpTruckOptions([{id:'dt-1',code:'DT20 6-76',classUnit:'DT 20 T',type:'ISUZU FVZ34P 6-76',capacity:19,capacityUom:'M3',active:true}]);
+      await PlanProductivity.initPlanProductivityModule({containerId:'coalProductivityTables',addButtonId:'btnAddCoalProductivityTable'});
+      document.querySelector('[data-view="hauler"]').click(); document.getElementById('runtime').textContent='Runtime: OK';
+    }catch(error){document.getElementById('runtime').textContent='Runtime: '+error.message;}})();
+  </script>
+</body>
+</html>

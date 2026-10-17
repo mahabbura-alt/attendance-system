@@ -3,35 +3,49 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { pool } = require('../config/db');
 const { kirimEmailResetPassword } = require('../services/email');
+const { resolveLoginIdentifier, ensurePasswordResetSchema } = require('../services/passwordReset');
 
 // ============================================================
-// LOGIN
+// LOGIN — menerima employee_id (OMOS Safety) atau email (aplikasi lama)
 // ============================================================
-async function login(req, res) {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email dan password wajib diisi' });
+async function login(req, res, next) {
+  try {
+    return await handleLogin(req, res);
+  } catch (err) {
+    return next(err);
   }
+}
 
-  const cleanEmail = email.toLowerCase().trim();
+async function handleLogin(req, res) {
+  const { password } = req.body;
+  const identifier = resolveLoginIdentifier(req.body);
 
+  if (!identifier || !password) {
+    return res.status(400).json({ error: 'Employee ID / email dan password wajib diisi' });
+  }
+  const label = identifier.type === 'employee_id' ? 'Employee ID' : 'Email';
+  const whereClause = identifier.type === 'employee_id'
+    ? 'LOWER(TRIM(employee_id)) = $1'
+    : 'LOWER(email) = $1';
+
+  await ensurePasswordResetSchema(pool);
   const { rows } = await pool.query(
-    `SELECT id, nama, email, password_hash, role, shift_id, lokasi_kantor_id, compreface_subject, is_super_admin, permissions
-     FROM users WHERE LOWER(email) = $1 AND is_active = TRUE`,
-    [cleanEmail]
+    `SELECT id, nama, email, employee_id, jabatan, departemen, password_hash, role, shift_id, lokasi_kantor_id,
+            compreface_subject, is_super_admin, permissions, must_change_password
+     FROM users WHERE ${whereClause} AND is_active = TRUE`,
+    [identifier.value]
   );
 
   const user = rows[0];
   if (!user) {
-    console.warn(`⚠️ Login gagal: Email '${cleanEmail}' tidak ditemukan / tidak aktif`);
-    return res.status(401).json({ error: 'Email atau password salah' });
+    console.warn(`⚠️ Login gagal: ${label} tidak ditemukan / tidak aktif`);
+    return res.status(401).json({ error: `${label} atau password salah` });
   }
 
-  const cocok = await bcrypt.compare(password, user.password_hash);
+  const cocok = user.password_hash ? await bcrypt.compare(password, user.password_hash) : false;
   if (!cocok) {
-    console.warn(`⚠️ Login gagal: Password salah untuk '${cleanEmail}'`);
-    return res.status(401).json({ error: 'Email atau password salah' });
+    console.warn(`⚠️ Login gagal: password salah (user ${user.id})`);
+    return res.status(401).json({ error: `${label} atau password salah` });
   }
 
   const token = jwt.sign(
@@ -46,6 +60,12 @@ async function login(req, res) {
       id: user.id,
       nama: user.nama,
       email: user.email,
+      employee_id: user.employee_id || null,
+      jabatan: user.jabatan || null,
+      departemen: user.departemen || null,
+      shift_id: user.shift_id || null,
+      lokasi_kantor_id: user.lokasi_kantor_id || null,
+      must_change_password: Boolean(user.must_change_password),
       role: user.role,
       is_super_admin: Boolean(user.is_super_admin),
       permissions: user.permissions || ["absensi", "karyawan", "performa", "roster", "registrasi", "payroll", "hm", "kalkulasiPayroll", "produksi"],
@@ -224,6 +244,70 @@ async function resetSandi(req, res, next) {
   }
 }
 
+// ============================================================
+// MINTA RESET SANDI — karyawan lapangan (tanpa email) minta reset ke admin
+// ============================================================
+async function mintaResetSandi(req, res, next) {
+  try {
+    const { employee_id } = req.body;
+    const identifier = resolveLoginIdentifier({ employee_id });
+    if (!identifier) return res.status(400).json({ error: 'Employee ID wajib diisi' });
+
+    await ensurePasswordResetSchema(pool);
+    const { rows } = await pool.query(
+      `SELECT id FROM users WHERE LOWER(TRIM(employee_id)) = $1 AND is_active = TRUE LIMIT 1`,
+      [identifier.value]
+    );
+    if (rows[0]) {
+      await pool.query(
+        `INSERT INTO password_reset_requests (user_id, source)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id) WHERE status = 'pending' DO NOTHING`,
+        [rows[0].id, req.body.source === 'web' ? 'web' : 'mobile']
+      );
+    }
+
+    // Respons sama untuk ID terdaftar maupun tidak, agar ID karyawan tidak bisa ditebak.
+    res.json({
+      message: 'Permintaan reset sandi dikirim ke admin. Hubungi admin/atasan untuk menerima sandi sementara.',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// GANTI SANDI — dipakai setelah login dengan sandi sementara
+// ============================================================
+async function gantiSandi(req, res, next) {
+  try {
+    const { password_lama, password_baru } = req.body;
+    if (!password_lama || !password_baru) {
+      return res.status(400).json({ error: 'password_lama dan password_baru wajib diisi' });
+    }
+    if (typeof password_baru !== 'string' || password_baru.length < 8) {
+      return res.status(400).json({ error: 'Password baru minimal 8 karakter' });
+    }
+    if (password_baru === password_lama) {
+      return res.status(400).json({ error: 'Password baru harus berbeda dari password lama' });
+    }
+
+    await ensurePasswordResetSchema(pool);
+    const { rows } = await pool.query(`SELECT password_hash FROM users WHERE id = $1 AND is_active = TRUE`, [req.user.id]);
+    if (!rows[0] || !rows[0].password_hash || !(await bcrypt.compare(password_lama, rows[0].password_hash))) {
+      return res.status(401).json({ error: 'Password lama salah' });
+    }
+
+    await pool.query(
+      `UPDATE users SET password_hash = $1, must_change_password = FALSE WHERE id = $2`,
+      [await bcrypt.hash(password_baru, 12), req.user.id]
+    );
+    res.json({ message: 'Password berhasil diganti.' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 const DEPARTEMEN_JABATAN_MAP = {
   'Produksi': ['SPV Produksi', 'Pengawas', 'Operator', 'Driver DT', 'Driver WT', 'Checker'],
   'Engineering': ['SPV Engineering', 'Mine Plan', 'Foreman Moco', 'Admin', 'Surveyor', 'Ast Survey', 'Helper Survey'],
@@ -253,4 +337,4 @@ async function daftarShiftDanLokasi(req, res, next) {
   }
 }
 
-module.exports = { login, daftar, lupaSandi, resetSandi, daftarShiftDanLokasi };
+module.exports = { login, daftar, lupaSandi, resetSandi, mintaResetSandi, gantiSandi, daftarShiftDanLokasi };

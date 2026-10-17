@@ -33,6 +33,10 @@ const renderSection = production.slice(renderStart, saveStart);
 assert.doesNotMatch(renderSection, /class="standby-code-governance"/);
 assert.match(renderSection, /data-planning-type=/);
 assert.match(renderSection, /setupParameterTableInteractions\(\)/);
+assert.match(renderSection, /readOnlyJobCodes = new Set\(\['OB', 'CG', 'DW'\]\)/);
+assert.match(renderSection, /data-job-code-locked=/);
+assert.match(renderSection, /Kode JOB sistem tidak dapat diubah/);
+assert.match(renderSection, /Kode sistem tidak dapat dihapus/);
 
 assert.match(production, /wrapper\.tabIndex = 0/);
 assert.match(production, /wrapper\.addEventListener\('wheel'/);

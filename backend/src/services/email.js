@@ -66,4 +66,41 @@ async function kirimEmailResetPassword(toEmail, namaUser, token) {
   });
 }
 
-module.exports = { kirimEmailResetPassword };
+function escapeHtml(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** Undangan akun karyawan baru: kode untuk membuat password sendiri (berlaku 7 hari). */
+async function kirimEmailUndangan(toEmail, namaUser, token, { nrp } = {}) {
+  const from = process.env.SMTP_FROM || `"Absensi Karyawan" <${process.env.SMTP_USER}>`;
+  const nama = escapeHtml(namaUser);
+  await getTransporter().sendMail({
+    from,
+    to: toEmail,
+    subject: 'Akun OMOS Anda sudah dibuat',
+    text: [
+      `Halo ${namaUser},`,
+      '',
+      `Akun aplikasi absensi OMOS Anda sudah dibuat${nrp ? ` (NRP ${nrp})` : ''}.`,
+      `Email login: ${toEmail}`,
+      '',
+      `Kode untuk membuat password: ${token}`,
+      'Buka aplikasi → Lupa password → masukkan email dan kode di atas, lalu buat password baru.',
+      'Kode berlaku 7 hari.',
+    ].join('\n'),
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: auto; padding: 24px; border: 1px solid #e0e0e0; border-radius: 8px;">
+        <h2 style="color: #1a1a2e; margin-bottom: 8px;">Akun OMOS Anda sudah dibuat</h2>
+        <p style="color: #555;">Halo <strong>${nama}</strong>,</p>
+        <p style="color: #555;">Email login: <strong>${escapeHtml(toEmail)}</strong>${nrp ? `<br>NRP: <strong>${escapeHtml(nrp)}</strong>` : ''}</p>
+        <div style="background: #f4f4f8; border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0;">
+          <p style="color: #666; margin: 0 0 8px;">Kode membuat password</p>
+          <code style="font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #1a1a2e;">${escapeHtml(token)}</code>
+          <p style="color: #999; font-size: 12px; margin: 8px 0 0;">Berlaku <strong>7 hari</strong></p>
+        </div>
+        <p style="color: #555;">Buka aplikasi → <em>Lupa password</em> → masukkan email dan kode di atas, lalu buat password baru.</p>
+      </div>`,
+  });
+}
+
+module.exports = { kirimEmailResetPassword, kirimEmailUndangan, escapeHtml };

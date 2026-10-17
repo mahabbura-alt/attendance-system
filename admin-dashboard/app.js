@@ -19,12 +19,24 @@ const DEPARTEMEN_JABATAN_MAP = {
 };
 
 function getApiBaseUrl() {
-  // Preview localhost: frontend statis (:8080) tidak punya /api/*, jadi
-  // arahkan ke backend lokal (:3000). Di Vercel (host non-lokal) tetap
-  // same-origin agar memakai serverless function /api/*.
+  // Preview statis lokal/LAN berjalan di :8080 dan tidak mempunyai /api/*.
+  // Gunakan hostname yang sama agar akses dari perangkat lain di jaringan
+  // menuju backend PC host (:3000), bukan kembali ke localhost perangkat itu.
   const host = window.location.hostname;
+  if (window.location.port === '8080') {
+    const requestedMode = new URLSearchParams(window.location.search).get('api_mode');
+    if (requestedMode === 'biznet' || requestedMode === 'local') {
+      sessionStorage.setItem('omos_local_api_mode', requestedMode);
+    }
+    if (sessionStorage.getItem('omos_local_api_mode') === 'biznet') {
+      // Tunnel hanya bind ke loopback PC agar API production tidak terekspos ke LAN.
+      return 'http://127.0.0.1:13000';
+    }
+    const normalizedHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+    return `${window.location.protocol}//${normalizedHost}:3000`;
+  }
   if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
-    return 'http://localhost:3000';
+    return `${window.location.protocol}//${host}:3000`;
   }
   return window.location.origin.replace(/\/$/, '');
 }
@@ -412,13 +424,20 @@ async function muatDataTabOMOS(tabName) {
           result = await muatLokasi(lokasi);
           break;
         }
-        case 'karyawan': result = await muatKaryawan(); break;
+        case 'karyawan': {
+          // People v2: halaman Karyawan dirender people.js; muatKaryawan tetap mengisi cache
+          // dataKaryawanCache yang dipakai modul lain (mis. operator input produksi).
+          const [, people] = await Promise.all([muatKaryawan(), window.OMOSPeople?.load()]);
+          result = people;
+          break;
+        }
         case 'performa': result = await muatRekapPerforma(); break;
         case 'roster': result = await muatRoster(); break;
-        case 'registrasi': result = await muatRegistrasiPending(); break;
         case 'payroll': result = await muatPayroll(); break;
         case 'hm': result = await window.OMOSHM?.load(); break;
         case 'kalkulasiPayroll': result = await muatKalkulasiPayroll(); break;
+        case 'logistik': result = await window.OMOSLogistics.load(); break;
+        case 'hse': result = await window.OMOSHSE?.load(); break;
         default: result = undefined;
       }
     }
@@ -449,27 +468,23 @@ async function tampilkanApp() {
     Notification.requestPermission();
   }
 
-  // Jalankan cek notifikasi pendaftar baru berkala
-  cekRegistrasiPendingNotifikasi();
-  if (!window.pendingIntervalSet) {
-    window.pendingIntervalSet = true;
-    setInterval(cekRegistrasiPendingNotifikasi, 10000);
-  }
+  // Pendaftaran mandiri dihentikan (People v2) — tidak ada lagi notifikasi pendaftar baru.
 
   state.role = state.role || localStorage.getItem('user_role') || 'admin';
   if (state.role === 'karyawan') {
+    const employeeLogisticsScopes = await api('/api/logistics/scopes').catch(() => []);
     document.getElementById('namaAdminSidebar').textContent = (state.nama || 'Karyawan') + ' (Karyawan)';
     const btnEdit = document.getElementById('btnEditProfilSidebar');
     if (btnEdit) btnEdit.style.display = 'none';
     document.querySelectorAll('.sidebar__tab').forEach((tab) => {
       const tabName = tab.dataset.tab;
-      if (['absensi', 'payroll'].includes(tabName)) {
+      if (['absensi', 'payroll'].includes(tabName) || (tabName === 'logistik' && employeeLogisticsScopes.length)) {
         tab.style.display = 'block';
       } else {
         tab.style.display = 'none';
       }
     });
-    activeTab = tampilkanKerangkaTabOMOS('absensi');
+    activeTab = tampilkanKerangkaTabOMOS(activeTab === 'logistik' && employeeLogisticsScopes.length ? 'logistik' : 'absensi');
     pulihkanSlicerSesiUserOMOS(session);
     try {
       await muatDataTabOMOS(activeTab);
@@ -489,11 +504,13 @@ async function tampilkanApp() {
 
     // Filter sidebar tabs berdasarkan otoritas akses (permissions)
     const perms = isUtama
-      ? ['absensi', 'karyawan', 'performa', 'roster', 'registrasi', 'payroll', 'hm', 'kalkulasiPayroll', 'produksi']
+      ? ['absensi', 'karyawan', 'performa', 'roster', 'payroll', 'hm', 'kalkulasiPayroll', 'produksi', 'people.approve', 'hse.merge']
       : (adminMe.permissions || ['absensi', 'karyawan']);
 
     // Credential "produksi" mengontrol seluruh tab Mining Production (awalan "prod")
     const hasProduksi = perms.includes('produksi');
+    const logisticsScopes = await api('/api/logistics/scopes').catch(() => []);
+    const hasLogistics = isUtama || logisticsScopes.length > 0;
 
     document.querySelectorAll('.sidebar__tab').forEach((tab) => {
       const tabName = tab.dataset.tab;
@@ -502,7 +519,7 @@ async function tampilkanApp() {
       // Folder Mine Planning & semua tab prod hanya tampil bila punya akses "produksi"
       const visible = isFolder
         ? hasProduksi
-        : (perms.includes(tabName) || (isProdTab && hasProduksi));
+        : (perms.includes(tabName) || (isProdTab && hasProduksi) || (tabName === 'logistik' && hasLogistics) || (tabName === 'hse'));
       if (visible) {
         tab.style.display = 'flex';
         if (!firstAvailableTab && tabName) firstAvailableTab = tab;
@@ -579,8 +596,7 @@ document.getElementById('modalOverlay').addEventListener('click', (e) => {
 // Pemuatan data awal
 // ============================================================
 async function muatSemuaData() {
-  await Promise.all([muatShiftDanLokasi(), muatAbsensi(), muatKaryawan(), muatLokasi()]);
-  muatRegistrasiPending(); // muat juga pending registrasi
+  await Promise.all([muatShiftDanLokasi(), muatAbsensi(), muatKaryawan(), muatLokasi(), muatMasterOrgOMOS()]);
 }
 
 async function muatShiftDanLokasi() {
@@ -797,9 +813,14 @@ function renderTabelAbsensi() {
   }
 
   if (filtered.length === 0) {
+    const infoKosong = document.getElementById('infoBarisAbsensi');
+    if (infoKosong) infoKosong.textContent = `Menampilkan 0 dari ${(window.dataAbsensiCache || []).length} baris`;
     tbody.innerHTML = '<tr><td colspan="9" class="tabel__kosong">Tidak ada data absensi sesuai filter Slicer</td></tr>';
     return;
   }
+
+  const infoBaris = document.getElementById('infoBarisAbsensi');
+  if (infoBaris) infoBaris.textContent = `Menampilkan ${filtered.length} dari ${(window.dataAbsensiCache || []).length} baris`;
 
   tbody.innerHTML = filtered.map((a, idx) => {
     const ditimpa = Boolean(a.kamera_ditimpa);
@@ -1090,11 +1111,29 @@ async function muatKaryawan() {
       syncInputOperatorsFromKaryawan(dataKaryawanCache);
     }
 
-    initSlicersKaryawanDropdowns();
-    renderTabelKaryawan();
+    if (tbody) {
+      initSlicersKaryawanDropdowns();
+      renderTabelKaryawan();
+    }
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="tabel__kosong">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+    else console.warn('[Karyawan] Gagal memuat daftar karyawan:', err.message);
   }
+}
+
+/**
+ * People v2: departemen & jabatan berasal dari master (Setup master), bukan daftar
+ * tetap di kode. Isi ulang DEPARTEMEN_JABATAN_MAP (dipakai filter Rekap Performa)
+ * dari API; bila gagal, daftar bawaan tetap dipakai.
+ */
+async function muatMasterOrgOMOS() {
+  try {
+    const org = await api('/api/admin/karyawan/people/org?include_inactive=false');
+    const depts = (org && org.departments) || [];
+    if (!depts.length) return;
+    Object.keys(DEPARTEMEN_JABATAN_MAP).forEach((k) => { delete DEPARTEMEN_JABATAN_MAP[k]; });
+    depts.forEach((d) => { DEPARTEMEN_JABATAN_MAP[d.name] = (d.positions || []).map((p) => p.name); });
+  } catch (_) { /* izin/endpoint belum tersedia → pakai daftar bawaan */ }
 }
 
 function initSlicersKaryawanDropdowns() {
@@ -1214,8 +1253,7 @@ function renderTabelKaryawan() {
       <td>
         <button class="tombol tombol--ghost tombol--kecil" data-edit-karyawan="${escapeHtml(k.id)}">Edit Data</button>
         <button class="tombol tombol--ghost tombol--kecil" data-foto-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}">Foto</button>
-        <button class="tombol tombol--ghost tombol--kecil" data-status-karyawan="${escapeHtml(k.id)}" data-aktif="${k.is_active}">${k.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
-        <button class="tombol tombol--ghost tombol--kecil" data-hapus-karyawan="${escapeHtml(k.id)}" data-nama-karyawan="${escapeHtml(k.nama)}" data-email-karyawan="${escapeHtml(k.email)}" style="color:#c62828;border-color:#ef9a9a;">Hapus</button>
+        <button class="tombol tombol--ghost tombol--kecil" data-status-karyawan="${escapeHtml(k.id)}" data-aktif="${k.is_active}">${k.is_active ? 'Proses Keluar' : 'Proses Rehire'}</button>
       </td>
     </tr>
   `).join('');
@@ -1233,40 +1271,14 @@ function renderTabelKaryawan() {
     ));
   });
   tbody.querySelectorAll('[data-status-karyawan]').forEach((button) => {
-    button.addEventListener('click', async () => {
+    button.addEventListener('click', () => {
       const aktif = button.dataset.aktif === 'true';
-      if (!confirm(`${aktif ? 'Nonaktifkan' : 'Aktifkan'} akun karyawan ini?`)) return;
-      try {
-        await apiJson(`/api/admin/karyawan/${button.dataset.statusKaryawan}`, 'PATCH', { is_active: !aktif });
-        muatKaryawan();
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  });
-  tbody.querySelectorAll('[data-hapus-karyawan]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const id = button.dataset.hapusKaryawan;
-      const nama = button.dataset.namaKaryawan;
-      const email = button.dataset.emailKaryawan;
-      if (!confirm(`⚠️ APABILA DIHAPUS, SELURUH DATA KARYAWAN TERMASUK FOTO & EMAIL TERHAPUS PERMANEN.\n\nYakin ingin menghapus karyawan "${nama}" (${email})?`)) {
-        return;
-      }
-      try {
-        const res = await apiJson(`/api/admin/karyawan/${id}`, 'DELETE');
-        alert(res.message);
-        muatKaryawan();
-      } catch (err) {
-        alert('Gagal menghapus karyawan: ' + err.message);
-      }
+      window.OMOSWorkforce?.openForEmployee(button.dataset.statusKaryawan, aktif ? 'RESIGN' : 'REHIRE');
     });
   });
 }
 
 function bukaModalEditKaryawan(k) {
-  const listDept = Object.keys(DEPARTEMEN_JABATAN_MAP);
-  const opsiDept = listDept.map((d) => `<option value="${escapeHtml(d)}" ${d === k.departemen ? 'selected' : ''}>${escapeHtml(d)}</option>`).join('');
-
   bukaModal(`
     <h3>Edit Data Karyawan</h3>
     <p style="font-size:13px;color:var(--tinta-lembut);margin-bottom:12px;">Admin memiliki akses penuh untuk memperbarui data identitas karyawan <b>${escapeHtml(k.nama)}</b>.</p>
@@ -1280,60 +1292,43 @@ function bukaModalEditKaryawan(k) {
       <label class="label">Email</label>
       <input type="email" id="editEmail" value="${escapeHtml(k.email || '')}" required />
 
-      <label class="label">Departemen</label>
-      <select id="editDepartemen" required>${opsiDept}</select>
-
-      <label class="label">Jabatan</label>
-      <select id="editJabatan" required></select>
+      <div style="padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;color:#475569;margin:10px 0;">Departemen dan jabatan dikelola melalui <b>Rotasi Karyawan</b> agar riwayat tidak hilang.<br><b>${escapeHtml(k.departemen || '—')} · ${escapeHtml(k.jabatan || '—')}</b></div>
 
       <label class="label">Password Baru (Opsional)</label>
       <input type="text" id="editPassword" placeholder="Kosongkan jika tidak ingin diubah" minlength="8" />
 
       <div class="modal__aksi" style="margin-top:16px;">
         <button type="button" class="tombol tombol--ghost" onclick="tutupModal()">Batal</button>
-        <button type="submit" class="tombol tombol--utama">Simpan Perubahan</button>
+        <button type="submit" class="tombol tombol--utama" id="btnSimpanEditKaryawan">Simpan Perubahan</button>
       </div>
       <p id="pesanEditKaryawan" class="modal__pesan" hidden></p>
     </form>
   `);
-
-  const selectDept = document.getElementById('editDepartemen');
-  const selectJab = document.getElementById('editJabatan');
-
-  function updateJabatanOptions() {
-    const selectedDept = selectDept.value;
-    const listJab = DEPARTEMEN_JABATAN_MAP[selectedDept] || [];
-    selectJab.innerHTML = listJab.map((j) => `<option value="${escapeHtml(j)}" ${j === k.jabatan ? 'selected' : ''}>${escapeHtml(j)}</option>`).join('');
-  }
-
-  selectDept.addEventListener('change', updateJabatanOptions);
-  updateJabatanOptions();
 
   document.getElementById('formEditKaryawan').addEventListener('submit', async (e) => {
     e.preventDefault();
     const newEmpId = document.getElementById('editEmpId').value.trim();
     const newNama = document.getElementById('editNama').value.trim();
     const newEmail = document.getElementById('editEmail').value.trim();
-    const newDept = document.getElementById('editDepartemen').value;
-    const newJab = document.getElementById('editJabatan').value;
     const newPass = document.getElementById('editPassword').value.trim();
     const pesanEl = document.getElementById('pesanEditKaryawan');
 
     const payload = {
       employee_id: newEmpId || null,
       nama: newNama,
-      email: newEmail,
-      departemen: newDept,
-      jabatan: newJab
+      email: newEmail
     };
     if (newPass && newPass.length >= 8) {
       payload.password = newPass;
     }
 
+    const saveButton = document.getElementById('btnSimpanEditKaryawan');
     try {
-      await apiJson(`/api/admin/karyawan/${k.id}`, 'PATCH', payload);
-      tutupModal();
-      muatKaryawan();
+      await window.OMOSActionFeedback.run(saveButton, async () => {
+        await apiJson(`/api/admin/karyawan/${k.id}`, 'PATCH', payload);
+        tutupModal();
+        await muatKaryawan();
+      }, { successText: 'Tersimpan' });
     } catch (err) {
       pesanEl.textContent = err.message;
       pesanEl.className = 'modal__pesan modal__pesan--error';
@@ -1342,7 +1337,7 @@ function bukaModalEditKaryawan(k) {
   });
 }
 
-document.getElementById('btnTambahKaryawan').addEventListener('click', () => {
+document.getElementById('btnTambahKaryawan')?.addEventListener('click', () => {
   const opsiShift = state.shifts.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.nama_shift)}</option>`).join('');
   const listDept = Object.keys(DEPARTEMEN_JABATAN_MAP);
   const opsiDept = listDept.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
@@ -1365,12 +1360,18 @@ document.getElementById('btnTambahKaryawan').addEventListener('click', () => {
       <label class="label">Jabatan</label>
       <select id="tkJabatan" required></select>
 
+      <label class="label">Tanggal Masuk</label>
+      <input type="date" id="tkHireDate" required />
+
+      <label class="label">Tipe Karyawan</label>
+      <select id="tkEmploymentType"><option value="PKWT">PKWT</option><option value="PKWTT">PKWTT</option><option value="Harian">Harian</option></select>
+
       <label class="label">Password awal</label>
       <input type="text" id="tkPassword" required minlength="8" />
 
       <div class="modal__aksi">
         <button type="button" class="tombol tombol--ghost" onclick="tutupModal()">Batal</button>
-        <button type="submit" class="tombol tombol--utama">Simpan</button>
+        <button type="submit" class="tombol tombol--utama" id="btnSimpanTambahKaryawan">Simpan</button>
       </div>
       <p id="pesanTambahKaryawan" class="modal__pesan" hidden></p>
     </form>
@@ -1387,21 +1388,27 @@ document.getElementById('btnTambahKaryawan').addEventListener('click', () => {
 
   selectDept.addEventListener('change', updateJabatanOptions);
   updateJabatanOptions();
+  document.getElementById('tkHireDate').value = new Date().toISOString().slice(0, 10);
 
   document.getElementById('formTambahKaryawan').addEventListener('submit', async (e) => {
     e.preventDefault();
     const pesanEl = document.getElementById('pesanTambahKaryawan');
+    const saveButton = document.getElementById('btnSimpanTambahKaryawan');
     try {
-      await apiJson('/api/admin/karyawan', 'POST', {
-        employee_id: document.getElementById('tkEmpId').value.trim() || null,
-        nama: document.getElementById('tkNama').value.trim(),
-        email: document.getElementById('tkEmail').value.trim(),
-        departemen: document.getElementById('tkDepartemen').value,
-        jabatan: document.getElementById('tkJabatan').value,
-        password: document.getElementById('tkPassword').value,
-      });
-      tutupModal();
-      muatKaryawan();
+      await window.OMOSActionFeedback.run(saveButton, async () => {
+        await apiJson('/api/admin/karyawan', 'POST', {
+          employee_id: document.getElementById('tkEmpId').value.trim() || null,
+          nama: document.getElementById('tkNama').value.trim(),
+          email: document.getElementById('tkEmail').value.trim(),
+          departemen: document.getElementById('tkDepartemen').value,
+          jabatan: document.getElementById('tkJabatan').value,
+          hire_date: document.getElementById('tkHireDate').value,
+          employment_type: document.getElementById('tkEmploymentType').value,
+          password: document.getElementById('tkPassword').value,
+        });
+        tutupModal();
+        await muatKaryawan();
+      }, { successText: 'Tersimpan' });
     } catch (err) {
       pesanEl.textContent = err.message;
       pesanEl.className = 'modal__pesan modal__pesan--error';
@@ -2526,8 +2533,8 @@ function bukaModalApproveRegistrasi(id, aksi) {
   });
 }
 
-document.getElementById('btnMuatRegistrasi').addEventListener('click', muatRegistrasiPending);
-document.getElementById('filterStatusRegistrasi').addEventListener('change', muatRegistrasiPending);
+document.getElementById('btnMuatRegistrasi')?.addEventListener('click', muatRegistrasiPending);
+document.getElementById('filterStatusRegistrasi')?.addEventListener('change', muatRegistrasiPending);
 
 // ============================================================
 // ROSTER KARYAWAN
@@ -2538,6 +2545,13 @@ let rosterJabatanCache = [];
 const rosterDataByJabatan = new Map();
 const rosterDraftsByJabatan = new Map();
 const ROSTER_STATUS_TOTALS = ['S','M','CP','C','OFF'];
+const ROSTER_STATUS_LABELS = Object.freeze({
+  S: 'S · Shift Siang',
+  M: 'M · Shift Malam',
+  CP: 'CP · Cuti Periodik',
+  C: 'C · Cuti Khusus',
+  OFF: 'OFF · Istirahat',
+});
 
 function normalizeFilterValue(value) {
   return String(value ?? '').trim().toLowerCase();
@@ -2611,9 +2625,32 @@ function rosterDraftKey(userId, tanggal) {
 
 function opsiStatusRoster(selectedStatus) {
   return ['', ...ROSTER_STATUS_TOTALS].map(status => {
-    const label = status || '-';
+    const label = status ? ROSTER_STATUS_LABELS[status] : '— Pilih status —';
     return `<option value="${status}" ${status === selectedStatus ? 'selected' : ''}>${label}</option>`;
   }).join('');
+}
+
+function metadataSelRoster(day, hasAssignment) {
+  if (day?.source === 'leave_sync') {
+    return {
+      disabled: true,
+      title: 'Dikunci oleh Database Cuti. Koreksi realisasi cuti dari tab Database Cuti.',
+      sourceLabel: 'Database Cuti',
+      sourceClass: 'leave',
+    };
+  }
+  if (!hasAssignment) {
+    return {
+      disabled: true,
+      title: 'Belum ada template/policy roster. Klik Setup & Sinkronkan pada jabatan ini.',
+      sourceLabel: 'Belum diset',
+      sourceClass: 'missing',
+    };
+  }
+  if (day?.source === 'manual_override') {
+    return { disabled: false, title: 'Perubahan manual admin', sourceLabel: 'Manual', sourceClass: 'manual' };
+  }
+  return { disabled: false, title: 'Jadwal otomatis dari template roster', sourceLabel: 'Otomatis', sourceClass: 'generated' };
 }
 
 function perbaruiKontrolDraftRoster(jabatan, section) {
@@ -2704,7 +2741,11 @@ function renderIsiRosterJabatan(jabatan, data) {
               const status = preview.get(window.RosterPreview.rosterPreviewKey(employee.id, date)) ?? originalStatus;
               const klass = status ? status.toLowerCase() : 'empty';
               const dirty = status !== originalStatus ? ' roster-day-cell--dirty' : '';
-              return `<td class="roster-day-cell${dirty}"><select class="roster-day-select roster-badge--${klass}" data-user-id="${employee.id}" data-date="${date}" data-original-status="${originalStatus}" data-previous-status="${status}" aria-label="Roster ${escapeHtml(employee.nama)} ${date}">${opsiStatusRoster(status)}</select></td>`;
+              const meta = metadataSelRoster(day, Boolean(employee.assignment_id));
+              return `<td class="roster-day-cell${dirty}" title="${escapeHtml(meta.title)}">
+                <select class="roster-day-select roster-badge--${klass}" data-user-id="${employee.id}" data-date="${date}" data-original-status="${originalStatus}" data-previous-status="${status}" aria-label="Roster ${escapeHtml(employee.nama)} ${date}" ${meta.disabled ? 'disabled' : ''}>${opsiStatusRoster(status)}</select>
+                <small class="roster-cell-source roster-cell-source--${meta.sourceClass}">${meta.sourceLabel}</small>
+              </td>`;
             }).join('')}
           </tr>`).join('')}</tbody>
         <tfoot>
@@ -2726,20 +2767,31 @@ function renderRoster() {
   const selectedJabatan = document.getElementById('rosterFilterJabatan')?.value || '';
   const groups = rosterJabatanCache.filter(item => !selectedJabatan || item.jabatan === selectedJabatan);
   const total = groups.reduce((sum, item) => sum + Number(item.jumlah_karyawan), 0);
-  if (summary) summary.textContent = `${total} karyawan aktif | ${groups.length} tabel jabatan | tabel belum dibuka tidak memuat data`;
+  const unsyncedEmployees = groups.reduce((sum, item) => sum + Number(item.jumlah_karyawan_belum_sinkron || 0), 0);
+  const missingCells = groups.reduce((sum, item) => sum + Number(item.jumlah_sel_belum_sinkron || 0), 0);
+  if (summary) {
+    summary.className = `roster-sync-summary${missingCells ? ' roster-sync-summary--warning' : ' roster-sync-summary--ok'}`;
+    summary.innerHTML = missingCells
+      ? `<strong>${unsyncedEmployees} dari ${total} karyawan belum sinkron</strong><span>${missingCells.toLocaleString('id-ID')} sel jadwal belum terbentuk. Buka jabatan bertanda merah lalu pilih Setup &amp; Sinkronkan.</span>`
+      : `<strong>Roster tersinkron</strong><span>${total} karyawan aktif · ${groups.length} kelompok jabatan.</span>`;
+  }
   container.innerHTML = groups.map((group) => {
     const loaded = rosterDataByJabatan.get(group.jabatan);
     const draftCount = getRosterDrafts(group.jabatan).size;
+    const missingEmployees = Number(group.jumlah_karyawan_belum_sinkron || 0);
+    const syncedEmployees = Number(group.jumlah_karyawan_sinkron || 0);
+    const syncClass = missingEmployees ? 'is-warning' : 'is-ok';
     return `
       <section class="roster-group roster-group--collapsed" data-jabatan="${escapeHtml(group.jabatan)}">
         <div class="roster-group__head">
           <button class="roster-group__toggle" data-jabatan="${escapeHtml(group.jabatan)}" aria-expanded="false">
             <span class="roster-group__arrow">▶</span><strong>${escapeHtml(group.jabatan)}</strong>
             <small>${group.jumlah_karyawan} karyawan</small>
+            <span class="roster-sync-badge ${syncClass}">${missingEmployees ? `${missingEmployees} belum sinkron` : `${syncedEmployees} sinkron`}</span>
           </button>
           <div class="roster-group__actions">
             <button class="tombol tombol--utama roster-save-jabatan" data-jabatan="${escapeHtml(group.jabatan)}" ${draftCount ? '' : 'disabled'}>${draftCount ? `Simpan Perubahan (${draftCount})` : 'Simpan Perubahan'}</button>
-            <button class="tombol tombol--ghost roster-assign-jabatan" data-jabatan="${escapeHtml(group.jabatan)}">Atur Roster Jabatan</button>
+            <button class="tombol tombol--ghost roster-assign-jabatan" data-jabatan="${escapeHtml(group.jabatan)}">${missingEmployees ? 'Setup & Sinkronkan' : 'Ubah Template'}</button>
           </div>
         </div>
         <div class="roster-group__body" hidden>${loaded ? renderIsiRosterJabatan(group.jabatan, loaded) : '<div class="tabel__kosong">Data belum dimuat.</div>'}</div>
@@ -2804,9 +2856,10 @@ async function muatRoster() {
   const container = document.getElementById('rosterTables');
   if (container) container.innerHTML = '<div class="tabel__kosong">Memuat roster karyawan aktif...</div>';
   try {
+    const periodeRoster = new URLSearchParams({ tanggal_mulai: mulaiEl.value, tanggal_akhir: akhirEl.value });
     [rosterTemplatesCache, rosterJabatanCache] = await Promise.all([
       api('/api/admin/roster/templates'),
-      api('/api/admin/roster/jabatan'),
+      api(`/api/admin/roster/jabatan?${periodeRoster}`),
     ]);
     rosterDataByJabatan.clear();
     dataRosterCache = { employees: [], tanggal_mulai: mulaiEl.value, tanggal_akhir: akhirEl.value };
@@ -2819,17 +2872,19 @@ async function muatRoster() {
 
 function bukaModalTemplateRoster() {
   bukaModal(`
-    <h3>Buat Template Roster</h3>
-    <form id="formTemplateRoster" class="roster-form">
-      <label class="label">Roster Cuti *</label>
-      <input id="rosterTemplateCuti" class="input-teks" required value="84:14" placeholder="Contoh: 84:14" />
-      <small>Contoh 84:14 = 84 hari mengikuti pola kerja, lalu 14 hari CP (cuti periodik).</small>
-      <label class="label">Hari Kerja *</label>
-      <input id="rosterTemplateHariKerja" class="input-teks" required value="7S,6M,OFF" placeholder="Contoh: 7S,6M,OFF" />
-      <small>Sistem mengulang pola ini selama fase kerja. Setelah CP selesai, pola kembali dimulai dari 7S. Kode C hanya untuk cuti khusus dan tidak mengubah siklus.</small>
-      <div id="rosterSimplePreview" class="roster-simple-preview">84 hari pola kerja berulang → 14 hari CP → reset dari awal</div>
-      <button class="tombol tombol--utama" type="submit">Generate Template</button>
-    </form>`);
+    <section class="roster-template-modal">
+      <h3>Buat Template Roster</h3>
+      <form id="formTemplateRoster" class="roster-form">
+        <label class="label">Roster Cuti *</label>
+        <input id="rosterTemplateCuti" class="input-teks" required value="84:14" placeholder="Contoh: 84:14" />
+        <small>Contoh 84:14 = 84 hari mengikuti pola kerja, lalu 14 hari CP (cuti periodik).</small>
+        <label class="label">Hari Kerja *</label>
+        <input id="rosterTemplateHariKerja" class="input-teks" required value="7S,6M,OFF" placeholder="Contoh: 7S,6M,OFF" />
+        <small>Sistem mengulang pola ini selama fase kerja. Setelah CP selesai, pola kembali dimulai dari 7S. Kode C hanya untuk cuti khusus dan tidak mengubah siklus.</small>
+        <div id="rosterSimplePreview" class="roster-simple-preview">84 hari pola kerja berulang → 14 hari CP → reset dari awal</div>
+        <button class="tombol tombol--utama" type="submit">Generate Template</button>
+      </form>
+    </section>`);
   const updatePreview = () => {
     const ratio = document.getElementById('rosterTemplateCuti').value.match(/^\s*(\d+)\s*:\s*(\d+)\s*$/);
     const pattern = document.getElementById('rosterTemplateHariKerja').value.trim().toUpperCase();
@@ -2861,10 +2916,23 @@ function bukaModalAssignRosterJabatan(jabatan) {
         <option value="">Pilih template</option>${rosterTemplatesCache.map(item => `<option value="${item.id}">${escapeHtml(item.nama)} (${item.cycle_days} hari)</option>`).join('')}
       </select>
       <label class="label">Berlaku mulai *</label><input id="assignRosterDate" type="date" class="input-teks" value="${dataRosterCache.tanggal_mulai || tanggalWibHariIni()}" required />
-      <label class="label">Mulai dari hari ke-</label><input id="assignRosterAnchor" type="number" min="1" value="1" class="input-teks" required />
-      <small>Hari ke-1 berarti tanggal mulai memakai elemen pertama pola template.</small>
+      <label class="label">Posisi awal pola *</label><select id="assignRosterAnchor" class="input-teks" required disabled>
+        <option value="">Pilih template terlebih dahulu</option>
+      </select>
+      <small>Pilih posisi hari beserta statusnya. Sistem melanjutkan pola otomatis dari posisi tersebut.</small>
       <button class="tombol tombol--utama" type="submit">Terapkan dan Generate</button>
     </form>`);
+  const templateSelect = document.getElementById('assignRosterTemplate');
+  const anchorSelect = document.getElementById('assignRosterAnchor');
+  const isiPosisiAwal = () => {
+    const template = rosterTemplatesCache.find(item => String(item.id) === String(templateSelect.value));
+    const days = Array.isArray(template?.days) ? template.days : [];
+    anchorSelect.disabled = days.length === 0;
+    anchorSelect.innerHTML = days.length
+      ? days.map((status, index) => `<option value="${index + 1}">Hari ${index + 1} — ${escapeHtml(ROSTER_STATUS_LABELS[status] || status)}</option>`).join('')
+      : '<option value="">Template belum memiliki pola hari</option>';
+  };
+  templateSelect.addEventListener('change', isiPosisiAwal);
   document.getElementById('formAssignRoster').addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -2947,6 +3015,15 @@ function bukaImportRoster() {
 }
 
 document.getElementById('btnTampilkanRoster')?.addEventListener('click', muatRoster);
+document.getElementById('rosterCariKaryawan')?.addEventListener('input', () => {
+  document.querySelectorAll('.roster-group__body:not([hidden])').forEach(body => {
+    const jabatan = body.closest('.roster-group')?.dataset.jabatan;
+    const data = rosterDataByJabatan.get(jabatan);
+    if (!jabatan || !data) return;
+    body.innerHTML = renderIsiRosterJabatan(jabatan, data);
+    pasangEventRosterTable(body, jabatan);
+  });
+});
 document.getElementById('btnTemplateRoster')?.addEventListener('click', bukaModalTemplateRoster);
 document.getElementById('btnExportRoster')?.addEventListener('click', exportRosterExcel);
 document.getElementById('btnImportRoster')?.addEventListener('click', bukaImportRoster);
@@ -3857,11 +3934,12 @@ const MODUL_NAMES_MAP = {
   'karyawan': '👥 Database Karyawan',
   'performa': '📊 Rekap Performa',
   'roster': '📅 Roster Karyawan',
-  'registrasi': '📝 Registrasi Pending',
   'payroll': '💰 Database Payroll',
   'hm': '🚜 Database HM',
   'kalkulasiPayroll': '🧮 Kalkulasi Payroll',
-  'produksi': '⛏️ Produksi (Mining Production)'
+  'produksi': '⛏️ Produksi (Mining Production)',
+  'people.approve': '✅ Approver Pergerakan Karyawan (mutasi, kontrak, keluar)',
+  'hse.merge': '🔗 HSE: Gabung / Tolak Laporan Hazard Ganda'
 };
 
 async function muatSubAdminsList() {
@@ -3931,7 +4009,7 @@ async function bukaModalFormEditSubAdmin(adminId) {
 
 function bukaModalFormSubAdmin(adminData) {
   const isEdit = Boolean(adminData);
-  const currentPerms = isEdit ? (adminData.permissions || []) : ['absensi', 'karyawan', 'performa', 'roster', 'registrasi', 'payroll', 'hm', 'kalkulasiPayroll', 'produksi'];
+  const currentPerms = isEdit ? (adminData.permissions || []) : ['absensi', 'karyawan', 'performa', 'roster', 'payroll', 'hm', 'kalkulasiPayroll', 'produksi'];
 
   bukaModal(`
     <div style="min-width: 440px;">

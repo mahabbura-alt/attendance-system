@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Input Fuel · HM Lifecycle Preview</title>
+  <link rel="stylesheet" href="../style.css?v=62">
+  <style>
+    body{margin:0;padding:28px;background:#f5f4f0;color:#172033;font-family:Arial,sans-serif}.preview{max-width:1500px;margin:auto}.preview h2{margin:0}.preview>p{color:#64748b}.fuel-card-table-wrap{height:auto;max-height:none}.fuel-unit-card{background:#fff}.fuel-card-toolbar{padding:12px}.fuel-card-table td:last-child{display:table-cell}.fuel-card-table input{pointer-events:none}
+  </style>
+</head>
+<body>
+  <main class="preview">
+    <h2>⛽ Input Fuel & Efficiency Tracking</h2>
+    <p>HM fisik dipertahankan sebagai bukti. Lifetime HM menjadi basis validasi dan rasio.</p>
+    <article class="fuel-unit-card is-open">
+      <header class="fuel-unit-card__header">
+        <div class="fuel-unit-identity"><span class="fuel-unit-icon">⚙</span><span><strong>WL30 10-01</strong><small>WL · WL CAT 950 GC</small></span></div>
+        <div class="fuel-unit-metrics"><span><small>Fuel</small><b>168 L</b></span><span><small>Std. Fuel Rate</small><b>20 L/HM</b></span><span><small>Ltr/HM</small><b>20,00</b></span></div>
+        <div class="fuel-unit-status"><span class="fuel-status-badge is-warning">Perlu diperiksa</span></div>
+      </header>
+      <div class="fuel-unit-card__body">
+        <div class="fuel-card-toolbar"><div class="fuel-card-trend"><span><b>Weighted 20,00 L/HM</b><small>3 transaksi · 168 Liter · 1 tanpa rasio</small></span></div><button class="tombol tombol--ghost">+ Insert Data</button></div>
+        <div class="fuel-card-table-wrap"><table class="fuel-card-table">
+          <thead><tr><th hidden>Pilih</th><th>Tanggal</th><th>Shift</th><th>HM Fisik</th><th>Lifetime HM</th><th>ΔHM</th><th>KM</th><th>ΔKM</th><th>Fuel (L)</th><th>Ltr/HM</th><th>Ltr/KM</th><th>Variance</th><th>Status</th><th>Keterangan</th></tr></thead>
+          <tbody>
+            <tr><td hidden></td><td>30 Sep 2026</td><td>Siang</td><td><input value="54.00"></td><td><div class="fuel-lifetime-cell"><output>—</output><small class="fuel-lineage-badge is-warning">Legacy · rekonsiliasi</small></div></td><td>—</td><td>—</td><td>—</td><td>84</td><td>—</td><td>N/A</td><td>—</td><td><span class="fuel-row-anomaly is-warning">Periksa</span></td><td>Basis HM lama belum direkonsiliasi</td></tr>
+            <tr><td hidden></td><td>01 Okt 2026</td><td>Siang</td><td><input value="4.80"></td><td><div class="fuel-lifetime-cell"><output>55,80</output><small class="fuel-lineage-badge is-good">Baseline</small></div></td><td>—</td><td>—</td><td>—</td><td>44</td><td>—</td><td>N/A</td><td>—</td><td><span class="fuel-row-anomaly is-warning">Periksa</span></td><td>Baseline lifecycle baru</td></tr>
+            <tr><td hidden></td><td>02 Okt 2026</td><td>Siang</td><td><input value="6.80"></td><td><div class="fuel-lifetime-cell"><output>57,80</output><small class="fuel-lineage-badge is-good">Meter diganti</small></div></td><td>2,00</td><td>—</td><td>—</td><td>40</td><td>20,00</td><td>N/A</td><td>0%</td><td><span class="fuel-row-anomaly is-normal">Normal</span></td><td>Event HM 30 Sep</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </article>
+  </main>
+</body>
+</html>

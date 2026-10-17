@@ -9,6 +9,9 @@ import retrofit2.http.*
 
 interface ApiService {
 
+    @GET("api/app/version")
+    suspend fun appVersion(): Response<AppVersionDto>
+
     // ── Auth ──────────────────────────────────────────────────────────────────
 
     @POST("api/auth/login")
@@ -63,13 +66,19 @@ interface ApiService {
     ): Response<AbsensiResponse>
 
     @GET("api/absensi/riwayat")
-    suspend fun riwayat(): Response<List<AbsensiDto>>
+    suspend fun riwayat(
+        @Query("tanggal_mulai") tanggalMulai: String? = null,
+        @Query("tanggal_akhir") tanggalAkhir: String? = null
+    ): Response<List<AbsensiDto>>
 
     @GET("api/absensi/rekap")
     suspend fun rekapKehadiran(): Response<List<RekapHarianDto>>
 
     @GET("api/absensi/rekap-hm")
-    suspend fun getRekapHm(): Response<RekapHmResponse>
+    suspend fun getRekapHm(
+        @Query("tanggal_mulai") tanggalMulai: String? = null,
+        @Query("tanggal_akhir") tanggalAkhir: String? = null
+    ): Response<RekapHmResponse>
 
     @GET("api/absensi/lokasi-kantor")
     suspend fun lokasiKantor(): Response<LokasiKantorDto>

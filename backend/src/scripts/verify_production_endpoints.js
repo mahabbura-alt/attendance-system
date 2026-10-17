@@ -14,7 +14,6 @@ const endpoints = [
   'fuel-periods',
   'fuel-cards',
   'standby-history',
-  'standby-review',
   'breakdown-history',
   'unit-performance',
   'fleet-mappings',

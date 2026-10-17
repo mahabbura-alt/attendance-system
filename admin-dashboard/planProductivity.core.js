@@ -927,7 +927,7 @@
   async function loadDeployedSpoJobs(force = false) {
     if (!force && deployedSpoJobsCache && Date.now() - deployedSpoJobsLoadedAt < 30000) return deployedSpoJobsCache;
     const authHeaders = typeof global.getProdAuthHeaders === 'function' ? global.getProdAuthHeaders() : {};
-    const apiPath = '/api/admin/production/spo-jobs/deployed';
+    const apiPath = '/api/admin/production/spo-jobs/deployed?scope=production';
     const apiUrl = typeof global.getProdApiUrl === 'function' ? global.getProdApiUrl(apiPath) : apiPath;
     const response = await fetch(apiUrl, { headers: authHeaders });
     const payload = await response.json().catch(() => ({}));

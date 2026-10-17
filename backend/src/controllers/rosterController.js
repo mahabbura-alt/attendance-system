@@ -142,15 +142,58 @@ async function daftarTemplate(req, res, next) {
 
 async function daftarJabatanRoster(req, res, next) {
   try {
+    const tanggalMulai = req.query.tanggal_mulai || isoTodayWib();
+    const tanggalAkhir = req.query.tanggal_akhir || addDaysIso(tanggalMulai, 30);
+    const { days } = validateDateRange(tanggalMulai, tanggalAkhir, 366);
+    // Pastikan statistik sinkronisasi membaca proyeksi terbaru. Hanya assignment
+    // yang sah yang digenerate; jabatan tanpa policy tetap tampil sebagai gap.
+    await generateRosterRange(tanggalMulai, tanggalAkhir);
     const { rows } = await pool.query(
-      `SELECT COALESCE(NULLIF(trim(u.jabatan), ''), 'Tanpa Jabatan') AS jabatan,
-              COUNT(*)::int AS jumlah_karyawan
-       FROM users u
-       WHERE u.role='karyawan' AND u.is_active=TRUE
-       GROUP BY COALESCE(NULLIF(trim(u.jabatan), ''), 'Tanpa Jabatan')
-       ORDER BY jabatan`,
+      `WITH active_users AS (
+         SELECT u.id,
+                COALESCE(NULLIF(trim(u.jabatan), ''), 'Tanpa Jabatan') AS jabatan,
+                LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(u.jabatan, ''), 'Tanpa Jabatan')), '\\s+', ' ', 'g')) AS jabatan_key
+         FROM users u
+         WHERE u.role='karyawan' AND u.is_active=TRUE
+       ), coverage AS (
+         SELECT au.id,
+                COUNT(rd.id)::int AS filled_days
+         FROM active_users au
+         LEFT JOIN employee_roster_daily rd
+           ON rd.user_id=au.id
+          AND rd.tanggal BETWEEN $1::date AND $2::date
+         GROUP BY au.id
+       )
+       SELECT au.jabatan,
+              COUNT(*)::int AS jumlah_karyawan,
+              COUNT(*) FILTER (WHERE c.filled_days=$3)::int AS jumlah_karyawan_sinkron,
+              COUNT(*) FILTER (WHERE c.filled_days<$3)::int AS jumlah_karyawan_belum_sinkron,
+              SUM(c.filled_days)::int AS jumlah_sel_sinkron,
+              SUM($3-c.filled_days)::int AS jumlah_sel_belum_sinkron,
+              BOOL_OR(p.id IS NOT NULL) AS memiliki_policy,
+              MAX(rt.nama) FILTER (WHERE p.id IS NOT NULL) AS template_policy
+       FROM active_users au
+       JOIN coverage c ON c.id=au.id
+       LEFT JOIN LATERAL (
+         SELECT rp.id,rp.template_id
+         FROM roster_jabatan_policies rp
+         WHERE rp.jabatan_key=au.jabatan_key AND rp.is_active=TRUE
+           AND rp.effective_from <= $2::date
+           AND (rp.effective_to IS NULL OR rp.effective_to >= $1::date)
+         ORDER BY rp.effective_from DESC
+         LIMIT 1
+       ) p ON TRUE
+       LEFT JOIN roster_templates rt ON rt.id=p.template_id
+       GROUP BY au.jabatan
+       ORDER BY au.jabatan`,
+      [tanggalMulai, tanggalAkhir, days],
     );
-    res.json(rows);
+    res.json(rows.map(row => ({
+      ...row,
+      tanggal_mulai: tanggalMulai,
+      tanggal_akhir: tanggalAkhir,
+      jumlah_hari: days,
+    })));
   } catch (error) {
     next(error);
   }
@@ -465,6 +508,17 @@ async function assignRoster(req, res, next) {
 async function applyRosterDailyOverride({ client, userId, tanggal, statusValue, catatan, adminId }) {
   const status = validatePatternDays([statusValue])[0];
   validateDateRange(tanggal, tanggal, 1);
+    const currentRosterResult = await client.query(
+      `SELECT source
+       FROM employee_roster_daily
+       WHERE user_id=$1 AND tanggal=$2::date
+       LIMIT 1
+       FOR UPDATE`,
+      [userId, tanggal],
+    );
+    if (currentRosterResult.rows[0]?.source === 'leave_sync') {
+      throw httpError('Jadwal CP ini bersumber dari Database Cuti. Koreksi realisasi cuti dari Database Cuti agar roster tetap sinkron.', 409);
+    }
     if (status === 'CP' || status === 'OFF') {
       const assignment = await findOrProvisionRosterAssignment({ client, userId, tanggal, adminId });
       const leaveDays = status === 'CP' ? Number(assignment.roster_cuti_hari) : 1;
@@ -806,7 +860,7 @@ async function importRoster(req, res, next) {
         const rawStatus = String(row[date] || '').trim();
         if (!rawStatus) continue;
         const status = validatePatternDays([rawStatus])[0];
-        await client.query(
+        const importedRow = await client.query(
           `INSERT INTO employee_roster_daily
              (user_id,tanggal,status,shift_id,source,catatan,updated_by)
            VALUES ($1,$2::date,$3::varchar,
@@ -816,9 +870,14 @@ async function importRoster(req, res, next) {
              'manual_override','Import Excel',$4)
            ON CONFLICT (user_id,tanggal) DO UPDATE SET
              status=EXCLUDED.status,shift_id=EXCLUDED.shift_id,source='manual_override',
-             catatan='Import Excel',updated_by=EXCLUDED.updated_by,updated_at=now()`,
+             catatan='Import Excel',updated_by=EXCLUDED.updated_by,updated_at=now()
+           WHERE employee_roster_daily.source <> 'leave_sync'
+           RETURNING id`,
           [userResult.rows[0].id, date, status, req.user.id],
         );
+        if (!importedRow.rows[0]) {
+          throw httpError(`Roster ${employeeId} tanggal ${date} bersumber dari Database Cuti dan tidak dapat ditimpa melalui import.`, 409);
+        }
         imported += 1;
       }
     }

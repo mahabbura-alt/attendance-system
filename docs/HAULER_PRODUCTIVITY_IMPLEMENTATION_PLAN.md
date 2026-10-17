@@ -1,7 +1,18 @@
 # Hauler Productivity — Implementation Recommendation
 
-Status: **LOADER + HAULER + SETTING FLEET PERIODE DIIMPLEMENTASIKAN DI REPOSITORY / perubahan v6 belum dideploy**  
+Status: **KONTRAK OPERASIONAL v8: LOADER PRODUCTIVITY MENJADI TARGET / SETTING FLEET HANYA SIMULASI SESI / belum dideploy**
 Disusun: 16 September 2026
+
+## Kontrak operasional v8 — Loader sebagai target langsung (29 September 2026)
+
+- **Loader Productivity** pada versi efektif OB/Coal adalah satu-satunya sumber target productivity operasional. Input Ritase, Fleet Capacity, Unit Mapping, Fleet Deployment baru, dan kalkulasi ranking membaca nilai Loader berdasarkan tanggal, JOB, unit excavator, material, serta satuan yang sesuai.
+- Properti `fleetProductivity` tetap tersedia hanya sebagai alias kompatibilitas API dan nilainya sama dengan `loaderProductivity`; sistem tidak lagi memakai `MIN(Loader, Truck Fleet)` sebagai target operasional.
+- **Hauler Productivity** tetap menjadi database target Dump Truck/Driver untuk Leader Board dan referensi simulasi.
+- **Setting Fleet Simulation** bersifat sementara pada sesi browser: tidak mempunyai periode efektif, tidak ikut payload simpan, dan tidak menjadi sumber modul lain. Refresh halaman menghapus hasil simulasi.
+- Snapshot Fleet Deployment yang sudah dipublikasikan tidak ditulis ulang. Deployment baru mengambil snapshot Loader Productivity sehingga histori audit tetap utuh.
+- Payload planning aktif dinaikkan ke versi `8` dengan `loaderCatalog`; pembacaan `fleetCatalog` lama hanya menjadi fallback migrasi jika record memiliki `loaderProductivity`, bukan hasil Setting Fleet.
+
+Bagian v6 dan v5 di bawah dipertahankan sebagai histori implementasi dan bukan kontrak operasional saat ini.
 
 ## Implementasi v6 — pemisahan database Loader dan Setting Fleet (17 September 2026)
 

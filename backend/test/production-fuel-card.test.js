@@ -66,3 +66,63 @@ test('Fuel card blocks duplicate unit-date-shift and non-increasing counters', (
     'KM_NOT_INCREASING',
   ]);
 });
+
+test('Fuel card validates physical meter resets with Lifetime HM from the authoritative event', () => {
+  const result = calculateFuelReadingMetrics({
+    hmReading: 4.8,
+    hmLifetimeReading: 55.8,
+    hmLineageStatus: 'derived',
+    odometerReading: null,
+    fuelFilled: 44,
+    isMeterReset: false,
+  }, {
+    duplicateCount: 0,
+    previous: { hm_reading: 2.6, hm_lifetime_reading: 53.6, hm_lineage_status: 'derived' },
+    next: null,
+    equipment: { fuel_rate_lph: 20, kelas_alat: 'Wheel Loader' },
+  });
+
+  assert.equal(result.hmLifetimeReading, 55.8);
+  assert.ok(Math.abs(result.hmDelta - 2.2) < 1e-9);
+  assert.ok(Math.abs(result.fuelPerHm - 20) < 1e-9);
+  assert.equal(result.issues.length, 0);
+});
+
+test('Fuel card starts a baseline instead of mixing a legacy counter with Lifetime HM', () => {
+  const result = calculateFuelReadingMetrics({
+    hmReading: 4.8,
+    hmLifetimeReading: 55.8,
+    hmLineageStatus: 'derived',
+    odometerReading: null,
+    fuelFilled: 44,
+    isMeterReset: false,
+  }, {
+    duplicateCount: 0,
+    previous: { hm_reading: 54, hm_lifetime_reading: null, hm_lineage_status: 'legacy_unreconciled' },
+    next: null,
+    equipment: { fuel_rate_lph: 20, kelas_alat: 'Wheel Loader' },
+  });
+
+  assert.equal(result.hmDelta, null);
+  assert.equal(result.hmLineageStatus, 'baseline');
+  assert.ok(result.warnings.some(item => item.code === 'HM_BASELINE_MISSING'));
+  assert.equal(result.issues.length, 0);
+});
+
+test('Fuel card rejects independent manual meter reset flags', () => {
+  const result = calculateFuelReadingMetrics({
+    hmReading: 1,
+    hmLifetimeReading: 101,
+    hmLineageStatus: 'derived',
+    odometerReading: null,
+    fuelFilled: 10,
+    isMeterReset: true,
+  }, {
+    duplicateCount: 0,
+    previous: null,
+    next: null,
+    equipment: { fuel_rate_lph: 10, kelas_alat: 'Excavator' },
+  });
+
+  assert.equal(result.issues[0].code, 'METER_EVENT_REQUIRED');
+});

@@ -27,5 +27,5 @@ test('browser tidak mengizinkan pengaturan jarak dari ritase yang belum disimpan
 
 test('loader memakai versi asset terbaru untuk menghindari cache lama', () => {
   assert.ok(Number(loader.match(/'production\.js\?v=(\d+)'/)?.[1]) >= 84);
-  assert.match(loader, /'ritaseReport\.js\?v=7'/);
+  assert.match(loader, /'ritaseReport\.js\?v=8'/);
 });

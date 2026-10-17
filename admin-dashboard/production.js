@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // MODUL MINING PRODUCTION MANAGEMENT SYSTEM (OMOS) - FRONTEND LOGIC
 // ============================================================
 
@@ -16,6 +16,13 @@ let chartYtdObj = null;
 let filteredEquipmentUnits = null;
 const ritaseProductivityContexts = new Map();
 const ritaseDistanceContexts = new Map();
+const ritaseDirtyFleetIds = new Set();
+
+window.addEventListener('beforeunload', event => {
+  if (!ritaseDirtyFleetIds.size) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 const RITASE_PRODUCTIVITY_THRESHOLDS = Object.freeze({ achieved: 95, near: 85 });
 
 // Helper API URL & Headers
@@ -209,6 +216,7 @@ async function muatMinePlanningOverview() {
 
 // Buka Tab Submenu Produksi
 function bukaTabProduksi(tabName) {
+  const openEmbeddedUnitMapping = tabName === 'prodUnitMapping';
   const inputDataTab = document.getElementById('tab-prodInputData');
   if (!inputDataNavigationBypass && tabName !== 'prodInputData' && inputDataTab && !inputDataTab.hidden && inputDataDrafts.size) {
     requestInputDataNavigation(() => bukaTabProduksi(tabName));
@@ -219,6 +227,7 @@ function bukaTabProduksi(tabName) {
     requestFuelNavigation(() => bukaTabProduksi(tabName));
     return;
   }
+  if (openEmbeddedUnitMapping) tabName = 'prodFleetCapacity';
   // Sembunyikan semua tab absensi/payroll (.tab-panel) dan tab produksi (.tab-konten)
   document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('is-aktif'));
   document.querySelectorAll('.tab-konten').forEach(el => el.hidden = true);
@@ -277,8 +286,11 @@ function bukaTabProduksi(tabName) {
           });
         })();
       case 'prodBudgetingCosting': return window.FuelBudgetingPlanning?.init();
-      case 'prodFleetCapacity': return window.FleetCapacityPlanning?.init();
-      case 'prodUnitMapping': return window.UnitMappingPlanning?.init();
+      case 'prodFleetCapacity':
+        return (async () => {
+          await window.FleetCapacityPlanning?.init();
+          if (openEmbeddedUnitMapping) await window.FleetCapacityPlanning?.showView('mapping');
+        })();
       case 'prodInputData': return muatProdInputData();
       case 'prodInputFuel': return muatProdInputFuel();
       case 'prodStandby': return muatProdStandby();
@@ -288,6 +300,7 @@ function bukaTabProduksi(tabName) {
       case 'prodDataProduksi': return window.ProductionData.init();
       case 'prodReviewProduksi': return window.ReviewProduksi.init();
       case 'prodProductivityReport': return muatProductivityReport();
+      case 'prodSurveyReport': return muatSurveyReport();
       case 'prodMtdReport': return muatMtdReport();
       case 'prodYtdReport': return muatYtdReport();
       case 'prodProjectToDate': return muatProjectToDate();
@@ -414,11 +427,12 @@ function terapkanSlicerEquipment() {
   }
 
   if (units.length === 0) {
-    tbodyEquip.innerHTML = '<tr><td colspan="14" class="tabel__kosong">Tidak ada unit yang sesuai dengan filter slicer.</td></tr>';
+    tbodyEquip.innerHTML = '<tr><td colspan="16" class="tabel__kosong">Tidak ada unit yang sesuai dengan filter slicer.</td></tr>';
   } else {
     tbodyEquip.innerHTML = units.map(u => `
       <tr>
         <td><strong style="color:#0284c7;">${u.kode_alat}</strong></td>
+        <td>${u.scan_id ? `<button type="button" class="equip-scan-id" onclick="window.FuelAccessUi?.openEquipmentId('${escapeMinePlanning(u.id)}')" title="Lihat QR, cetak label, buat ulang ID">${escapeMinePlanning(u.scan_id)}</button>` : '<span style="font-size:11px;color:#94a3b8;" title="Jalankan migrasi 104">—</span>'}</td>
         <td>${u.kelas_alat}</td>
         <td>${u.class_unit || '-'}</td>
         <td>${u.tipe_alat}</td>
@@ -431,6 +445,7 @@ function terapkanSlicerEquipment() {
         <td><span style="font-size:12px;color:#0f172a;">${u.lokasi || '-'}</span></td>
         <td><span style="font-size:12px;color:#64748b;">${u.keterangan || '-'}</span></td>
         <td>${u.km_only ? '<span style="background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">Km-only</span>' : '<span style="font-size:12px;color:#94a3b8;">-</span>'}</td>
+        <td>${u.fuel_tank_capacity_liter != null ? `<strong>${Number(u.fuel_tank_capacity_liter).toLocaleString('id-ID')}</strong>` : '<span style="font-size:12px;color:#94a3b8;">-</span>'}</td>
         <td>
           <button class="tombol-tautan" style="color:#0284c7;font-weight:bold;margin-right:8px;" onclick="bukaModalEditEquipment('${u.id}')">✏️ Edit</button>
           <button class="tombol-tautan" style="color:#ef4444;font-weight:bold;" onclick="hapusEquipmentParameter('${u.id}')">🗑️ Hapus</button>
@@ -438,6 +453,14 @@ function terapkanSlicerEquipment() {
       </tr>
     `).join('');
   }
+}
+
+// Label QR APK OMOS Fuel untuk unit yang sedang tampil (mengikuti slicer).
+function cetakLabelEquipmentTerfilter() {
+  const units = (filteredEquipmentUnits || masterProdData.equipment || []).filter(u => u.scan_id);
+  if (!units.length) return alert('Belum ada unit dengan ID QR (migrasi 104 belum dijalankan?).');
+  if (!window.FuelAccessUi) return alert('Modul Akses Fuel belum termuat. Muat ulang halaman.');
+  window.FuelAccessUi.cetakLabel({ targetType: 'equipment', ids: units.map(u => u.id) });
 }
 
 function renderEquipmentPopulationHighlights(units) {
@@ -603,18 +626,23 @@ async function muatProdParamStandbyBd() {
 
   if (tbodyJob) {
     const jobs = masterProdData.jobCodes || [];
-    tbodyJob.innerHTML = jobs.length ? jobs.map(job => `
-      <tr data-job-code-row="${escapeMinePlanning(job.id)}">
-        <td><input data-job-code-field="job_code" class="input-filter" maxlength="20" value="${escapeMinePlanning(job.job_code)}" style="width:100%;font-weight:800;text-transform:uppercase;" /></td>
+    const readOnlyJobCodes = new Set(['OB', 'CG', 'DW']);
+    tbodyJob.innerHTML = jobs.length ? jobs.map(job => {
+      const code = String(job.job_code || '').trim().toUpperCase();
+      const locked = readOnlyJobCodes.has(code);
+      return `
+      <tr data-job-code-row="${escapeMinePlanning(job.id)}" data-job-code-locked="${locked ? 'true' : 'false'}">
+        <td><input data-job-code-field="job_code" class="input-filter" maxlength="20" value="${escapeMinePlanning(job.job_code)}" ${locked ? 'readonly aria-readonly="true" title="Kode JOB sistem tidak dapat diubah"' : ''} style="width:100%;font-weight:800;text-transform:uppercase;${locked ? 'background:#eef2ff;color:#3730a3;' : ''}" /></td>
         <td><input data-job-code-field="job_desc" class="input-filter" maxlength="200" value="${escapeMinePlanning(job.job_desc)}" style="width:100%;" /></td>
         <td>
           <div style="display:flex;gap:6px;align-items:center;">
 <button class="tombol tombol--kecil" onclick="simpanJobCode('${escapeMinePlanning(job.id)}',this)">Simpan</button>
-            <button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusJobCode('${escapeMinePlanning(job.id)}')">Hapus</button>
+            ${locked ? '<span class="standby-system-lock" title="Kode sistem tidak dapat dihapus">🔒 Kode sistem</span>' : `<button class="tombol tombol--ghost tombol--kecil" style="color:#b91c1c;" onclick="hapusJobCode('${escapeMinePlanning(job.id)}')">Hapus</button>`}
           </div>
         </td>
       </tr>
-    `).join('') : '<tr><td colspan="3" class="tabel__kosong">Belum ada master JOB. Tambahkan kode JOB baru.</td></tr>';
+    `;
+    }).join('') : '<tr><td colspan="3" class="tabel__kosong">Belum ada master JOB. Tambahkan kode JOB baru.</td></tr>';
   }
 
   if (tbodyProblem) {
@@ -1458,6 +1486,76 @@ let inputDataDraftRecoveryPrompted = false;
 let inputDataNavigationBypass = false;
 let inputDataBeforeUnloadBypass = false;
 
+async function loadHmMeterEventHistory(equipmentId) {
+  const host = document.getElementById('hmMeterEventHistory');
+  if (!host || !equipmentId) return;
+  host.innerHTML = '<div style="padding:10px;color:#64748b;font-size:12px;">Memuat riwayat meter…</div>';
+  try {
+    const response = await fetch(getProdApiUrl(`/api/admin/production/hm-meter-events?equipment_id=${encodeURIComponent(equipmentId)}`), { headers: getProdAuthHeaders() });
+    const rows = await response.json().catch(() => []);
+    if (!response.ok) throw new Error(rows.error || `HTTP ${response.status}`);
+    host.innerHTML = rows.length ? rows.map(row => `<div style="padding:8px 10px;border-top:1px solid #e2e8f0;font-size:11px;color:#334155;"><b>${escapeMinePlanning(formatTanggalMining(row.effective_date))} · ${escapeMinePlanning(row.nama_shift)}</b><br>Meter ${escapeMinePlanning(row.old_meter_final)} → ${escapeMinePlanning(row.new_meter_initial)} · Offset Lifetime ${escapeMinePlanning(row.lifetime_offset)}<br><span style="color:#64748b;">${escapeMinePlanning(row.reason)}</span></div>`).join('') : '<div style="padding:10px;color:#64748b;font-size:12px;">Belum ada event penggantian HM.</div>';
+  } catch (error) {
+    host.innerHTML = `<div style="padding:10px;color:#b91c1c;font-size:12px;">${escapeMinePlanning(error.message)}</div>`;
+  }
+}
+
+function bukaModalHmMeter() {
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!overlay || !konten) return;
+  const units = [...(masterProdData.equipment || [])].filter(unit => !unit.deleted_at).sort((a, b) => String(a.kode_alat).localeCompare(String(b.kode_alat), 'id-ID', { numeric: true }));
+  const shifts = masterProdData.shifts || [];
+  konten.innerHTML = `<div class="hm-meter-modal" style="width:min(920px,94vw);">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;"><div><h3 style="margin:0;color:#0f172a;">⚙ Penggantian / Reset HM Meter</h3><p style="margin:5px 0 14px;color:#64748b;font-size:12px;line-height:1.45;">Catat angka fisik meter. Sistem membentuk Lifetime HM untuk menjaga kontinuitas EWH dan Periodic Service.</p></div><button type="button" class="tombol" onclick="tutupModalGenerik()">✕</button></div>
+    <form id="formHmMeterLifecycle">
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+        <label class="label">Kode Unit<select id="hmMeterEquipment" class="input-filter" required><option value="">Pilih unit</option>${units.map(unit => `<option value="${escapeMinePlanning(unit.id)}">${escapeMinePlanning(unit.kode_alat)} — ${escapeMinePlanning(unit.tipe_alat || unit.class_unit || '')}</option>`).join('')}</select></label>
+        <label class="label">Jenis Event<select id="hmMeterEventType" class="input-filter"><option value="replacement">Penggantian Meter</option><option value="reset">Reset Meter</option><option value="installation">Pemasangan Pertama</option></select></label>
+        <label class="label">Tanggal Efektif<input id="hmMeterEffectiveDate" type="date" class="input-filter" value="${escapeMinePlanning(getLocalDateInputValue())}" required></label>
+        <label class="label">Shift Efektif<select id="hmMeterEffectiveShift" class="input-filter" required><option value="">Pilih shift</option>${shifts.map(shift => `<option value="${escapeMinePlanning(shift.id)}">${escapeMinePlanning(shift.nama_shift)}</option>`).join('')}</select></label>
+        <label class="label">HM Akhir Meter Lama<input id="hmMeterOldFinal" type="number" min="0" step="0.01" class="input-filter" required></label>
+        <label class="label">HM Awal Meter Baru<input id="hmMeterNewInitial" type="number" min="0" step="0.01" class="input-filter" value="0" required></label>
+        <label class="label">Serial Meter Lama (opsional)<input id="hmMeterOldSerial" class="input-filter"></label>
+        <label class="label">Serial Meter Baru (opsional)<input id="hmMeterNewSerial" class="input-filter"></label>
+      </div>
+      <label class="label" style="display:block;margin-top:10px;"><span style="display:block;margin-bottom:5px;">Alasan / Referensi Pekerjaan</span><textarea id="hmMeterReason" class="input-filter" rows="2" minlength="5" required placeholder="Contoh: penggantian hour meter berdasarkan WO..." style="display:block;width:100%;box-sizing:border-box;"></textarea></label>
+      <div style="margin-top:12px;border:1px solid #dbeafe;border-radius:8px;background:#f8fafc;"><b style="display:block;padding:9px 10px;color:#1e3a8a;font-size:12px;">Riwayat meter unit</b><div id="hmMeterEventHistory"><div style="padding:10px;color:#64748b;font-size:12px;">Pilih unit untuk melihat riwayat.</div></div></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;"><button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button><button type="submit" class="tombol tombol--utama">Simpan Event HM</button></div>
+    </form></div>`;
+  overlay.hidden = false;
+  document.getElementById('hmMeterEquipment')?.addEventListener('change', event => loadHmMeterEventHistory(event.target.value));
+  document.getElementById('formHmMeterLifecycle')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = window.OMOSActionFeedback?.submitter(event) || event.submitter;
+    const task = async () => {
+      const body = {
+        equipment_id: document.getElementById('hmMeterEquipment').value,
+        event_type: document.getElementById('hmMeterEventType').value,
+        effective_date: document.getElementById('hmMeterEffectiveDate').value,
+        effective_shift_id: document.getElementById('hmMeterEffectiveShift').value,
+        old_meter_final: document.getElementById('hmMeterOldFinal').value,
+        new_meter_initial: document.getElementById('hmMeterNewInitial').value,
+        old_meter_serial: document.getElementById('hmMeterOldSerial').value,
+        new_meter_serial: document.getElementById('hmMeterNewSerial').value,
+        reason: document.getElementById('hmMeterReason').value,
+      };
+      const response = await fetch(getProdApiUrl('/api/admin/production/hm-meter-events'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(body) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      tutupModalGenerik();
+      await muatProdInputData({ preserveDrafts: true });
+      return result;
+    };
+    try {
+      if (window.OMOSActionFeedback?.run) await window.OMOSActionFeedback.run(button, task);
+      else await task();
+    } catch (error) {
+      alert(`Gagal menyimpan event HM: ${error.message}`);
+    }
+  });
+}
+
 function getInputDataDraftStorageKey() {
   const account = localStorage.getItem('admin_email') || localStorage.getItem('user_email') || 'default';
   return `omos:production-input-drafts:${account}`;
@@ -1491,9 +1589,10 @@ function updateInputDataSaveIndicator(message = '') {
   if (button) {
     button.disabled = count === 0;
     button.textContent = count ? `Simpan Perubahan (${count})` : 'Simpan Perubahan';
+    button.setAttribute('aria-disabled', count === 0 ? 'true' : 'false');
   }
   if (status) {
-    status.textContent = message || (count ? `${count} baris belum disimpan` : 'Tersimpan');
+    status.textContent = message || (count ? `Data belum disimpan · ${count} baris` : 'Tersimpan');
     status.style.color = count ? '#b45309' : '#15803d';
   }
 }
@@ -1503,7 +1602,61 @@ function captureInputLogRowDraft(row) {
   row.querySelectorAll('[data-input-log-field]').forEach(field => {
     fields[field.dataset.inputLogField] = field.value;
   });
-  return { fields, updatedAt: new Date().toISOString() };
+  return {
+    fields,
+    isNew: row?.dataset.inputLogNew === 'true',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function isNewInputLogDraft(logId, draft = null) {
+  return Boolean(draft?.isNew) || String(logId || '').startsWith('new:');
+}
+
+function createInputLogDraftId() {
+  const suffix = globalThis.crypto?.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `new:${suffix}`;
+}
+
+function localDateIso(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function defaultInputLogDate() {
+  const previousDay = new Date();
+  previousDay.setDate(previousDay.getDate() - 1);
+  return localDateIso(previousDay);
+}
+
+function insertInputDataRow() {
+  const logId = createInputLogDraftId();
+  inputDataDrafts.set(logId, {
+    isNew: true,
+    fields: {
+      tanggal: defaultInputLogDate(),
+      shift_id: '',
+      equipment_id: '',
+      class_filter: '',
+      operator_id: '',
+      area_name: '',
+      hm_start: '',
+      hm_finish: '',
+      total_hm: '',
+      job: '',
+      job_description: '',
+    },
+    updatedAt: new Date().toISOString(),
+  });
+  persistInputDataDrafts();
+  clearInputDataValidationGuide();
+  terapkanSlicerInputData();
+  const row = document.querySelector(`[data-input-log-row][data-log-id="${CSS.escape(logId)}"]`);
+  row?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  setTimeout(() => row?.querySelector('[data-input-log-field="shift_id"]')?.focus({ preventScroll: true }), 250);
 }
 
 function updateInputDataHistoryButtons() {
@@ -1532,7 +1685,11 @@ function inputDataDraftsEqual(left, right) {
 }
 
 function applyInputDataEditSnapshot(logId, snapshot) {
-  inputDataDrafts.set(String(logId), { fields: { ...(snapshot?.fields || {}) }, updatedAt: new Date().toISOString() });
+  inputDataDrafts.set(String(logId), {
+    fields: { ...(snapshot?.fields || {}) },
+    isNew: isNewInputLogDraft(logId, snapshot),
+    updatedAt: new Date().toISOString(),
+  });
   persistInputDataDrafts();
   terapkanSlicerInputData();
   const row = document.querySelector(`[data-input-log-row][data-log-id="${CSS.escape(String(logId))}"]`);
@@ -2156,27 +2313,35 @@ async function deleteSelectedInputDataLogs() {
   if (!ids.length) return alert('Pilih minimal satu Work Log.');
   if (!confirm(`Hapus ${ids.length} Work Log terpilih? Data akan dikeluarkan dari tabel.`)) return;
   const deletedDrafts = Object.fromEntries(ids.filter(id => inputDataDrafts.has(String(id))).map(id => [String(id), inputDataDrafts.get(String(id))]));
+  const localDraftIds = ids.filter(id => isNewInputLogDraft(id, inputDataDrafts.get(String(id))));
+  const persistedIds = ids.filter(id => !localDraftIds.includes(id));
   const deleteButton = document.getElementById('btnDeleteSelectedWorkLogs');
   if (deleteButton) {
     deleteButton.disabled = true;
     deleteButton.textContent = 'Menghapus...';
   }
   try {
-    const response = await fetch(getProdApiUrl('/api/admin/production/logs/batch'), {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-      body: JSON.stringify({ ids }),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    let result = { deleted: 0, ids: [] };
+    if (persistedIds.length) {
+      const response = await fetch(getProdApiUrl('/api/admin/production/logs/batch'), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+        body: JSON.stringify({ ids: persistedIds }),
+      });
+      result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    }
     ids.forEach(id => inputDataDrafts.delete(String(id)));
     persistInputDataDrafts();
     clearInputDataValidationGuide();
     inputDataDeleteSelection.clear();
     inputDataBulkDeleteMode = false;
     await muatProdInputData();
-    pushInputDataHistory({ type: 'delete', ids: [...(result.ids || ids)].map(String), drafts: deletedDrafts, label: `Hapus ${result.deleted || ids.length} Work Log` });
-    alert(`${result.deleted || 0} Work Log berhasil dihapus.`);
+    if (persistedIds.length) {
+      const restoredDrafts = Object.fromEntries(Object.entries(deletedDrafts).filter(([id]) => persistedIds.includes(id)));
+      pushInputDataHistory({ type: 'delete', ids: [...(result.ids || persistedIds)].map(String), drafts: restoredDrafts, label: `Hapus ${result.deleted || persistedIds.length} Work Log` });
+    }
+    alert(`${Number(result.deleted || persistedIds.length) + localDraftIds.length} Work Log berhasil dihapus.`);
   } catch (error) {
     alert(`Gagal menghapus Work Log: ${error.message}`);
     if (deleteButton) {
@@ -2193,7 +2358,7 @@ function inputLogOption(value, label, selectedValue) {
 
 function inputLogShiftOptions(selectedValue) {
   const selectedCategory = getInputLogShiftCategory(selectedValue);
-  return getInputLogShiftChoices()
+  return inputLogOption('', 'Pilih Shift', selectedValue) + getInputLogShiftChoices()
     .map(shift => inputLogOption(shift.id, shift.nama_shift, shift.category === selectedCategory ? shift.id : selectedValue))
     .join('');
 }
@@ -2307,6 +2472,20 @@ function terapkanSlicerInputData() {
     logs = logs.filter(l => l.nama_operator === opVal);
   }
 
+  // Draft insert selalu ditampilkan agar baris yang belum disimpan tidak
+  // menghilang akibat slicer. Draft tersebut baru menjadi record server saat
+  // pengguna menekan "Simpan Perubahan".
+  const newDraftRows = [...inputDataDrafts.entries()]
+    .filter(([logId, draft]) => isNewInputLogDraft(logId, draft))
+    .map(([logId, draft]) => ({
+      id: logId,
+      ...(draft.fields || {}),
+      tanggal: draft.fields?.tanggal || '',
+      total_hm: draft.fields?.total_hm || '',
+      __inputDataNew: true,
+    }));
+  logs = [...newDraftRows, ...logs];
+
   if (counterBadge) {
     counterBadge.textContent = `Total Work Log: ${logs.length}`;
   }
@@ -2320,7 +2499,7 @@ function terapkanSlicerInputData() {
   tbody.innerHTML = logs.map(row => {
     const resolvedClass = resolveInputLogEquipmentClass(row.equipment_id, row.class_unit);
     return `
-    <tr data-input-log-row data-log-id="${escapeMinePlanning(row.id)}"${row.hm_validated_at ? ` data-hm-anomaly="${escapeMinePlanning(row.hm_anomaly_status || 'normal')}"` : ''}>
+    <tr data-input-log-row data-log-id="${escapeMinePlanning(row.id)}"${row.__inputDataNew ? ' data-input-log-new="true" data-save-state="dirty"' : ''}${row.hm_validated_at ? ` data-hm-anomaly="${escapeMinePlanning(row.hm_anomaly_status || 'normal')}"` : ''}>
       <td data-input-delete-column${inputDataBulkDeleteMode ? '' : ' hidden'} style="text-align:center;"><input type="checkbox" data-input-log-select value="${escapeMinePlanning(row.id)}" onchange="toggleInputDataDeleteSelection('${escapeMinePlanning(row.id)}',this.checked)" style="width:17px;height:17px;accent-color:#dc2626;"${inputDataDeleteSelection.has(String(row.id)) ? ' checked' : ''}></td>
       <td><input type="date" data-input-log-field="tanggal" value="${escapeMinePlanning(String(row.tanggal || '').split('T')[0])}" required /></td>
       <td><select data-input-log-field="shift_id" required>${inputLogShiftOptions(row.shift_id)}</select></td>
@@ -2330,7 +2509,7 @@ function terapkanSlicerInputData() {
       <td><select data-input-log-field="area_name" required>${inputLogAreaOptions(row.area_name || row.nama_pit)}</select></td>
       <td class="prod-input-number"><input type="number" step="0.01" min="0" data-input-log-field="hm_start" value="${escapeMinePlanning(row.hm_start ?? '')}" required /></td>
       <td class="prod-input-number"><input type="number" step="0.01" min="0" data-input-log-field="hm_finish" value="${escapeMinePlanning(row.hm_finish ?? '')}" required /></td>
-      <td class="prod-input-number"><input type="number" step="0.01" data-input-log-field="total_hm" value="${escapeMinePlanning(row.total_hm ?? '')}" readonly aria-readonly="true" />${inputHmStatusMarkup(row)}</td>
+      <td class="prod-input-number"><input type="number" step="0.01" data-input-log-field="total_hm" value="${escapeMinePlanning(row.total_hm ?? '')}" readonly aria-readonly="true" />${row.__inputDataNew ? '<span data-hm-status-badge style="display:inline-flex;margin-top:4px;padding:2px 6px;border-radius:999px;border:1px solid #f59e0b;background:#fef3c7;color:#78350f;font-size:9px;font-weight:900;white-space:nowrap;">Baru</span>' : inputHmStatusMarkup(row)}</td>
       <td><select data-input-log-field="job" required>${inputLogJobOptions(row.job || '')}</select></td>
       <td><input type="text" data-input-log-field="job_description" value="${escapeMinePlanning(row.job_description || '')}" placeholder="Job Description" required /></td>
     </tr>
@@ -2511,7 +2690,10 @@ function inputHmStatusMarkup(log) {
   const status = validated ? (log.hm_anomaly_status || 'normal') : 'pending';
   const meta = hmStatusMeta(status, validated);
   const messages = hmAnalysisMessages(log?.hm_anomaly_details || log?.hm_analysis || {});
-  return `<span data-hm-status-badge style="display:inline-flex;margin-top:4px;padding:2px 6px;border-radius:999px;border:1px solid ${meta.border};background:${meta.background};color:${meta.color};font-size:9px;font-weight:900;white-space:nowrap;" title="${escapeMinePlanning(messages.join(' | ') || meta.label)}">${meta.label}</span>`;
+  const meterBadge = log?.hm_meter_event_id
+    ? `<span style="display:inline-flex;margin:4px 0 0 3px;padding:2px 6px;border-radius:999px;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;font-size:9px;font-weight:900;white-space:nowrap;" title="Lifetime HM ${escapeMinePlanning(log.hm_lifetime_start ?? log.hm_start)}–${escapeMinePlanning(log.hm_lifetime_finish ?? log.hm_finish)}">Meter Baru</span>`
+    : '';
+  return `<span data-hm-status-badge style="display:inline-flex;margin-top:4px;padding:2px 6px;border-radius:999px;border:1px solid ${meta.border};background:${meta.background};color:${meta.color};font-size:9px;font-weight:900;white-space:nowrap;" title="${escapeMinePlanning(messages.join(' | ') || meta.label)}">${meta.label}</span>${meterBadge}`;
 }
 
 function applyInputHmAnalysis(row, analysis, persistedStatus = '') {
@@ -2597,7 +2779,14 @@ async function checkInputLogHmAnomaly(row) {
   try {
     const response = await fetch(getProdApiUrl('/api/admin/production/logs/hm-check'), {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
-      body: JSON.stringify({ log_id: row.dataset.logId, tanggal: fieldValue('tanggal'), shift_id: fieldValue('shift_id'), equipment_id: fieldValue('equipment_id'), hm_start: hmStart, hm_finish: hmFinish }),
+      body: JSON.stringify({
+        ...(row.dataset.inputLogNew === 'true' ? {} : { log_id: row.dataset.logId }),
+        tanggal: fieldValue('tanggal'),
+        shift_id: fieldValue('shift_id'),
+        equipment_id: fieldValue('equipment_id'),
+        hm_start: hmStart,
+        hm_finish: hmFinish,
+      }),
     });
     const analysis = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(analysis.error || `HTTP ${response.status}`);
@@ -2609,7 +2798,12 @@ async function checkInputLogHmAnomaly(row) {
 
 async function persistInputLogDraft(logId, draft) {
   const payload = buildInputLogDraftPayload(draft);
-  const result = await sendInputLogWithHmConfirmation(`/api/admin/production/logs/${encodeURIComponent(logId)}`, 'PATCH', payload);
+  const isNew = isNewInputLogDraft(logId, draft);
+  const result = await sendInputLogWithHmConfirmation(
+    isNew ? '/api/admin/production/logs' : `/api/admin/production/logs/${encodeURIComponent(logId)}`,
+    isNew ? 'POST' : 'PATCH',
+    isNew ? { ...payload, status: 'submitted' } : payload,
+  );
   const cached = cachedInputLogs.find(log => String(log.id) === String(logId));
   if (cached) Object.assign(cached, result);
   const renderedRow = document.querySelector(`[data-input-log-row][data-log-id="${CSS.escape(String(logId))}"]`);
@@ -2642,12 +2836,14 @@ async function simpanSemuaPerubahanInputData() {
   updateInputDataSaveIndicator('Menyimpan perubahan...');
   clearInputDataValidationGuide();
   const failures = [];
+  const createdIds = [];
   let savedCount = 0;
   let completed = false;
   try {
     for (const [logId, draft] of [...inputDataDrafts.entries()]) {
       try {
-        await persistInputLogDraft(logId, draft);
+        const result = await persistInputLogDraft(logId, draft);
+        if (isNewInputLogDraft(logId, draft) && result?.id) createdIds.push(String(result.id));
         inputDataDrafts.delete(logId);
         savedCount += 1;
       } catch (error) {
@@ -2655,6 +2851,10 @@ async function simpanSemuaPerubahanInputData() {
       }
     }
     persistInputDataDrafts();
+    await muatProdInputData();
+    if (createdIds.length) {
+      pushInputDataHistory({ type: 'create', ids: createdIds, label: `Insert ${createdIds.length} Work Log` });
+    }
     if (failures.length) {
       updateInputDataSaveIndicator(`${failures.length} baris gagal disimpan`);
       showInputDataValidationGuide(failures);
@@ -2856,6 +3056,105 @@ async function bukaModalMultiWorkLog() {
       });
     } catch (error) {
       alert(`Gagal membuat Multi Work Log: ${error.message}`);
+    }
+  });
+}
+
+async function bukaModalPergantianOperator(equipmentId, tanggal, shiftId, lastHmFinish, areaName, jobCode, sourceLogId, currentUnitTotal) {
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!overlay || !konten) return;
+  if (!(masterProdData.equipment || []).length || !(masterProdData.jobCodes || []).length) {
+    await muatMasterDataProduksi();
+  }
+  const unit = (masterProdData.equipment || []).find(item => String(item.id) === String(equipmentId));
+  const operators = cachedInputOperators || [];
+  const areas = [...new Set((masterProdData.equipment || []).map(item => String(item.lokasi || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id-ID'));
+  const jobs = [...(masterProdData.jobCodes || [])].filter(job => job.job_code).sort((a, b) => String(a.job_code).localeCompare(String(b.job_code), 'id-ID', { numeric: true }));
+  if (!operators.length) return alert('Master operator belum tersedia.');
+  const autoStart = Number(lastHmFinish);
+  const operatorOptions = operators.map(op => `<option value="${escapeMinePlanning(op.id)}">${escapeMinePlanning(`${op.nama} — ${op.jabatan || 'Operator'}`)}</option>`).join('');
+  const areaOptions = areas.map(area => `<option value="${escapeMinePlanning(area)}" ${area === areaName ? 'selected' : ''}>${escapeMinePlanning(area)}</option>`).join('');
+  const jobOptions = jobs.map(job => `<option value="${escapeMinePlanning(job.job_code)}" ${job.job_code === jobCode ? 'selected' : ''}>${escapeMinePlanning(job.job_code)} — ${escapeMinePlanning(job.job_desc || '')}</option>`).join('');
+  const handoverReasons = ['Pergantian operator', 'Perpindahan PIT/Area', 'Pergantian JOB', 'Break / istirahat', 'Koreksi admin'];
+
+  konten.innerHTML = `
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px;">
+      <div><h3 style="margin:0;color:#0f172a;">Pergantian Operator — ${escapeMinePlanning(unit?.kode_alat || 'Unit')}</h3>
+      <p style="margin:4px 0 0;color:#64748b;font-size:12px;">Tambah segmen operator baru pada unit, tanggal operasional, dan shift yang sama. Interval HM tidak boleh overlap.</p></div>
+    </div>
+    <form id="formPergantianOperator">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div><label class="label">Tanggal Operasional</label><input type="date" class="input-filter" value="${escapeMinePlanning(tanggal)}" disabled style="background:#f1f5f9;" /></div>
+        <div><label class="label">Shift</label><input type="text" class="input-filter" value="${escapeMinePlanning(getInputLogShiftChoices().find(s => s.id === shiftId)?.nama_shift || '')}" disabled style="background:#f1f5f9;" /></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div><label class="label">Operator Baru</label><select id="poOperator" class="input-filter" required>${operatorOptions}</select></div>
+        <div><label class="label">Alasan Pergantian</label><select id="poReason" class="input-filter"><option value="">Pilih alasan</option>${handoverReasons.map(r => `<option>${escapeMinePlanning(r)}</option>`).join('')}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div><label class="label">HM Awal <span style="color:#0f766e;font-weight:600;">(otomatis dari HM akhir segmen terakhir, dapat dikoreksi)</span></label><input id="poHmStart" type="number" step="0.01" min="0" class="input-filter" value="${Number.isFinite(autoStart) ? autoStart.toFixed(2) : ''}" required /></div>
+        <div><label class="label">HM Akhir</label><input id="poHmFinish" type="number" step="0.01" min="0" class="input-filter" required /></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div><label class="label">PIT / Area</label><select id="poArea" class="input-filter" required><option value="">Pilih PIT / Area</option>${areaOptions}</select></div>
+        <div><label class="label">JOB</label><select id="poJob" class="input-filter" required><option value="">Pilih JOB</option>${jobOptions}</select></div>
+      </div>
+      <div style="margin-bottom:10px;"><label class="label">Catatan</label><textarea id="poNote" class="input-filter" rows="2" placeholder="Konteks operasional / audit (opsional)"></textarea></div>
+      <div id="poPreview" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button>
+        <button id="btnSubmitPergantianOperator" type="submit" class="tombol tombol--utama">Simpan Segmen</button>
+      </div>
+    </form>`;
+  overlay.hidden = false;
+
+  const hmStart = document.getElementById('poHmStart');
+  const hmFinish = document.getElementById('poHmFinish');
+  const preview = document.getElementById('poPreview');
+  const updatePreview = () => {
+    const start = Number(hmStart.value);
+    const finish = Number(hmFinish.value);
+    if (!Number.isFinite(start) || !Number.isFinite(finish) || finish < start) {
+      preview.innerHTML = '';
+      return;
+    }
+    const segTotal = (finish - start).toFixed(2);
+    const unitTotal = (Number(currentUnitTotal) + (finish - start)).toFixed(2);
+    preview.innerHTML = `
+      <div style="flex:1;min-width:150px;padding:10px 12px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;"><span style="display:block;font-size:11px;color:#0f766e;font-weight:700;">Total HM segmen baru</span><strong style="font-size:18px;color:#134e4a;">${segTotal} HM</strong></div>
+      <div style="flex:1;min-width:150px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;"><span style="display:block;font-size:11px;color:#1d4ed8;font-weight:700;">Total HM unit-shift (setelah simpan)</span><strong style="font-size:18px;color:#1e3a8a;">${unitTotal} HM</strong></div>`;
+  };
+  hmStart.addEventListener('input', updatePreview);
+  hmFinish.addEventListener('input', updatePreview);
+
+  document.getElementById('formPergantianOperator').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!event.currentTarget.reportValidity()) return;
+    const bodyData = {
+      tanggal,
+      shift_id: shiftId,
+      equipment_id: equipmentId,
+      operator_id: document.getElementById('poOperator').value,
+      area_name: document.getElementById('poArea').value,
+      job: document.getElementById('poJob').value.trim(),
+      job_description: (masterProdData.jobCodes || []).find(j => j.job_code === document.getElementById('poJob').value)?.job_desc || '',
+      hm_start: hmStart.value,
+      hm_finish: hmFinish.value,
+      status: 'submitted',
+      handover_reason: document.getElementById('poReason').value || 'Pergantian operator',
+      handover_note: document.getElementById('poNote').value.trim(),
+      source_log_id: sourceLogId || undefined
+    };
+    try {
+      await window.OMOSActionFeedback.run(document.getElementById('btnSubmitPergantianOperator'), async () => {
+        const createdLog = await sendInputLogWithHmConfirmation('/api/admin/production/logs', 'POST', bodyData);
+        tutupModalGenerik();
+        await muatProdInputData();
+        if (createdLog?.id) pushInputDataHistory({ type: 'create', ids: [String(createdLog.id)], label: 'Pergantian Operator' });
+      }, { loadingText: 'Menyimpan segmen…' });
+    } catch (err) {
+      alert('Gagal menyimpan segmen: ' + err.message);
     }
   });
 }
@@ -4207,6 +4506,7 @@ async function loadFuelCardDetails(equipmentId) {
       fuelDetailCache.set(key, payload);
     }
     body.innerHTML = renderFuelCardDetail(card, payload.logs || [], payload.summary || {});
+    void window.FuelEvidenceUi?.hydrate(body);
     applyFuelDraftsToRows();
     bindFuelInlineEditing();
     syncFuelBulkDeleteUi();
@@ -4219,15 +4519,15 @@ function renderFuelCardDetail(card, logs, summary) {
   const inlineDrafts = getFuelInlineDrafts(card.id);
   const persistedRows = logs.map(log => renderFuelLogCardRow(card, log)).join('');
   const pendingRows = inlineDrafts.map(draft => renderFuelInlineRowV2(card, draft.id, draft.fields)).join('');
-  const rows = persistedRows || pendingRows ? `${persistedRows}${pendingRows}` : `<tr><td colspan="13" class="fuel-card-empty-row">Belum ada pengisian pada ${fuelMonthName(currentFuelPeriod().month)} ${currentFuelPeriod().year}. Tekan + Insert Data untuk mulai mengisi.</td></tr>`;
+  const rows = persistedRows || pendingRows ? `${persistedRows}${pendingRows}` : `<tr><td colspan="14" class="fuel-card-empty-row">Belum ada pengisian pada ${fuelMonthName(currentFuelPeriod().month)} ${currentFuelPeriod().year}. Tekan + Insert Data untuk mulai mengisi.</td></tr>`;
   return `<div class="fuel-card-toolbar">
-      <div class="fuel-card-trend"><span><b>Weighted ${fuelMetric(summary.weightedFuelPerHm,2)} L/HM</b><small>${logs.length} transaksi • ${fuelMetric(summary.totalFuelFilled,0)} Liter</small></span>${fuelTrendSvg(logs)}</div>
+      <div class="fuel-card-trend"><span><b>Weighted ${fuelMetric(summary.weightedFuelPerHm,2)} L/HM</b><small>${logs.length} transaksi • ${fuelMetric(summary.totalFuelFilled,0)} Liter${Number(summary.excludedHmRows) ? ` • ${Number(summary.excludedHmRows)} tanpa rasio` : ''}</small></span>${fuelTrendSvg(logs)}</div>
       <div><button class="tombol tombol--ghost" onclick="event.stopPropagation();tambahFuelInlineRow('${escapeMinePlanning(card.id)}')">+ Insert Data</button></div>
     </div>
     <div class="fuel-card-table-wrap"><table class="fuel-card-table">
-      <thead><tr><th data-fuel-delete-column${fuelBulkDeleteMode ? '' : ' hidden'}>Pilih</th><th>Tanggal</th><th>Shift</th><th>HM</th><th>ΔHM</th><th>KM</th><th>ΔKM</th><th>Fuel (L)</th><th>Ltr/HM</th><th>Ltr/KM</th><th>Variance</th><th>Status</th><th>Keterangan</th></tr></thead>
+      <thead><tr><th data-fuel-delete-column${fuelBulkDeleteMode ? '' : ' hidden'}>Pilih</th><th>Tanggal</th><th>Shift</th><th>HM Fisik</th><th>Lifetime HM</th><th>ΔHM</th><th>KM</th><th>ΔKM</th><th>Fuel (L)</th><th>Ltr/HM</th><th>Ltr/KM</th><th>Variance</th><th>Status</th><th>Keterangan</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><th colspan="7">Weighted Summary — ${escapeMinePlanning(card.kode_alat)}</th><th>${fuelMetric(summary.totalFuelFilled,0)}</th><th>${card.km_only ? 'N/A' : fuelMetric(summary.weightedFuelPerHm,2)}</th><th>${(card.supports_distance || card.km_only) ? fuelMetric(summary.weightedFuelPerKm,2) : 'N/A'}</th><th colspan="3">ΔHM ${fuelMetric(summary.totalHm,2)} • ΔKM ${fuelMetric(summary.totalDistance,2)}</th></tr></tfoot>
+      <tfoot><tr><th colspan="8">Weighted Summary — ${escapeMinePlanning(card.kode_alat)}</th><th>${fuelMetric(summary.totalFuelFilled,0)}</th><th>${card.km_only ? 'N/A' : fuelMetric(summary.weightedFuelPerHm,2)}</th><th>${(card.supports_distance || card.km_only) ? fuelMetric(summary.weightedFuelPerKm,2) : 'N/A'}</th><th colspan="3">ΔHM ${fuelMetric(summary.totalHm,2)} • ΔKM ${fuelMetric(summary.totalDistance,2)}</th></tr></tfoot>
     </table></div>`;
 }
 
@@ -4237,11 +4537,19 @@ function renderFuelLogCardRow(card, log) {
   const statusText = status === 'critical' ? 'Anomali' : status === 'warning' ? 'Periksa' : 'Normal';
   const previousHm = log.previous_hm ?? '';
   const previousKm = log.previous_km ?? '';
-  return `<tr data-fuel-row data-fuel-id="${escapeMinePlanning(log.id)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="${escapeMinePlanning(previousHm)}" data-previous-km="${escapeMinePlanning(previousKm)}" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}" data-km-only="${card.km_only ? 'true' : 'false'}" data-anomaly="${escapeMinePlanning(status)}">
+  const rawHm = Number(log.hm_reading); const lifetimeHm = Number(log.hm_lifetime_reading);
+  const meterOffset = Number.isFinite(rawHm) && Number.isFinite(lifetimeHm) ? lifetimeHm - rawHm : '';
+  const lineageLabel = log.hm_lineage_status === 'legacy_unreconciled' ? 'Legacy · rekonsiliasi'
+    : log.hm_lineage_status === 'baseline' ? 'Baseline'
+    : log.hm_lineage_status === 'needs_reconciliation' ? 'Konflik Lifetime'
+    : log.hm_meter_event_id ? 'Meter diganti' : 'Lifetime';
+  const lineageTone = log.hm_lineage_status === 'legacy_unreconciled' || log.hm_lineage_status === 'needs_reconciliation' ? 'is-warning' : 'is-good';
+  return `<tr data-fuel-row data-fuel-id="${escapeMinePlanning(log.id)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="${escapeMinePlanning(previousHm)}" data-meter-offset="${escapeMinePlanning(meterOffset)}" data-previous-km="${escapeMinePlanning(previousKm)}" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}" data-km-only="${card.km_only ? 'true' : 'false'}" data-anomaly="${escapeMinePlanning(status)}">
     <td data-fuel-delete-column${fuelBulkDeleteMode ? '' : ' hidden'}><input type="checkbox" data-fuel-select value="${escapeMinePlanning(log.id)}" onchange="toggleFuelSelection('${escapeMinePlanning(log.id)}',this.checked)" /></td>
     <td><input data-fuel-field="equipment_id" type="hidden" value="${escapeMinePlanning(card.id)}"/><input data-fuel-field="tanggal" type="date" value="${escapeMinePlanning(String(log.tanggal || '').split('T')[0])}" required/></td>
     <td><select data-fuel-field="shift_id" required>${inputLogShiftOptions(log.shift_id)}</select></td>
     <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(log.hm_reading ?? '')}" placeholder="${card.km_only ? 'Opsional' : 'Isi HM'}" ${card.km_only ? '' : 'required'}/></td>
+    <td><div class="fuel-lifetime-cell"><output data-fuel-output="hm_lifetime_reading">${fuelMetric(log.hm_lifetime_reading,2)}</output><small class="fuel-lineage-badge ${lineageTone}" title="${escapeMinePlanning(log.hm_lineage_reason || '')}">${escapeMinePlanning(lineageLabel)}</small></div></td>
     <td><output data-fuel-output="hm_delta">${fuelMetric(log.hm_delta,2)}</output></td>
     <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(log.odometer_reading ?? '')}" placeholder="${card.km_only ? 'Wajib' : (card.supports_distance ? 'Wajib' : 'Opsional')}" ${card.km_only ? 'required' : ''}/></td>
     <td><output data-fuel-output="distance_km">${fuelMetric(log.distance_km,2)}</output></td>
@@ -4250,27 +4558,14 @@ function renderFuelLogCardRow(card, log) {
     <td><output data-fuel-output="fuel_per_km">${(card.supports_distance || card.km_only) ? fuelMetric(log.fuel_per_km,2) : 'N/A'}</output></td>
     <td><output data-fuel-output="variance_pct" class="${Number(log.variance_pct) > 20 ? 'is-danger' : ''}">${fuelMetric(log.variance_pct,1,'%')}</output></td>
     <td><div class="fuel-row-status"><span class="fuel-row-anomaly is-${escapeMinePlanning(status)}" title="${escapeMinePlanning(warnings.join(', '))}">${statusText}</span><select data-fuel-approval onchange="setFuelApproval('${escapeMinePlanning(log.id)}',this.value)"><option value="draft"${log.approval_status === 'draft' ? ' selected' : ''}>Draft</option><option value="submitted"${log.approval_status === 'submitted' ? ' selected' : ''}>Submitted</option><option value="verified"${log.approval_status === 'verified' ? ' selected' : ''}>Verified</option><option value="rejected"${log.approval_status === 'rejected' ? ' selected' : ''}>Rejected</option></select><button type="button" onclick="bukaFuelAudit('${escapeMinePlanning(log.id)}')" title="Audit trail">↗</button></div></td>
-    <td><input data-fuel-field="fuel_ticket_no" type="text" value="${escapeMinePlanning(log.fuel_ticket_no || '')}" placeholder="Ticket"/><input data-fuel-field="remark" type="text" value="${escapeMinePlanning(log.remark || '')}" placeholder="Keterangan"/><input data-fuel-field="is_meter_reset" type="hidden" value="${log.is_meter_reset ? 'true' : 'false'}"/><input data-fuel-field="meter_reset_reason" type="hidden" value="${escapeMinePlanning(log.meter_reset_reason || '')}"/></td>
+    <td><input data-fuel-field="fuel_ticket_no" type="text" value="${escapeMinePlanning(log.fuel_ticket_no || '')}" placeholder="Ticket"/><input data-fuel-field="remark" type="text" value="${escapeMinePlanning(log.remark || '')}" placeholder="Keterangan"/>${renderFuelEvidenceCell(log)}</td>
   </tr>`;
 }
 
-function renderFuelInlineRow(card, draftId, fields) {
-  const values = fields || {};
-  return `<tr class="fuel-inline-new-row" data-fuel-row data-fuel-id="${escapeMinePlanning(draftId)}" data-equipment-id="${escapeMinePlanning(card.id)}" data-previous-hm="" data-previous-km="" data-fuel-rate="${escapeMinePlanning(card.fuel_rate_lph ?? '')}" data-supports-distance="${card.supports_distance ? 'true' : 'false'}" data-km-only="${card.km_only ? 'true' : 'false'}">
-    <td data-fuel-delete-column hidden></td>
-    <td><input data-fuel-field="equipment_id" type="hidden" value="${escapeMinePlanning(card.id)}"/><input data-fuel-field="tanggal" type="date" value="${escapeMinePlanning(values.tanggal || getLocalDateInputValue())}" required/></td>
-    <td><select data-fuel-field="shift_id" required>${inputLogShiftOptions(values.shift_id || '')}</select></td>
-    <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.hm_reading ?? '')}" placeholder="${card.km_only ? 'Opsional' : 'Isi HM'}" ${card.km_only ? '' : 'required'}/></td>
-    <td><output data-fuel-output="hm_delta">—</output></td>
-    <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.odometer_reading ?? '')}" placeholder="${card.km_only ? 'Wajib' : (card.supports_distance ? 'Wajib' : 'Opsional')}" ${card.km_only ? 'required' : ''}/></td>
-    <td><output data-fuel-output="distance_km">—</output></td>
-    <td><input data-fuel-field="fuel_filled" type="number" min="0.01" step="0.01" value="${escapeMinePlanning(values.fuel_filled ?? '')}" placeholder="Isi Liter" required/></td>
-    <td><output data-fuel-output="fuel_per_hm">—</output></td>
-    <td><output data-fuel-output="fuel_per_km">${(card.supports_distance || card.km_only) ? '—' : 'N/A'}</output></td>
-    <td><output data-fuel-output="variance_pct">—</output></td>
-    <td><span class="fuel-row-anomaly is-normal">Baru</span></td>
-    <td><input data-fuel-field="fuel_ticket_no" type="text" value="${escapeMinePlanning(values.fuel_ticket_no || '')}" placeholder="Ticket"/><input data-fuel-field="remark" type="text" value="${escapeMinePlanning(values.remark || '')}" placeholder="Keterangan"/><input data-fuel-field="is_meter_reset" type="hidden" value="false"/><input data-fuel-field="meter_reset_reason" type="hidden" value=""/><button class="fuel-inline-cancel" type="button" onclick="hapusFuelInlineRow('${escapeMinePlanning(draftId)}')" title="Batalkan baris baru">×</button></td>
-  </tr>`;
+// Bukti foto (APK/dashboard) diisi asinkron oleh FuelEvidenceUi.hydrate; lampiran lama = tautan teks.
+function renderFuelEvidenceCell(log) {
+  const legacy = window.FuelEvidenceUi?.safeHttpUrl ? window.FuelEvidenceUi.safeHttpUrl(log.attachment_url) : null;
+  return `<span class="fuel-evidence-cell"><button type="button" class="fuel-evidence-chip" data-fuel-evidence="${escapeMinePlanning(log.id)}" onclick="event.stopPropagation();window.FuelEvidenceUi?.bukaPratinjau('${escapeMinePlanning(log.id)}')" hidden></button>${legacy ? `<a class="fuel-evidence-legacy" href="${escapeMinePlanning(legacy)}" target="_blank" rel="noopener noreferrer" title="Lampiran lama (tautan)">lampiran lama</a>` : ''}</span>`;
 }
 
 function renderFuelInlineRowV2(card, draftId, fields) {
@@ -4280,6 +4575,7 @@ function renderFuelInlineRowV2(card, draftId, fields) {
     <td><input data-fuel-field="equipment_id" type="hidden" value="${escapeMinePlanning(card.id)}"/><div class="fuel-inline-date"><input data-fuel-field="tanggal" type="date" value="${escapeMinePlanning(values.tanggal || getLocalDateInputValue())}" required/><button class="fuel-inline-cancel" type="button" onclick="hapusFuelInlineRow('${escapeMinePlanning(draftId)}')" title="Batalkan baris baru" aria-label="Batalkan baris baru">&minus;</button></div></td>
     <td><select data-fuel-field="shift_id" required>${inputLogShiftOptions(values.shift_id || '')}</select></td>
     <td><input data-fuel-field="hm_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.hm_reading ?? '')}" placeholder="${card.km_only ? 'Opsional' : 'Isi HM'}" ${card.km_only ? '' : 'required'}/></td>
+    <td><div class="fuel-lifetime-cell"><output data-fuel-output="hm_lifetime_reading">Otomatis</output><small class="fuel-lineage-badge">Saat disimpan</small></div></td>
     <td><output data-fuel-output="hm_delta">&nbsp;</output></td>
     <td><input data-fuel-field="odometer_reading" type="number" min="0" step="0.01" value="${escapeMinePlanning(values.odometer_reading ?? '')}" placeholder="${card.km_only ? 'Wajib' : (card.supports_distance ? 'Wajib' : 'Opsional')}" ${card.km_only ? 'required' : ''}/></td>
     <td><output data-fuel-output="distance_km">&nbsp;</output></td>
@@ -4288,7 +4584,7 @@ function renderFuelInlineRowV2(card, draftId, fields) {
     <td><output data-fuel-output="fuel_per_km">${(card.supports_distance || card.km_only) ? '&nbsp;' : 'N/A'}</output></td>
     <td><output data-fuel-output="variance_pct">&nbsp;</output></td>
     <td><span class="fuel-row-anomaly is-normal">Baru</span></td>
-    <td><input data-fuel-field="fuel_ticket_no" type="text" value="${escapeMinePlanning(values.fuel_ticket_no || '')}" placeholder="Ticket"/><input data-fuel-field="remark" type="text" value="${escapeMinePlanning(values.remark || '')}" placeholder="Keterangan"/><input data-fuel-field="is_meter_reset" type="hidden" value="false"/><input data-fuel-field="meter_reset_reason" type="hidden" value=""/></td>
+    <td><input data-fuel-field="fuel_ticket_no" type="text" value="${escapeMinePlanning(values.fuel_ticket_no || '')}" placeholder="Ticket"/><input data-fuel-field="remark" type="text" value="${escapeMinePlanning(values.remark || '')}" placeholder="Keterangan"/></td>
   </tr>`;
 }
 
@@ -4302,7 +4598,6 @@ function tambahFuelInlineRow(equipmentId) {
   fuelDrafts.set(draftId, { fields: {
     equipment_id: String(equipmentId), tanggal: nextCalendarDate(latest?.tanggal), shift_id: '',
     hm_reading: '', odometer_reading: '', fuel_filled: '', fuel_ticket_no: '', remark: '',
-    is_meter_reset: 'false', meter_reset_reason: '',
   }, updatedAt: new Date().toISOString() });
   persistFuelDrafts();
   const body = document.querySelector(`[data-fuel-card="${CSS.escape(String(equipmentId))}"] .fuel-unit-card__body`);
@@ -4318,6 +4613,46 @@ function hapusFuelInlineRow(draftId) {
   fuelDrafts.delete(String(draftId));
   persistFuelDrafts();
   if (equipmentId) void loadFuelCardDetails(equipmentId);
+}
+
+function bukaDatabaseFuel() {
+  const tab = document.getElementById('tab-prodInputFuel');
+  if (!tab) return;
+  tab.querySelector('.fuel-filter-panel')?.setAttribute('hidden', '');
+  const kpi = document.getElementById('fuelKpiGrid');
+  if (kpi) kpi.hidden = true;
+  const cards = document.getElementById('fuelCardGroups');
+  if (cards) cards.hidden = true;
+  const ws = document.getElementById('databaseFuelWorkspace');
+  if (ws) ws.hidden = false;
+  try {
+    if (window.FuelOperationsHub && typeof window.FuelOperationsHub.open === 'function'
+      && window.FuelOperationsHub.available()) {
+      window.FuelOperationsHub.open();
+      return;
+    }
+  } catch (error) {
+    console.error('[FuelOperationsHub] fallback ke workspace klasik:', error);
+  }
+  try {
+    if (window.DatabaseFuelWorkspace && typeof window.DatabaseFuelWorkspace.open === 'function') {
+      window.DatabaseFuelWorkspace.open();
+    }
+  } catch (error) {
+    console.error('[DatabaseFuel] gagal membuka workspace:', error);
+  }
+}
+
+function tutupDatabaseFuel() {
+  const tab = document.getElementById('tab-prodInputFuel');
+  if (!tab) return;
+  tab.querySelector('.fuel-filter-panel')?.removeAttribute('hidden');
+  const kpi = document.getElementById('fuelKpiGrid');
+  if (kpi) kpi.hidden = false;
+  const cards = document.getElementById('fuelCardGroups');
+  if (cards) cards.hidden = false;
+  const ws = document.getElementById('databaseFuelWorkspace');
+  if (ws) ws.hidden = true;
 }
 
 async function muatProdInputFuel() {
@@ -4397,20 +4732,21 @@ function updateFuelCalculatedFields(row) {
   };
   const hm = value('hm_reading'); const km = value('odometer_reading'); const fuel = value('fuel_filled');
   const previousHm = row.dataset.previousHm === '' ? null : Number(row.dataset.previousHm);
+  const meterOffset = row.dataset.meterOffset === '' || row.dataset.meterOffset === undefined ? null : Number(row.dataset.meterOffset);
+  const lifetimeHm = hm !== null && Number.isFinite(meterOffset) ? hm + meterOffset : null;
   const previousKm = row.dataset.previousKm === '' ? null : Number(row.dataset.previousKm);
   const rate = row.dataset.fuelRate === '' ? null : Number(row.dataset.fuelRate);
-  const reset = row.querySelector('[data-fuel-field="is_meter_reset"]')?.value === 'true';
-  const hmDelta = !reset && hm !== null && previousHm !== null && hm > previousHm ? hm - previousHm : null;
-  const distance = !reset && km !== null && previousKm !== null && km > previousKm ? km - previousKm : null;
+  const hmDelta = lifetimeHm !== null && previousHm !== null && lifetimeHm > previousHm ? lifetimeHm - previousHm : null;
+  const distance = km !== null && previousKm !== null && km > previousKm ? km - previousKm : null;
   const perHm = hmDelta > 0 && fuel !== null ? fuel / hmDelta : null;
   const perKm = distance > 0 && fuel !== null ? fuel / distance : null;
   const target = hmDelta > 0 && Number.isFinite(rate) ? rate * hmDelta : null;
   const variancePct = target > 0 && fuel !== null ? (fuel-target)/target*100 : null;
   const output = (name,text) => { const targetOutput=row.querySelector(`[data-fuel-output="${name}"]`); if(targetOutput) targetOutput.textContent=text; };
   const display = (value, digits = 2, suffix = '') => value === null || value === undefined ? '' : fuelMetric(value, digits, suffix);
-  output('hm_delta',display(hmDelta)); output('distance_km',display(distance)); output('fuel_per_hm',display(perHm)); output('fuel_per_km',(row.dataset.supportsDistance === 'true' || row.dataset.kmOnly === 'true') ? display(perKm) : ''); output('variance_pct',display(variancePct,1,'%'));
+  output('hm_lifetime_reading', lifetimeHm === null ? 'Otomatis' : display(lifetimeHm)); output('hm_delta',display(hmDelta)); output('distance_km',display(distance)); output('fuel_per_hm',display(perHm)); output('fuel_per_km',(row.dataset.supportsDistance === 'true' || row.dataset.kmOnly === 'true') ? display(perKm) : ''); output('variance_pct',display(variancePct,1,'%'));
   const kmOnly = row.dataset.kmOnly === 'true';
-  const invalid = (!kmOnly && hm === null) || fuel === null || fuel <= 0 || (!reset && !kmOnly && previousHm !== null && hm <= previousHm) || ((row.dataset.supportsDistance === 'true' || kmOnly) && km === null);
+  const invalid = (!kmOnly && hm === null) || fuel === null || fuel <= 0 || ((row.dataset.supportsDistance === 'true' || kmOnly) && km === null);
   row.dataset.validationError = invalid ? 'true' : 'false';
   return { valid: !invalid };
 }
@@ -4469,9 +4805,9 @@ async function exportFuelExcel() {
   if(!window.XLSX)return alert('Library Excel belum siap.');
   try{
     const period=currentFuelPeriod(); const response=await fetch(getProdApiUrl(`/api/admin/production/fuel?year=${period.year}&month=${period.month}`),{headers:{...getProdAuthHeaders()}}); const payload=await response.json(); if(!response.ok)throw new Error(payload.error||`HTTP ${response.status}`);
-    const headers=['Tanggal','Shift','Kode Unit','Jenis Alat','Class','Tipe Model','HM Reading','KM Reading','Fuel Diisikan (L)','Ltr/Jam','Ltr/Km','Target Fuel (L)','Variance (%)','Approval','Fuel Ticket','Keterangan'];
-    const values=(payload.logs||[]).map(log=>[String(log.tanggal||'').split('T')[0],formatInputShiftLabel(log.nama_shift),log.kode_alat,log.kelas_alat,log.class_unit,log.tipe_alat,log.hm_reading,log.odometer_reading??'',log.fuel_filled,log.fuel_per_hm??'',log.fuel_per_km??'',log.target_fuel??'',log.variance_pct??'',log.approval_status||'draft',log.fuel_ticket_no||'',log.remark||'']);
-    const sheet=XLSX.utils.aoa_to_sheet([headers,...values]); sheet['!cols']=[13,10,16,16,16,24,12,12,16,12,12,16,14,14,18,32].map(wch=>({wch})); sheet['!autofilter']={ref:`A1:P${values.length+1}`};
+    const headers=['Tanggal','Shift','Kode Unit','Jenis Alat','Class','Tipe Model','HM Reading','KM Reading','Fuel Diisikan (L)','Ltr/HM','Ltr/Km','Target Fuel (L)','Variance (%)','Approval','Fuel Ticket','Keterangan','Lifetime HM','Lineage HM','Event HM','Tanggal Event HM'];
+    const values=(payload.logs||[]).map(log=>[String(log.tanggal||'').split('T')[0],formatInputShiftLabel(log.nama_shift),log.kode_alat,log.kelas_alat,log.class_unit,log.tipe_alat,log.hm_reading,log.odometer_reading??'',log.fuel_filled,log.fuel_per_hm??'',log.fuel_per_km??'',log.target_fuel??'',log.variance_pct??'',log.approval_status||'draft',log.fuel_ticket_no||'',log.remark||'',log.hm_lifetime_reading??'',log.hm_lineage_status||'',log.hm_event_type||'',log.hm_event_date||'']);
+    const sheet=XLSX.utils.aoa_to_sheet([headers,...values]); sheet['!cols']=[13,10,16,16,16,24,12,12,16,12,12,16,14,14,18,32,14,22,14,18].map(wch=>({wch})); sheet['!autofilter']={ref:`A1:T${values.length+1}`};
     const book=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book,sheet,'Fuel Logs'); XLSX.writeFile(book,`OMOS_Fuel_Card_${period.year}-${period.month}.xlsx`);
   }catch(error){alert(`Export Fuel gagal: ${error.message}`);}
 }
@@ -4495,13 +4831,13 @@ function bukaModalInputFuel(preselectedEquipmentId='') {
   const equipmentOptions=inputLogEquipmentOptions(preselectedEquipmentId);const shiftOptions=inputLogShiftOptions('');
   const initialUnit=(masterProdData.equipment||[]).find(item=>String(item.id)===String(preselectedEquipmentId));
   const initialKmOnly=Boolean(initialUnit?.km_only);
-  konten.innerHTML=`<h3 style="margin-top:0">⛽ Pengisian Fuel Aktual</h3><p class="fuel-modal-note" id="ifcNote">HM dan KM adalah pembacaan counter aktual pada saat pengisian. Sistem menghitung selisih terhadap pembacaan sebelumnya.</p><form id="formInputFuelCard">
-    <div class="fuel-modal-grid"><label>Tanggal<input id="ifcTanggal" type="date" value="${getLocalDateInputValue()}" required/></label><label>Shift<select id="ifcShift" required>${shiftOptions}</select></label><label class="is-wide">Kode Unit<select id="ifcEquipment" required>${equipmentOptions}</select></label><label id="ifcHmLabel">HM Aktual<input id="ifcHm" type="number" min="0" step="0.01" ${initialKmOnly?'':'required'}/></label><label>KM/Odometer<input id="ifcKm" type="number" min="0" step="0.01" placeholder="Unit mobile"/></label><label>Fuel Diisikan (Liter)<input id="ifcFuel" type="number" min="0.01" step="0.01" required/></label><label>Fuel Ticket<input id="ifcTicket" type="text" placeholder="Nomor voucher/ticket"/></label><label class="is-wide">Keterangan<input id="ifcRemark" type="text" placeholder="Lokasi dispenser atau catatan pengisian"/></label><label class="is-wide fuel-reset-check"><input id="ifcReset" type="checkbox" onchange="document.getElementById('ifcResetReason').disabled=!this.checked"/> Reset/penggantian HM atau odometer</label><label class="is-wide">Alasan reset<input id="ifcResetReason" type="text" disabled placeholder="Wajib jika counter di-reset"/></label><label class="is-wide">URL Lampiran<input id="ifcAttachment" type="url" placeholder="Opsional: tautan foto voucher/meter"/></label></div>
+  konten.innerHTML=`<h3 style="margin-top:0">⛽ Pengisian Fuel Aktual</h3><p class="fuel-modal-note" id="ifcNote">Isi pembacaan HM fisik saat pengisian. Lifetime HM dan rasio dihitung server dari Event HM unit.</p><form id="formInputFuelCard">
+    <div class="fuel-modal-grid"><label>Tanggal<input id="ifcTanggal" type="date" value="${getLocalDateInputValue()}" required/></label><label>Shift<select id="ifcShift" required>${shiftOptions}</select></label><label class="is-wide">Kode Unit<select id="ifcEquipment" required>${equipmentOptions}</select></label><label id="ifcHmLabel">HM Fisik Aktual<input id="ifcHm" type="number" min="0" step="0.01" ${initialKmOnly?'':'required'}/></label><label>KM/Odometer<input id="ifcKm" type="number" min="0" step="0.01" placeholder="Unit mobile"/></label><label>Fuel Diisikan (Liter)<input id="ifcFuel" type="number" min="0.01" step="0.01" required/></label><label>Fuel Ticket<input id="ifcTicket" type="text" placeholder="Nomor voucher/ticket"/></label><label class="is-wide">Keterangan<input id="ifcRemark" type="text" placeholder="Lokasi dispenser atau catatan pengisian"/></label><p class="fuel-modal-note is-wide">Penggantian/reset meter dicatat melalui Event HM di halaman Input Data agar berlaku konsisten pada seluruh modul.</p><label class="is-wide">URL Lampiran<input id="ifcAttachment" type="url" placeholder="Opsional: tautan foto voucher/meter"/></label></div>
     <div class="fuel-modal-actions"><button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button><button type="submit" class="tombol tombol--utama">Simpan Pengisian</button></div></form>`;
   overlay.hidden=false;
-  const syncKmOnlyUi=()=>{const unit=(masterProdData.equipment||[]).find(item=>String(item.id)===String(document.getElementById('ifcEquipment').value));const kmOnly=Boolean(unit?.km_only);const hmInput=document.getElementById('ifcHm');const kmInput=document.getElementById('ifcKm');const note=document.getElementById('ifcNote');if(kmOnly){hmInput.removeAttribute('required');hmInput.placeholder='Opsional';kmInput.placeholder='Wajib';kmInput.setAttribute('required','');note.textContent='Unit ini terdaftar sebagai Km-only: cukup isi KM/Odometer, HM bersifat opsional.';}else{hmInput.setAttribute('required','');hmInput.placeholder='';kmInput.removeAttribute('required');kmInput.placeholder='Unit mobile';note.textContent='HM dan KM adalah pembacaan counter aktual pada saat pengisian. Sistem menghitung selisih terhadap pembacaan sebelumnya.';}};
+  const syncKmOnlyUi=()=>{const unit=(masterProdData.equipment||[]).find(item=>String(item.id)===String(document.getElementById('ifcEquipment').value));const kmOnly=Boolean(unit?.km_only);const hmInput=document.getElementById('ifcHm');const kmInput=document.getElementById('ifcKm');const note=document.getElementById('ifcNote');if(kmOnly){hmInput.removeAttribute('required');hmInput.placeholder='Opsional';kmInput.placeholder='Wajib';kmInput.setAttribute('required','');note.textContent='Unit ini terdaftar sebagai Km-only: cukup isi KM/Odometer, HM bersifat opsional.';}else{hmInput.setAttribute('required','');hmInput.placeholder='';kmInput.removeAttribute('required');kmInput.placeholder='Unit mobile';note.textContent='Isi HM fisik aktual; Lifetime HM dan rasio dihitung server dari Event HM unit.';}};
   document.getElementById('ifcEquipment').addEventListener('change',syncKmOnlyUi);
-  document.getElementById('formInputFuelCard').addEventListener('submit',async event=>{event.preventDefault();const bodyData={tanggal:document.getElementById('ifcTanggal').value,shift_id:document.getElementById('ifcShift').value,equipment_id:document.getElementById('ifcEquipment').value,hm_reading:document.getElementById('ifcHm').value||null,odometer_reading:document.getElementById('ifcKm').value||null,fuel_filled:document.getElementById('ifcFuel').value,fuel_ticket_no:document.getElementById('ifcTicket').value,remark:document.getElementById('ifcRemark').value,is_meter_reset:document.getElementById('ifcReset').checked,meter_reset_reason:document.getElementById('ifcResetReason').value,attachment_url:document.getElementById('ifcAttachment').value,source_type:'manual'};try{const response=await fetch(getProdApiUrl('/api/admin/production/fuel'),{method:'POST',headers:{'Content-Type':'application/json',...getProdAuthHeaders()},body:JSON.stringify(bodyData)});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||`HTTP ${response.status}`);tutupModalGenerik();if(result.id)pushFuelHistory({type:'create',ids:[String(result.id)],label:'Tambah Pengisian Fuel'});invalidateFuelDetailCache();fuelOpenCards.add(String(bodyData.equipment_id));await muatProdInputFuel();}catch(error){alert(`Gagal menyimpan Fuel: ${error.message}`);}});
+  document.getElementById('formInputFuelCard').addEventListener('submit',async event=>{event.preventDefault();const button=event.currentTarget.querySelector('button[type="submit"]');const bodyData={tanggal:document.getElementById('ifcTanggal').value,shift_id:document.getElementById('ifcShift').value,equipment_id:document.getElementById('ifcEquipment').value,hm_reading:document.getElementById('ifcHm').value||null,odometer_reading:document.getElementById('ifcKm').value||null,fuel_filled:document.getElementById('ifcFuel').value,fuel_ticket_no:document.getElementById('ifcTicket').value,remark:document.getElementById('ifcRemark').value,attachment_url:document.getElementById('ifcAttachment').value,source_type:'manual'};const task=async()=>{const response=await fetch(getProdApiUrl('/api/admin/production/fuel'),{method:'POST',headers:{'Content-Type':'application/json',...getProdAuthHeaders()},body:JSON.stringify(bodyData)});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||`HTTP ${response.status}`);tutupModalGenerik();if(result.id)pushFuelHistory({type:'create',ids:[String(result.id)],label:'Tambah Pengisian Fuel'});invalidateFuelDetailCache();fuelOpenCards.add(String(bodyData.equipment_id));await muatProdInputFuel();return result;};try{if(window.OMOSActionFeedback?.run)await window.OMOSActionFeedback.run(button,task);else await task();}catch(error){alert(`Gagal menyimpan Fuel: ${error.message}`);}});
 }
 
 // -------------------------------------------------------------
@@ -5151,7 +5487,7 @@ function bukaModalInputStandbyLegacy() {
 }
 
 // =============================================================
-// STANDBY V2 — operational day 06:00, two shifts, review & audit
+// STANDBY V2 — operational day 06:00, two shifts, direct-use & audit
 // =============================================================
 let standbyV2Data = { logs: [], slices: [], active: [], controls: [], dataQuality: [], pareto: { byCode: [], byUnit: [] }, summary: {}, period: null };
 // Unit yang dipilih dari tombol Input Unit hanya merupakan baris kerja di UI.
@@ -5207,7 +5543,7 @@ function updateStandbyEditSessionUi(message = '') {
   if (!bar) return;
   bar.hidden = standbyEditDrafts.size === 0;
   if (title) title.textContent = `${standbyEditDrafts.size} record berubah dalam sesi ini`;
-  if (note) note.textContent = message || 'Anda dapat lanjut membuka unit lain. Seluruh perubahan akan disimpan bersama dan dikirim ulang untuk review.';
+  if (note) note.textContent = message || 'Anda dapat lanjut membuka unit lain. Seluruh perubahan akan disimpan bersama dan langsung digunakan dalam kalkulasi.';
   if (button) {
     button.disabled = standbyEditSaving || standbyEditDrafts.size === 0;
     button.textContent = standbyEditSaving ? 'Menyimpan Sesi…' : `Simpan Sesi (${standbyEditDrafts.size})`;
@@ -5265,11 +5601,6 @@ function standbyV2DateTime(value) {
 
 function standbyV2Hours(value) {
   return Number(value || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function standbyV2ReviewBadge(status) {
-  const labels = { pending: 'Belum Direview', approved: 'Disetujui', returned: 'Dikembalikan' };
-  return `<span class="standby-review-status is-${escapeMinePlanning(status || 'pending')}">${escapeMinePlanning(labels[status] || status || 'Belum Direview')}</span>`;
 }
 
 function standbyV2LifecycleBadge(status) {
@@ -5342,11 +5673,10 @@ function filteredStandbyV2Slices() {
   const unitClass = document.getElementById('slicerStandbyClass')?.value || '';
   const unit = document.getElementById('slicerStandbyUnit')?.value || '';
   const code = document.getElementById('slicerStandbyCodeV2')?.value || '';
-  const review = document.getElementById('slicerStandbyReview')?.value || '';
   return (standbyV2Data.slices || []).filter(row =>
     (!shift || String(row.shift_id) === shift) && (!jenis || row.kelas_alat === jenis) &&
     (!unitClass || String(row.class_unit || '') === unitClass) && (!unit || String(row.equipment_id) === unit) &&
-    (!code || String(row.standby_code_id) === code) && (!review || row.review_status === review)
+    (!code || String(row.standby_code_id) === code)
   );
 }
 
@@ -5444,7 +5774,7 @@ function standbyViewScrollContainer() {
 
 function captureStandbyViewSession() {
   const workspace = document.getElementById('standbyUnitWorkspace');
-  const filterIds = ['slicerStandbyFrom','slicerStandbyTo','slicerStandbyShiftV2','slicerStandbyJenis','slicerStandbyClass','slicerStandbyUnit','slicerStandbyCodeV2','slicerStandbyReview'];
+  const filterIds = ['slicerStandbyFrom','slicerStandbyTo','slicerStandbyShiftV2','slicerStandbyJenis','slicerStandbyClass','slicerStandbyUnit','slicerStandbyCodeV2'];
   const openDetails = [...(workspace?.querySelectorAll('details[open][data-standby-view-key]') || [])];
   const freezeBottom = document.querySelector('.standby-v2-freeze')?.getBoundingClientRect().bottom || 0;
   const anchor = [...openDetails].sort((left, right) => Math.abs(left.getBoundingClientRect().top - freezeBottom) - Math.abs(right.getBoundingClientRect().top - freezeBottom))[0] || null;
@@ -5486,11 +5816,11 @@ async function restoreStandbyViewSession(session) {
 }
 
 function standbyRowsTableLegacy(rows) {
-  return `<div class="standby-table-scroll"><table class="standby-v2-table"><thead><tr><th>Kode Standby</th><th>Kategori</th><th>Mulai</th><th>Selesai</th><th>Jam</th><th>Sumber</th><th>Status</th><th>Review</th></tr></thead><tbody>${rows.map(row => `<tr class="${row.lifecycle_status === 'reclassified' ? 'is-reclassified' : ''}">
+  return `<div class="standby-table-scroll"><table class="standby-v2-table"><thead><tr><th>Kode Standby</th><th>Kategori</th><th>Mulai</th><th>Selesai</th><th>Jam</th><th>Sumber</th><th>Status</th></tr></thead><tbody>${rows.map(row => `<tr class="${row.lifecycle_status === 'reclassified' ? 'is-reclassified' : ''}">
     <td><b>${escapeMinePlanning(row.kode_standby || '—')}</b></td><td>${escapeMinePlanning(row.kategori_standby || '—')}<small>${escapeMinePlanning(row.description || '')}</small></td>
     <td>${escapeMinePlanning(standbyV2Time(row.slice_start))}</td><td>${escapeMinePlanning(standbyV2Time(row.slice_finish))}</td>
     <td class="is-number">${standbyV2Hours(row.counted_hours)}${row.lifecycle_status === 'reclassified' ? `<small>Raw ${standbyV2Hours(row.raw_hours)} jam</small>` : ''}</td>
-    <td>${row.is_system_generated ? '<span class="standby-source-system">Sistem</span>' : 'Manual'}</td><td>${standbyV2LifecycleBadge(row.lifecycle_status)}</td><td>${standbyV2ReviewBadge(row.review_status)}</td>
+    <td>${row.is_system_generated ? '<span class="standby-source-system">Sistem</span>' : 'Manual'}</td><td>${standbyV2LifecycleBadge(row.lifecycle_status)}</td>
   </tr>`).join('')}</tbody></table></div>`;
 }
 
@@ -5500,17 +5830,16 @@ function standbyV2LogById(id) {
 
 function standbyRowCanEdit(row) {
   const frozen = standbyMohhControlFor(row)?.closure?.status === 'closed';
-  return !frozen && !row.is_system_generated && !row.kode_is_system && !row.kode_is_locked && row.lifecycle_status === 'confirmed' && row.review_status !== 'approved';
+  return !frozen && !row.is_system_generated && !row.kode_is_system && !row.kode_is_locked && row.lifecycle_status === 'confirmed';
 }
 
 function standbyRowCanDelete(row) {
   const frozen = standbyMohhControlFor(row)?.closure?.status === 'closed';
-  if (frozen || row.review_status === 'approved') return false;
+  if (frozen) return false;
   const isSystem = row.is_system_generated || row.kode_is_system || row.kode_is_locked;
   if (isSystem) {
-    // Record sistem (mis. STB-SYS-01) yang sudah tertutup boleh dipilih hapus;
-    // yang masih open (terikat verifikasi breakdown berjalan) tetap terkunci.
-    // Backend memvalidasi ulang sebelum menghapus.
+    // Record sistem yang sudah tertutup boleh dipilih hapus; backend tetap
+    // memvalidasi lifecycle dan freeze shift sebelum menulis perubahan.
     return String(row.lifecycle_status || '') === 'confirmed';
   }
   return row.lifecycle_status === 'confirmed';
@@ -5558,20 +5887,19 @@ function renderStandbyTableRow(row, forceEdit = false) {
       <td><select data-standby-edit-field="start" onchange="ubahStandbyDraft(this)">${standbyMultiTimeOptions(row.shift_kind, startValue)}</select></td>
       <td><select data-standby-edit-field="finish" onchange="ubahStandbyDraft(this)">${standbyMultiTimeOptions(row.shift_kind, finishValue)}</select></td>
       <td class="is-number"><output data-standby-edit-duration>${standbyV2Hours(duration)}</output></td>
-      <td>Manual</td><td>${standbyV2LifecycleBadge(row.lifecycle_status)}</td><td>${standbyV2ReviewBadge(row.review_status)}</td>
+      <td>Manual</td><td>${standbyV2LifecycleBadge(row.lifecycle_status)}</td>
       <td class="standby-row-actions"><button class="tombol tombol--ghost tombol--kecil" type="button" onclick="batalkanEditStandbyRow('${escapeMinePlanning(id)}')">Batal</button></td>
     </tr>`;
   }
   let actionTitle = 'Edit record manual';
   if (standbyMohhControlFor(row)?.closure?.status === 'closed') actionTitle = 'Shift sudah ditutup/freeze. Buka kembali shift untuk mengedit.';
   else if (row.is_system_generated || row.kode_is_system || row.kode_is_locked) actionTitle = 'Record sistem bersifat read-only';
-  else if (row.review_status === 'approved') actionTitle = 'Kembalikan melalui Review sebelum diedit';
   else if (row.lifecycle_status !== 'confirmed') actionTitle = 'Hanya status Tercatat yang dapat diedit';
   return `<tr class="${rowClass}${standbyDeleteSelection.has(id) ? ' is-delete-selected' : ''}" data-standby-row="${escapeMinePlanning(id)}">${standbyDeleteCell(row, id)}
     <td><b>${escapeMinePlanning(row.kode_standby || '—')}</b></td><td>${escapeMinePlanning(row.kategori_standby || '—')}<small>${escapeMinePlanning(row.description || '')}</small></td>
     <td>${escapeMinePlanning(standbyV2Time(row.slice_start))}</td><td>${escapeMinePlanning(standbyV2Time(row.slice_finish))}</td>
     <td class="is-number">${standbyV2Hours(row.counted_hours)}${row.lifecycle_status === 'reclassified' ? `<small>Raw ${standbyV2Hours(row.raw_hours)} jam</small>` : ''}</td>
-    <td>${row.is_system_generated ? '<span class="standby-source-system">Sistem</span>' : 'Manual'}</td><td>${standbyV2LifecycleBadge(row.lifecycle_status)}</td><td>${standbyV2ReviewBadge(row.review_status)}</td>
+    <td>${row.is_system_generated ? '<span class="standby-source-system">Sistem</span>' : 'Manual'}</td><td>${standbyV2LifecycleBadge(row.lifecycle_status)}</td>
     <td class="standby-row-actions"><button class="tombol tombol--kecil" type="button" ${editable && !standbyBulkDeleteMode ? `onclick="mulaiEditStandbyRow('${escapeMinePlanning(id)}')"` : 'disabled'} title="${escapeMinePlanning(standbyBulkDeleteMode ? 'Tutup Mode Hapus untuk mengedit' : actionTitle)}">Edit</button></td>
   </tr>`;
 }
@@ -5579,7 +5907,7 @@ function renderStandbyTableRow(row, forceEdit = false) {
 function standbyRowsTable(rows) {
   const records = rows.filter(row => !row.__display_only);
   if (!records.length) return '<div class="standby-unit-empty"><b>Unit siap diisi</b><span>Belum ada record Standby. Gunakan tombol Insert Standby pada baris unit.</span></div>';
-  return `<div class="standby-table-scroll"><table class="standby-v2-table"><thead><tr>${standbyBulkDeleteMode ? '<th class="standby-delete-cell">Pilih</th>' : ''}<th>Kode Standby</th><th>Kategori / Keterangan</th><th>Mulai</th><th>Selesai</th><th>Jam</th><th>Sumber</th><th>Status</th><th>Review</th><th>Aksi</th></tr></thead><tbody>${records.map(row => renderStandbyTableRow(row)).join('')}</tbody></table></div>`;
+  return `<div class="standby-table-scroll"><table class="standby-v2-table"><thead><tr>${standbyBulkDeleteMode ? '<th class="standby-delete-cell">Pilih</th>' : ''}<th>Kode Standby</th><th>Kategori / Keterangan</th><th>Mulai</th><th>Selesai</th><th>Jam</th><th>Sumber</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${records.map(row => renderStandbyTableRow(row)).join('')}</tbody></table></div>`;
 }
 
 function standbyRenderUnitCard(unitRows) {
@@ -5674,7 +6002,7 @@ async function simpanSesiStandby() {
     persistStandbyDrafts();
     await muatProdStandby();
     await restoreStandbyViewSession(viewSession);
-    alert(`${result.updated || changes.length} perubahan Standby berhasil disimpan dalam satu sesi dan menunggu review.`);
+    alert(`${result.updated || changes.length} perubahan Standby berhasil disimpan dan langsung digunakan dalam kalkulasi.`);
   } catch (error) {
     failureMessage = `Gagal menyimpan: ${error.message}`;
   } finally {
@@ -5778,8 +6106,7 @@ function renderStandbyWorkspace() {
   const hours = rows.reduce((sum, row) => sum + Number(row.counted_hours || 0), 0);
   const events = new Set(rows.filter(row => Number(row.counted_hours) > 0).map(row => row.standby_log_id));
   const units = new Set(rows.filter(row => Number(row.counted_hours) > 0).map(row => row.equipment_id));
-  const pending = new Set(rows.filter(row => row.review_status === 'pending').map(row => row.standby_log_id));
-  const reclassified = new Set(rows.filter(row => row.lifecycle_status === 'reclassified').map(row => row.standby_log_id));
+  const unplotted = standbyUnplottedUnits();
   const controls = filteredStandbyMohhControls();
   const mohhReady = controls.filter(control => ['balanced','closed'].includes(control.status)).length;
   const mohhIssues = controls.filter(control => !['balanced','closed'].includes(control.status)).length;
@@ -5788,11 +6115,8 @@ function renderStandbyWorkspace() {
     <article><small>Total Standby</small><b>${standbyV2Hours(hours)} Jam</b><span>Durasi terhitung sesuai filter</span></article>
     <article><small>Event</small><b>${events.size}</b><span>Record standby terhitung</span></article>
     <article><small>Unit Count</small><b>${units.size}</b><span>Unit unik periode</span></article>
-    <article class="is-link"><button class="standby-kpi-link" type="button" onclick="bukaStandbyPendingKpi()" aria-label="Tampilkan ${pending.size} Standby belum direview"><small>Belum Direview</small><b>${pending.size}</b><span>Menunggu validasi <em>Lihat data →</em></span></button></article>
-    <article class="is-link"><button class="standby-kpi-link" type="button" onclick="bukaStandbyReclassifiedKpi()" aria-label="Tampilkan ${reclassified.size} Standby yang direklasifikasi ke Breakdown"><small>Reclassified ke BD</small><b>${reclassified.size}</b><span>Tidak masuk jam standby <em>Lihat data →</em></span></button></article>
+    <article class="is-link"><button class="standby-kpi-link" type="button" onclick="bukaStandbyUnplottedKpi()" aria-label="Tampilkan unit yang belum diplotting di data Standby"><small>Unplotting Unit</small><b>${unplotted.distinctUnits}</b><span>${unplotted.totalCells} sel tanggal-shift tanpa data <em>Lihat data →</em></span></button></article>
     <article class="is-link"><button class="standby-kpi-link" type="button" onclick="bukaStandbyDataQuality(true)" aria-label="Tampilkan kontrol MOHH"><small>Kontrol MOHH</small><b>${mohhReady}/${controls.length}</b><span>${mohhIssues} unit-shift perlu koreksi <em>Lihat data →</em></span></button></article>`;
-  const reviewBadge = document.getElementById('standbyReviewBadge');
-  if (reviewBadge) reviewBadge.textContent = String(pending.size);
   const qualityBadge = document.getElementById('standbyQualityBadge');
   if (qualityBadge) qualityBadge.textContent = String(mohhIssues);
   const from = document.getElementById('slicerStandbyFrom')?.value || standbyV2PreviousDate();
@@ -6029,7 +6353,7 @@ async function bukaInsertStandbyUnit(operationalDate, shiftId, equipmentId) {
 }
 
 function resetSlicerStandbyV2() {
-  ['slicerStandbyShiftV2','slicerStandbyJenis','slicerStandbyClass','slicerStandbyUnit','slicerStandbyCodeV2','slicerStandbyReview'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['slicerStandbyShiftV2','slicerStandbyJenis','slicerStandbyClass','slicerStandbyUnit','slicerStandbyCodeV2'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   const previous = standbyV2PreviousDate();
   document.getElementById('slicerStandbyFrom').value = previous;
   document.getElementById('slicerStandbyTo').value = previous;
@@ -6401,28 +6725,58 @@ async function bukaModalInputStandby(preselectedEquipmentId = '') {
   renderUnits();
 }
 
-function standbyHistoryTable(rows, withActions = false) {
-  const displayRows = withActions ? [...new Map(rows.map(row => [String(row.standby_log_id), row])).values()] : rows;
+function standbyHistoryTable(rows) {
+  const displayRows = rows;
   if (!displayRows.length) return '<div class="standby-empty">Tidak ada record.</div>';
-  return `<div class="standby-history-scroll"><table class="standby-v2-table"><thead><tr><th>Tanggal/Shift</th><th>Unit</th><th>Kode</th><th>Waktu</th><th>Jam</th><th>Sumber</th><th>Status</th><th>Review</th>${withActions ? '<th>Aksi</th>' : ''}</tr></thead><tbody>${displayRows.map(row => `<tr><td>${escapeMinePlanning(formatTanggalMining(row.operational_date))}<small>${escapeMinePlanning(row.shift_name)}</small></td><td><b>${escapeMinePlanning(row.kode_alat)}</b><small>${escapeMinePlanning(row.kelas_alat)} · ${escapeMinePlanning(row.class_unit || 'Tanpa Class')}</small></td><td>${escapeMinePlanning(row.kode_standby)}<small>${escapeMinePlanning(row.kategori_standby)}</small></td><td>${escapeMinePlanning(standbyV2Time(row.slice_start))}–${escapeMinePlanning(standbyV2Time(row.slice_finish))}</td><td class="is-number">${standbyV2Hours(row.counted_hours)}</td><td>${row.is_system_generated ? 'Sistem' : 'Manual'}</td><td>${standbyV2LifecycleBadge(row.lifecycle_status)}</td><td>${standbyV2ReviewBadge(row.review_status)}</td>${withActions ? `<td><button class="tombol tombol--kecil" onclick="reviewStandbyRecord('${escapeMinePlanning(row.standby_log_id)}','approved')">Setujui</button><button class="tombol tombol--ghost tombol--kecil" onclick="reviewStandbyRecord('${escapeMinePlanning(row.standby_log_id)}','returned')">Kembalikan</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+  return `<div class="standby-history-scroll"><table class="standby-v2-table"><thead><tr><th>Tanggal/Shift</th><th>Unit</th><th>Kode</th><th>Waktu</th><th>Jam</th><th>Sumber</th><th>Status</th></tr></thead><tbody>${displayRows.map(row => `<tr><td>${escapeMinePlanning(formatTanggalMining(row.operational_date))}<small>${escapeMinePlanning(row.shift_name)}</small></td><td><b>${escapeMinePlanning(row.kode_alat)}</b><small>${escapeMinePlanning(row.kelas_alat)} · ${escapeMinePlanning(row.class_unit || 'Tanpa Class')}</small></td><td>${escapeMinePlanning(row.kode_standby)}<small>${escapeMinePlanning(row.kategori_standby)}</small></td><td>${escapeMinePlanning(standbyV2Time(row.slice_start))}–${escapeMinePlanning(standbyV2Time(row.slice_finish))}</td><td class="is-number">${standbyV2Hours(row.counted_hours)}</td><td>${row.is_system_generated ? 'Sistem' : 'Manual'}</td><td>${standbyV2LifecycleBadge(row.lifecycle_status)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-function bukaStandbyPendingKpi() {
+function standbyUnplottedUnits() {
+  const from = document.getElementById('slicerStandbyFrom')?.value || standbyV2PreviousDate();
+  const to = document.getElementById('slicerStandbyTo')?.value || from;
+  const dates = standbyDateRange(from, to);
+  const selectedShift = document.getElementById('slicerStandbyShiftV2')?.value || '';
+  const shifts = dayNightShifts().filter(shift => !selectedShift || String(shift.id) === selectedShift);
+  const jenis = document.getElementById('slicerStandbyJenis')?.value || '';
+  const unitClass = document.getElementById('slicerStandbyClass')?.value || '';
+  const units = [...(masterProdData.equipment || [])].filter(unit => unit.id && unit.kode_alat
+    && (!jenis || unit.kelas_alat === jenis) && (!unitClass || String(unit.class_unit || '') === unitClass));
+  const plotted = new Set((standbyV2Data.slices || [])
+    .filter(row => row.lifecycle_status !== 'cancelled')
+    .map(row => standbyDisplayedUnitKey(row.operational_date, row.shift_id, row.equipment_id)));
+  const groups = [];
+  const distinct = new Set();
+  for (const date of dates) {
+    for (const shift of shifts) {
+      const missing = units.filter(unit => !plotted.has(standbyDisplayedUnitKey(date, shift.id, unit.id)));
+      if (!missing.length) continue;
+      missing.forEach(unit => distinct.add(String(unit.id)));
+      groups.push({ date, shiftId: String(shift.id), shiftName: /siang/i.test(shift.nama_shift || '') ? 'Shift Siang' : 'Shift Malam', units: missing });
+    }
+  }
+  return { groups, distinctUnits: distinct.size, totalCells: groups.reduce((sum, group) => sum + group.units.length, 0) };
+}
+
+function bukaStandbyUnplottedKpi() {
   const overlay = document.getElementById('modalOverlay');
   const konten = document.getElementById('modalKonten');
   if (!overlay || !konten) return;
-  const rows = filteredStandbyV2Slices().filter(row => row.review_status === 'pending');
+  const { groups, distinctUnits } = standbyUnplottedUnits();
   overlay.hidden = false;
-  konten.innerHTML = `<div class="standby-special-modal"><header><div><h3>✓ Standby Belum Direview</h3><p>${new Set(rows.map(row => row.standby_log_id)).size} event sesuai filter periode, shift, jenis, class, unit, dan kode pada halaman utama.</p></div><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></header>${standbyHistoryTable(rows, true)}</div>`;
+  konten.innerHTML = `<div class="standby-special-modal"><header><div><h3>📋 Unplotting Unit</h3><p>${distinctUnits} unit List Equipment belum memiliki data Standby pada periode & shift aktif. Klik unit untuk melompat ke workspace, atau [+ Plot] untuk menginputkan unit pada tanggal-shift tersebut.</p></div><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></header>${groups.length ? `<div class="standby-history-scroll"><table class="standby-v2-table standby-quality-table"><thead><tr><th>Tanggal / Shift</th><th>Unit Belum Diplotting</th><th>Aksi</th></tr></thead><tbody>${groups.map(group => `<tr><td><b>${escapeMinePlanning(formatTanggalMining(group.date))}</b><small>${escapeMinePlanning(group.shiftName)}</small></td><td>${group.units.map(unit => `<button type="button" class="standby-quality-link" onclick="standbyUnplottedJump('${escapeMinePlanning(group.date)}','${escapeMinePlanning(group.shiftId)}','${escapeMinePlanning(unit.id)}')" title="Tampilkan unit ini di workspace Standby">${escapeMinePlanning(unit.kode_alat)}</button><small> ${escapeMinePlanning(unit.kelas_alat || '')} · ${escapeMinePlanning(unit.class_unit || 'Tanpa Class')}</small>`).join('<br>')}</td><td><button type="button" class="tombol tombol--kecil" onclick="tutupModalGenerik();bukaInputUnitStandby('${escapeMinePlanning(group.date)}','${escapeMinePlanning(group.shiftId)}')">+ Plot</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="standby-quality-ok">✓ Seluruh unit List Equipment sudah memiliki data Standby pada filter aktif.</div>'}</div>`;
 }
 
-function bukaStandbyReclassifiedKpi() {
-  const overlay = document.getElementById('modalOverlay');
-  const konten = document.getElementById('modalKonten');
-  if (!overlay || !konten) return;
-  const rows = [...new Map(filteredStandbyV2Slices().filter(row => row.lifecycle_status === 'reclassified').map(row => [String(row.standby_log_id), row])).values()];
-  overlay.hidden = false;
-  konten.innerHTML = `<div class="standby-special-modal"><header><div><h3>↪ Reclassified ke Breakdown</h3><p>${rows.length} event dialihkan ke Breakdown dan tidak dihitung sebagai jam Standby.</p></div><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></header>${standbyHistoryTable(rows)}</div>`;
+function standbyUnplottedJump(date, shiftId, equipmentId) {
+  if (typeof tutupModalGenerik === 'function') tutupModalGenerik();
+  bukaTabProduksi('prodStandby');
+  const unit = document.getElementById('slicerStandbyUnit');
+  if (unit) unit.value = String(equipmentId || '');
+  const from = document.getElementById('slicerStandbyFrom');
+  if (from && date) from.value = date;
+  const to = document.getElementById('slicerStandbyTo');
+  if (to && date) to.value = date;
+  renderStandbyWorkspace();
+  requestAnimationFrame(() => standbyQualityFlash({ jumpDate: date, jumpShift: shiftId, jumpEquip: equipmentId, jumpKode: '' }));
 }
 
 async function fetchStandbySpecial(endpoint, days = 30) {
@@ -6439,24 +6793,6 @@ async function bukaStandbyHistory() {
   if (!overlay || !konten) return; overlay.hidden = false; konten.innerHTML = '<div class="standby-special-modal"><h3>📚 Standby History</h3><div class="standby-loading">Memuat 30 hari terakhir…</div></div>';
   try { const data = await fetchStandbySpecial('standby-history'); konten.innerHTML = `<div class="standby-special-modal"><header><div><h3>📚 Standby History</h3><p>Seluruh record, termasuk standby sistem dan record yang direklasifikasi.</p></div><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></header>${standbyHistoryTable(data.slices || [])}</div>`; }
   catch (error) { konten.innerHTML = `<div class="standby-special-modal"><p class="teks-error">${escapeMinePlanning(error.message)}</p></div>`; }
-}
-
-async function bukaReviewStandby() {
-  const overlay = document.getElementById('modalOverlay'); const konten = document.getElementById('modalKonten');
-  if (!overlay || !konten) return; overlay.hidden = false; konten.innerHTML = '<div class="standby-special-modal"><h3>✓ Review Standby</h3><div class="standby-loading">Memuat antrean review…</div></div>';
-  try { const data = await fetchStandbySpecial('standby-review'); konten.innerHTML = `<div class="standby-special-modal"><header><div><h3>✓ Review Standby</h3><p>Validasi klasifikasi dan durasi tanpa mengubah record sistem.</p></div><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></header>${standbyHistoryTable(data.slices || [], true)}</div>`; }
-  catch (error) { konten.innerHTML = `<div class="standby-special-modal"><p class="teks-error">${escapeMinePlanning(error.message)}</p></div>`; }
-}
-
-async function reviewStandbyRecord(id, status) {
-  const note = status === 'returned' ? prompt('Catatan pengembalian Standby (wajib):', '') : '';
-  if (status === 'returned' && !String(note || '').trim()) return;
-  if (status === 'approved' && !confirm('Setujui record Standby ini?')) return;
-  try {
-    const response = await fetch(getProdApiUrl(`/api/admin/production/standby/${encodeURIComponent(id)}/review`), { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify({ status, note }) });
-    const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    await muatProdStandby(); await bukaReviewStandby();
-  } catch (error) { alert(`Review Standby gagal: ${error.message}`); }
 }
 
 async function tutupShiftStandby(operationalDate, shiftId, equipmentId) {
@@ -6483,8 +6819,75 @@ async function bukaKembaliShiftStandby(operationalDate, shiftId, equipmentId) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     await muatProdStandby(); await restoreStandbyViewSession(viewSession);
-    alert('Shift dibuka kembali. Data Standby dapat dikoreksi dan wajib direview ulang.');
+    alert('Shift dibuka kembali. Data Standby dapat dikoreksi dan perubahan tersimpan langsung digunakan dalam kalkulasi.');
   } catch (error) { alert(`Buka Kembali gagal: ${error.message}`); }
+}
+
+function standbyQualityIssueTab(code) {
+  const c = String(code || '');
+  if (c === 'HM_MISSING' || c === 'HM_OVERLAP' || c === 'HM_OVER_MOHH') return 'inputdata';
+  if (c === 'BD_OVER_MOHH') return 'breakdown';
+  return 'standby';
+}
+
+function standbyQualityJumpAttrs(control, tab) {
+  return `data-jump-tab="${tab}" data-jump-date="${escapeMinePlanning(control.operational_date || '')}" data-jump-shift="${escapeMinePlanning(control.shift_id || '')}" data-jump-equip="${escapeMinePlanning(control.equipment_id || '')}" data-jump-kode="${escapeMinePlanning(control.kode_alat || '')}"`;
+}
+
+function standbyQualityRowHtml(control) {
+  const unitLink = `<button type="button" class="standby-quality-link is-unit" onclick="standbyQualityJump(this)" ${standbyQualityJumpAttrs(control, 'standby')} title="Buka unit ini di halaman Standby"><b>${escapeMinePlanning(control.kode_alat)}</b></button><small>${escapeMinePlanning(formatTanggalMining(control.operational_date))} · ${escapeMinePlanning(control.shift_name)} · ${escapeMinePlanning(control.kelas_alat)}</small>`;
+  const numLink = (value, tab, label) => `<button type="button" class="standby-quality-link is-number" onclick="standbyQualityJump(this)" ${standbyQualityJumpAttrs(control, tab)} title="${label}">${standbyV2Hours(value)}</button>`;
+  const issues = (control.issues || []).length ? (control.issues || []).map(issue => `<button type="button" class="standby-quality-issue is-${escapeMinePlanning(issue.severity)} standby-quality-link" onclick="standbyQualityJump(this)" ${standbyQualityJumpAttrs(control, standbyQualityIssueTab(issue.code))} title="Buka sumber untuk diperbaiki">${escapeMinePlanning(issue.message)}</button>`).join('') : '<span class="standby-quality-clear">Tidak ada temuan</span>';
+  return `<tr><td>${unitLink}</td><td class="is-number">${numLink(control.hmHours, 'inputdata', 'Buka HM unit ini di Input Data')}</td><td class="is-number">${numLink(control.breakdownHours, 'breakdown', 'Buka breakdown unit ini')}</td><td class="is-number">${numLink(control.standbyHours, 'standby', 'Buka standby unit ini')}</td><td class="is-number">${standbyV2Hours(control.accountedHours)} / ${standbyV2Hours(control.targetHours)}</td><td class="is-number">${standbyV2Hours(control.balanceHours)}</td><td><span class="standby-mohh-badge is-${escapeMinePlanning(control.status)}">${escapeMinePlanning(standbyMohhStatusLabel(control.status))}</span></td><td>${issues}</td></tr>`;
+}
+
+function standbyQualityJump(button) {
+  const d = button?.dataset || {};
+  const tab = d.jumpTab || 'standby';
+  if (typeof tutupModalGenerik === 'function') tutupModalGenerik();
+  if (tab === 'inputdata') {
+    bukaTabProduksi('prodInputData');
+    const tgl = document.getElementById('slicerInputTanggal');
+    if (tgl && d.jumpDate) tgl.value = d.jumpDate;
+    const kode = document.getElementById('slicerInputKode');
+    if (kode && d.jumpKode) kode.value = d.jumpKode;
+    void muatProdInputData();
+    return;
+  }
+  if (tab === 'breakdown') {
+    bukaTabProduksi('prodBreakdown');
+    const cari = document.getElementById('slicerBreakdownCari');
+    if (cari) { cari.value = d.jumpKode || ''; }
+    terapkanSlicerBreakdown();
+    return;
+  }
+  bukaTabProduksi('prodStandby');
+  const unit = document.getElementById('slicerStandbyUnit');
+  if (unit && d.jumpEquip) unit.value = d.jumpEquip;
+  const from = document.getElementById('slicerStandbyFrom');
+  if (from && d.jumpDate) from.value = d.jumpDate;
+  const to = document.getElementById('slicerStandbyTo');
+  if (to && d.jumpDate) to.value = d.jumpDate;
+  renderStandbyWorkspace();
+  requestAnimationFrame(() => standbyQualityFlash(d));
+}
+
+function standbyQualityFlash(d) {
+  const keys = [`unit::${d.jumpDate}::${d.jumpShift}::${d.jumpEquip}`, `unit::${d.jumpDate}::${d.jumpShift}::${d.jumpKode}`];
+  let target = null;
+  for (const key of keys) {
+    target = document.querySelector(`[data-standby-view-key="${key.replace(/"/g, '')}"]`);
+    if (target) break;
+  }
+  if (!target) return;
+  let node = target;
+  while (node && node !== document.body) {
+    if (node.tagName === 'DETAILS' && !node.open) node.open = true;
+    node = node.parentElement;
+  }
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.classList.add('standby-flash');
+  setTimeout(() => target.classList.remove('standby-flash'), 2600);
 }
 
 function bukaStandbyDataQuality(showAll = false) {
@@ -6496,7 +6899,7 @@ function bukaStandbyDataQuality(showAll = false) {
   overlay.hidden = false;
   konten.innerHTML = `<div class="standby-special-modal"><header><div><h3>${showAll ? '◫ Kontrol MOHH' : '🛡️ Data Quality Center'}</h3><p>Kontrol urutan HM → Breakdown → Standby terhadap MOHH 12 jam. Filter jenis, class, unit, dan shift mengikuti halaman utama.</p></div><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></header>
     <div class="standby-quality-summary"><span><b>${controls.length}</b> unit-shift diperiksa</span><span><b>${controls.filter(item => ['balanced','closed'].includes(item.status)).length}</b> MOHH pas</span><span><b>${issueRows.length}</b> perlu koreksi</span><span><b>${controls.filter(item => item.closure?.status === 'closed').length}</b> sudah freeze</span></div>
-    ${displayRows.length ? `<div class="standby-history-scroll"><table class="standby-v2-table standby-quality-table"><thead><tr><th>Periode / Unit</th><th>HM</th><th>BD</th><th>Standby</th><th>MOHH</th><th>Selisih</th><th>Status</th><th>Temuan</th></tr></thead><tbody>${displayRows.map(control => `<tr><td><b>${escapeMinePlanning(control.kode_alat)}</b><small>${escapeMinePlanning(formatTanggalMining(control.operational_date))} · ${escapeMinePlanning(control.shift_name)} · ${escapeMinePlanning(control.kelas_alat)}</small></td><td class="is-number">${standbyV2Hours(control.hmHours)}</td><td class="is-number">${standbyV2Hours(control.breakdownHours)}</td><td class="is-number">${standbyV2Hours(control.standbyHours)}</td><td class="is-number">${standbyV2Hours(control.accountedHours)} / ${standbyV2Hours(control.targetHours)}</td><td class="is-number">${standbyV2Hours(control.balanceHours)}</td><td><span class="standby-mohh-badge is-${escapeMinePlanning(control.status)}">${escapeMinePlanning(standbyMohhStatusLabel(control.status))}</span></td><td>${(control.issues || []).length ? (control.issues || []).map(issue => `<span class="standby-quality-issue is-${escapeMinePlanning(issue.severity)}">${escapeMinePlanning(issue.message)}</span>`).join('') : '<span class="standby-quality-clear">Tidak ada temuan</span>'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="standby-quality-ok">✓ Seluruh unit pada filter terpilih sudah seimbang dan siap ditutup.</div>'}
+    ${displayRows.length ? `<div class="standby-history-scroll"><table class="standby-v2-table standby-quality-table"><thead><tr><th>Periode / Unit</th><th>HM</th><th>BD</th><th>Standby</th><th>MOHH</th><th>Selisih</th><th>Status</th><th>Temuan</th></tr></thead><tbody>${displayRows.map(standbyQualityRowHtml).join('')}</tbody></table></div>` : '<div class="standby-quality-ok">✓ Seluruh unit pada filter terpilih sudah seimbang dan siap ditutup.</div>'}
   </div>`;
 }
 
@@ -6522,16 +6925,15 @@ function exportStandbyExcel() {
   if (!window.XLSX) return alert('Library Excel belum siap.');
   const rows = filteredStandbyV2Slices();
   if (!rows.length) return alert('Tidak ada data Standby pada filter aktif.');
-  const detail = rows.map(row => ({ 'Tanggal Operasional': row.operational_date, 'Shift': row.shift_name, 'Jenis Unit': row.kelas_alat, 'Class': row.class_unit || '', 'Kode Unit': row.kode_alat, 'Kode Standby': row.kode_standby, 'Kategori': row.kategori_standby, 'Mulai': standbyV2DateTime(row.slice_start), 'Selesai': standbyV2DateTime(row.slice_finish), 'Jam Standby': Number(row.counted_hours || 0), 'Raw Hours': Number(row.raw_hours || 0), 'Sumber': row.is_system_generated ? 'Sistem' : 'Manual', 'Lifecycle': row.lifecycle_status, 'Review': row.review_status, 'Keterangan': row.description || '' }));
+  const detail = rows.map(row => ({ 'Tanggal Operasional': row.operational_date, 'Shift': row.shift_name, 'Jenis Unit': row.kelas_alat, 'Class': row.class_unit || '', 'Kode Unit': row.kode_alat, 'Kode Standby': row.kode_standby, 'Kategori': row.kategori_standby, 'Mulai': standbyV2DateTime(row.slice_start), 'Selesai': standbyV2DateTime(row.slice_finish), 'Jam Standby': Number(row.counted_hours || 0), 'Raw Hours': Number(row.raw_hours || 0), 'Sumber': row.is_system_generated ? 'Sistem' : 'Manual', 'Lifecycle': row.lifecycle_status, 'Keterangan': row.description || '' }));
   const summaryMap = new Map();
   rows.forEach(row => { const key = `${row.kelas_alat}|${row.class_unit || ''}|${row.kode_alat}`; const item = summaryMap.get(key) || { 'Jenis Unit': row.kelas_alat, 'Class': row.class_unit || '', 'Kode Unit': row.kode_alat, 'Total Standby (Jam)': 0, 'Jumlah Event': new Set() }; item['Total Standby (Jam)'] += Number(row.counted_hours || 0); item['Jumlah Event'].add(row.standby_log_id); summaryMap.set(key, item); });
   const summary = [...summaryMap.values()].map(item => ({ ...item, 'Jumlah Event': item['Jumlah Event'].size }));
-  const verification = detail.filter(row => row['Kode Standby'] === 'STB-SYS-01');
   const audit = (standbyV2Data.logs || []).flatMap(log => (log.audit_history || []).map(entry => ({ 'Standby ID': log.id, 'Kode Unit': log.kode_alat, 'Aksi': entry.action, 'Waktu Perubahan': standbyV2DateTime(entry.changed_at), 'Oleh': entry.changed_by_name || 'Sistem' })));
   const mohh = filteredStandbyMohhControls().map(control => ({ 'Tanggal Operasional': control.operational_date, 'Shift': control.shift_name, 'Jenis Unit': control.kelas_alat, 'Class': control.class_unit || '', 'Kode Unit': control.kode_alat, 'HM Input Data': Number(control.hmHours || 0), 'Jam Breakdown': Number(control.breakdownHours || 0), 'Jam Standby': Number(control.standbyHours || 0), 'Total MOHH': Number(control.accountedHours || 0), 'Target MOHH': Number(control.targetHours || 12), 'Selisih': Number(control.balanceHours || 0), 'Status': standbyMohhStatusLabel(control.status), 'Freeze': control.closure?.status === 'closed' ? 'Ditutup' : 'Terbuka', 'Temuan': (control.issues || []).map(issue => issue.message).join(' | ') }));
   const pareto = (standbyV2Data.pareto?.byCode || []).map((item, index) => ({ 'Peringkat': index + 1, 'Kode Standby': item.kode, 'Kategori': item.kategori, 'Planning': item.planning_type, 'Control Class': item.control_class, 'Owner': item.owner_department, 'Jam': Number(item.hours || 0), 'Event': item.events, 'Unit': item.units }));
   const workbook = XLSX.utils.book_new();
-  [['Kontrol MOHH', mohh], ['Summary per Unit', summary], ['Pareto Standby', pareto], ['Detail Standby', detail], ['Standby Verification', verification], ['Review & Audit', audit]].forEach(([name, data]) => { const sheet = XLSX.utils.json_to_sheet(data.length ? data : [{ Informasi: 'Tidak ada data' }]); sheet['!cols'] = Array.from({ length: Math.max(1, Object.keys(data[0] || {}).length) }, () => ({ wch: 22 })); XLSX.utils.book_append_sheet(workbook, sheet, name); });
+  [['Kontrol MOHH', mohh], ['Summary per Unit', summary], ['Pareto Standby', pareto], ['Detail Standby', detail], ['Audit Trail', audit]].forEach(([name, data]) => { const sheet = XLSX.utils.json_to_sheet(data.length ? data : [{ Informasi: 'Tidak ada data' }]); sheet['!cols'] = Array.from({ length: Math.max(1, Object.keys(data[0] || {}).length) }, () => ({ wch: 22 })); XLSX.utils.book_append_sheet(workbook, sheet, name); });
   const from = document.getElementById('slicerStandbyFrom')?.value || ''; const to = document.getElementById('slicerStandbyTo')?.value || '';
   XLSX.writeFile(workbook, `OMOS_Standby_${from}_${to}.xlsx`);
 }
@@ -6542,6 +6944,8 @@ function exportStandbyExcel() {
 let cachedBreakdownLogs = [];
 let cachedBreakdownMetrics = {};
 let cachedBreakdownHistory = [];
+let cachedBreakdownUnitStatus = null;
+let breakdownUnitStatusView = localStorage.getItem('omos_breakdown_unit_status_view') === 'compact' ? 'compact' : 'detail';
 let breakdownFiltersReady = false;
 
 const BREAKDOWN_STATUS_LABELS = {
@@ -6550,7 +6954,6 @@ const BREAKDOWN_STATUS_LABELS = {
   waiting_tool: 'Waiting Tool',
   waiting_manpower: 'Waiting Manpower',
   waiting_vendor: 'Waiting Vendor',
-  awaiting_verification: 'Menunggu Verifikasi',
   resolved: 'Ready to Operate'
 };
 
@@ -6608,11 +7011,242 @@ async function readBreakdownResponse(response) {
   return body;
 }
 
+function breakdownUnitTypeIcon(value) {
+  const type = String(value || '').toLowerCase();
+  if (/excavator/.test(type)) return '⌁';
+  if (/dump|truck/.test(type)) return '▰';
+  if (/dozer/.test(type)) return '▱';
+  if (/grader/.test(type)) return '⌇';
+  return '⚙';
+}
+
+function setBreakdownUnitStatusFilter(status) {
+  const select = document.getElementById('breakdownUnitStatusFilter');
+  if (select) select.value = status || '';
+  renderBreakdownUnitStatus();
+}
+
+function setBreakdownUnitStatusView(view) {
+  breakdownUnitStatusView = view === 'compact' ? 'compact' : 'detail';
+  localStorage.setItem('omos_breakdown_unit_status_view', breakdownUnitStatusView);
+  renderBreakdownUnitStatus();
+}
+
+function breakdownUnitDurationMarkup(incident) {
+  if (!incident) return '—';
+  const level = ['warning', 'critical'].includes(incident.durationLevel) ? incident.durationLevel : 'normal';
+  const label = level === 'critical' ? '≥24 jam · Kritis' : level === 'warning' ? '≥12 jam · Peringatan' : 'Dalam 1 shift';
+  return `<span class="breakdown-unit-duration is-${level}">${formatBreakdownHours(incident.elapsedHours)} jam<em>${label}</em></span>`;
+}
+
+function breakdownUnitRowMarkup(unit) {
+  const incident = unit.activeIncident;
+  const isBd = unit.status === 'BD';
+  const quality = Array.isArray(unit.dataQuality) ? unit.dataQuality : [];
+  const qualityMarkup = quality.length ? `<span class="breakdown-unit-dq" title="${escapeMinePlanning(quality.map(item => item.message).join(' | '))}">⚠ ${quality.length}</span>` : '';
+  const actions = isBd
+    ? `<button type="button" class="tombol tombol--kecil" onclick="bukaBreakdownUnitHistory('${escapeMinePlanning(unit.equipmentId)}','${escapeMinePlanning(incident?.id || '')}')">Detail</button><button type="button" class="tombol tombol--kecil" onclick="bukaBreakdownUnitHistory('${escapeMinePlanning(unit.equipmentId)}')">Riwayat</button>`
+    : `<button type="button" class="tombol tombol--kecil tombol--utama" onclick="bukaModalInputBreakdown('${escapeMinePlanning(unit.equipmentId)}')">+ Breakdown</button><button type="button" class="tombol tombol--kecil" onclick="bukaBreakdownUnitHistory('${escapeMinePlanning(unit.equipmentId)}')">Riwayat</button>`;
+  return `<tr class="${isBd ? 'is-bd' : 'is-ready'}">
+    <td><b>${escapeMinePlanning(unit.unitCode)}</b>${qualityMarkup}<small>${escapeMinePlanning(unit.model || unit.equipmentType || 'Unit')}</small></td>
+    <td class="breakdown-unit-col-detail">${escapeMinePlanning(unit.equipmentClass || '—')}<small>${escapeMinePlanning(unit.model || '—')}</small></td>
+    <td class="breakdown-unit-col-detail">${escapeMinePlanning(unit.location || '—')}</td>
+    <td><span class="breakdown-unit-state is-${isBd ? 'bd' : 'ready'}">${escapeMinePlanning(unit.status)}</span></td>
+    <td class="breakdown-unit-col-detail">${incident ? breakdownStatusBadge(incident.currentStatus) : '—'}${incident?.breakdownCategory ? `<small>${escapeMinePlanning(`${incident.breakdownCode || ''} ${incident.breakdownCategory}`.trim())}</small>` : ''}</td>
+    <td>${incident ? `${escapeMinePlanning(formatBreakdownDateTime(incident.startTime))}<small>${breakdownUnitDurationMarkup(incident)}</small>` : '—'}</td>
+    <td class="breakdown-unit-col-detail">${escapeMinePlanning(incident?.picName || '—')}</td>
+    <td><div class="breakdown-unit-actions">${actions}</div></td>
+  </tr>`;
+}
+
+function renderBreakdownUnitStatus() {
+  const container = document.getElementById('breakdownUnitStatusGroups');
+  if (!container || !cachedBreakdownUnitStatus) return;
+  const data = cachedBreakdownUnitStatus;
+  const summary = data.summary || {};
+  const search = String(document.getElementById('breakdownUnitStatusSearch')?.value || '').trim().toLowerCase();
+  const status = String(document.getElementById('breakdownUnitStatusFilter')?.value || '');
+  const type = String(document.getElementById('breakdownUnitTypeFilter')?.value || '');
+  document.getElementById('breakdownUnitTotal').textContent = String(summary.total || 0);
+  document.getElementById('breakdownUnitReady').textContent = String(summary.ready || 0);
+  document.getElementById('breakdownUnitBd').textContent = String(summary.breakdown || 0);
+  document.querySelectorAll('[data-unit-status-summary]').forEach(button => button.classList.toggle('is-active', button.dataset.unitStatusSummary === status));
+  document.querySelectorAll('[data-unit-view]').forEach(button => button.classList.toggle('is-active', button.dataset.unitView === breakdownUnitStatusView));
+
+  const indicators = document.getElementById('breakdownTypeIndicators');
+  if (indicators) indicators.innerHTML = (data.groups || []).map(group => `<article class="breakdown-type-indicator"><i>${breakdownUnitTypeIcon(group.equipmentType)}</i><div><b>${escapeMinePlanning(group.equipmentType)}</b><span><em class="is-ready">Ready ${group.ready}</em><em class="is-bd">BD ${group.breakdown}</em></span></div></article>`).join('') || '<span class="tabel__kosong">Tidak ada unit aktif pada List Equipment.</span>';
+
+  const filteredGroups = (data.groups || []).map(group => ({ ...group, units: (group.units || []).filter(unit => {
+    if (type && group.equipmentType !== type) return false;
+    if (status && unit.status !== status) return false;
+    const haystack = [unit.unitCode,unit.equipmentType,unit.equipmentClass,unit.model,unit.location,unit.activeIncident?.breakdownCode,unit.activeIncident?.breakdownCategory,unit.activeIncident?.picName].join(' ').toLowerCase();
+    return !search || haystack.includes(search);
+  }) })).filter(group => group.units.length);
+  container.classList.toggle('is-compact', breakdownUnitStatusView === 'compact');
+  container.innerHTML = filteredGroups.length ? filteredGroups.map(group => {
+    const ready = group.units.filter(unit => unit.status === 'Ready').length;
+    const bd = group.units.filter(unit => unit.status === 'BD').length;
+    return `<details class="breakdown-unit-status-group" open><summary><b>${escapeMinePlanning(group.equipmentType)}</b><span>${group.units.length} unit · <em class="is-ready">Ready ${ready}</em> · <em class="is-bd">BD ${bd}</em></span></summary><div class="breakdown-unit-status-scroll"><table class="breakdown-unit-status-table"><thead><tr><th>Unit</th><th class="breakdown-unit-col-detail">Class / Model</th><th class="breakdown-unit-col-detail">Lokasi</th><th>Status</th><th class="breakdown-unit-col-detail">Status BD Aktif</th><th>Mulai / Durasi</th><th class="breakdown-unit-col-detail">PIC</th><th>Aksi</th></tr></thead><tbody>${group.units.map(breakdownUnitRowMarkup).join('')}</tbody></table></div></details>`;
+  }).join('') : '<p class="tabel__kosong">Tidak ada unit yang sesuai filter.</p>';
+}
+
+async function muatBreakdownUnitStatus() {
+  const container = document.getElementById('breakdownUnitStatusGroups');
+  if (!container) return;
+  container.innerHTML = '<p class="tabel__kosong">Memuat status unit...</p>';
+  try {
+    const response = await fetch(getProdApiUrl('/api/admin/production/breakdown/unit-status/current'), { headers: { ...getProdAuthHeaders() } });
+    const data = await readBreakdownResponse(response);
+    cachedBreakdownUnitStatus = data;
+    const typeSelect = document.getElementById('breakdownUnitTypeFilter');
+    const previousType = typeSelect?.value || '';
+    if (typeSelect) {
+      typeSelect.innerHTML = '<option value="">Semua Jenis Unit</option>' + (data.groups || []).map(group => `<option value="${escapeMinePlanning(group.equipmentType)}">${escapeMinePlanning(group.equipmentType)}</option>`).join('');
+      if ([...(data.groups || []).map(group => group.equipmentType), ''].includes(previousType)) typeSelect.value = previousType;
+    }
+    const updated = document.getElementById('breakdownUnitStatusUpdated');
+    if (updated) updated.textContent = `Diperbarui ${new Date(data.generatedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    const qualityButton = document.getElementById('breakdownUnitQualityButton');
+    if (qualityButton) qualityButton.querySelector('span').textContent = String(data.reconciliation?.issueCount || 0);
+    renderBreakdownUnitStatus();
+  } catch (error) {
+    container.innerHTML = `<p class="tabel__kosong teks-error">Gagal memuat status unit: ${escapeMinePlanning(error.message)}</p>`;
+  }
+}
+
+function hitungBreakdownMa(hmHours, bdHours) {
+  const hm = Number(hmHours) || 0;
+  const bd = Number(bdHours) || 0;
+  if (!(hm + bd > 0)) return null;
+  return (hm / (hm + bd)) * 100;
+}
+
+function formatBreakdownMa(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  return `${Number(value).toLocaleString('id-ID', { maximumFractionDigits: 1 })}%`;
+}
+
+let cachedBreakdownMa = null;
+
+async function loadBreakdownMaData(year, month) {
+  const key = `${year}-${month}`;
+  if (cachedBreakdownMa && cachedBreakdownMa.key === key) return cachedBreakdownMa;
+  if (!(masterProdData.equipment || []).length) await muatMasterDataProduksi();
+  const response = await fetch(getProdApiUrl(`/api/admin/production/logs?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&limit=2000`), { headers: { ...getProdAuthHeaders() } });
+  const payload = await readBreakdownResponse(response);
+  const logs = Array.isArray(payload) ? payload : (payload.logs || []);
+  const unitById = new Map((masterProdData.equipment || []).filter(unit => unit?.id).map(unit => [String(unit.id), unit]));
+  const byUnit = new Map();
+  const ambil = id => {
+    const k = String(id || '');
+    if (!byUnit.has(k)) byUnit.set(k, { equipmentId: k, kode: '', kelas: '', hm: 0, bd: 0 });
+    return byUnit.get(k);
+  };
+  logs.forEach(log => {
+    if (!log || log.deleted_at) return;
+    const hm = Number(log.total_hm);
+    if (!(hm >= 0)) return;
+    const row = ambil(log.equipment_id);
+    const master = log.equipment_id ? unitById.get(String(log.equipment_id)) : null;
+    row.kode = master?.kode_alat || log.kode_alat || row.kode;
+    row.kelas = master?.kelas_alat || log.kelas_alat || row.kelas;
+    row.hm += hm;
+  });
+  (cachedBreakdownLogs || []).forEach(log => {
+    if (!log) return;
+    const bd = Number(log.elapsed_breakdown_hours);
+    if (!(bd >= 0)) return;
+    const row = ambil(log.equipment_id);
+    const master = log.equipment_id ? unitById.get(String(log.equipment_id)) : null;
+    row.kode = master?.kode_alat || log.kode_alat || row.kode || 'Unit tidak dikenal';
+    row.kelas = master?.kelas_alat || log.kelas_alat || row.kelas;
+    row.bd += bd;
+  });
+  const groups = new Map();
+  for (const row of byUnit.values()) {
+    if (!((row.hm > 0) || (row.bd > 0))) continue;
+    const type = String(row.kelas || 'Tanpa Jenis').trim() || 'Tanpa Jenis';
+    if (!groups.has(type)) groups.set(type, { equipmentType: type, units: [], hm: 0, bd: 0 });
+    const group = groups.get(type);
+    group.units.push({ ...row, ma: hitungBreakdownMa(row.hm, row.bd) });
+    group.hm += row.hm;
+    group.bd += row.bd;
+  }
+  const ordered = [...groups.values()]
+    .sort((a, b) => a.equipmentType.localeCompare(b.equipmentType, 'id-ID'))
+    .map(group => ({ ...group, ma: hitungBreakdownMa(group.hm, group.bd),
+      units: group.units.sort((a, b) => String(a.kode).localeCompare(String(b.kode), 'id-ID', { numeric: true })) }));
+  const fleetHm = ordered.reduce((sum, group) => sum + group.hm, 0);
+  const fleetBd = ordered.reduce((sum, group) => sum + group.bd, 0);
+  cachedBreakdownMa = { key, groups: ordered, hm: fleetHm, bd: fleetBd, ma: hitungBreakdownMa(fleetHm, fleetBd) };
+  return cachedBreakdownMa;
+}
+
+async function refreshBreakdownMaKpi(year, month) {
+  const el = document.getElementById('metricMa');
+  const basis = document.getElementById('metricMaBasis');
+  try {
+    const data = await loadBreakdownMaData(year, month);
+    if (el) el.textContent = formatBreakdownMa(data.ma);
+    if (basis) basis.textContent = `HM ${formatBreakdownHours(data.hm)} · BD ${formatBreakdownHours(data.bd)}`;
+  } catch (error) {
+    if (el) el.textContent = '—';
+  }
+}
+
+async function bukaBreakdownMaKpi() {
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!overlay || !konten) return;
+  overlay.hidden = false;
+  konten.innerHTML = '<div class="breakdown-unit-history-modal breakdown-ma-modal"><h3>📊 Calendar MA</h3><div class="standby-loading">Menghitung MA = HM ÷ (HM + Breakdown)…</div></div>';
+  try {
+    const year = document.getElementById('slicerBreakdownTahun')?.value || new Date().getFullYear();
+    const month = document.getElementById('slicerBreakdownBulan')?.value || (new Date().getMonth() + 1);
+    const data = await loadBreakdownMaData(year, month);
+    konten.innerHTML = `<div class="breakdown-unit-history-modal breakdown-ma-modal"><header><div><h3>📊 Calendar MA — ${formatBreakdownMa(data.ma)}</h3><p>MA = HM aktual ÷ (HM aktual + jam Breakdown) · HM ${formatBreakdownHours(data.hm)} · BD ${formatBreakdownHours(data.bd)} · dikelompokkan per jenis equipment.</p></div><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button></header>${data.groups.length ? data.groups.map(group => `<section style="margin-bottom:14px;"><h4 style="margin:0 0 6px;font-size:13px;color:#0f172a;">${escapeMinePlanning(group.equipmentType)} (MA ${formatBreakdownMa(group.ma)})</h4><div class="standby-history-scroll"><table class="standby-v2-table" style="width:100%;table-layout:fixed;"><thead><tr><th style="width:20%;">Unit</th><th style="text-align:right;">HM</th><th style="text-align:right;">BD</th><th style="text-align:right;">MA</th></tr></thead><tbody>${group.units.map(unit => `<tr><td style="width:20%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeMinePlanning(unit.kode || '—')}</b></td><td style="text-align:right;">${formatBreakdownHours(unit.hm)}</td><td style="text-align:right;">${formatBreakdownHours(unit.bd)}</td><td style="text-align:right;font-weight:800;">${formatBreakdownMa(unit.ma)}</td></tr>`).join('')}</tbody></table></div></section>`).join('') : '<p class="tabel__kosong">Belum ada HM maupun jam breakdown pada periode ini.</p>'}</div>`;
+  } catch (error) {
+    konten.innerHTML = `<div class="breakdown-unit-history-modal breakdown-ma-modal"><p class="teks-error">Gagal menghitung MA: ${escapeMinePlanning(error.message)}</p><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button></div>`;
+  }
+}
+
+function bukaBreakdownUnitDataQuality() {
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!overlay || !konten || !cachedBreakdownUnitStatus) return;
+  const issues = cachedBreakdownUnitStatus.reconciliation?.issues || [];
+  overlay.hidden = false;
+  konten.innerHTML = `<div class="breakdown-unit-history-modal"><header><div><h3>🛡️ Data Quality Status Unit</h3><p>Rekonsiliasi status turunan Breakdown aktif terhadap status tersimpan pada List Equipment.</p></div><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button></header>${issues.length ? `<div class="breakdown-unit-quality-list">${issues.map(issue => `<article><b>${escapeMinePlanning(issue.unitCode || issue.equipmentId || 'Unit')} · ${escapeMinePlanning(issue.code)}</b><span>${escapeMinePlanning(issue.message)}</span></article>`).join('')}</div>` : '<div class="standby-quality-ok">✓ Status seluruh unit konsisten dan tidak ada breakdown aktif ganda.</div>'}</div>`;
+}
+
+async function bukaBreakdownUnitHistory(equipmentId, focusIncidentId = '') {
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!overlay || !konten) return;
+  overlay.hidden = false;
+  konten.innerHTML = '<div class="breakdown-unit-history-modal"><p class="tabel__kosong">Memuat riwayat status unit...</p></div>';
+  try {
+    const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/unit-status/${encodeURIComponent(equipmentId)}/history?limit=20`), { headers: { ...getProdAuthHeaders() } });
+    const data = await readBreakdownResponse(response);
+    const incidents = Array.isArray(data.incidents) ? data.incidents : [];
+    const cards = incidents.map(incident => {
+      const segments = Array.isArray(incident.status_history) ? incident.status_history : [];
+      const timeline = segments.map(segment => `<article><span class="breakdown-timeline-dot"></span><div><b>${escapeMinePlanning(BREAKDOWN_STATUS_LABELS[segment.status] || segment.status)}</b><small>${escapeMinePlanning(formatBreakdownDateTime(segment.started_at))} → ${segment.ended_at ? escapeMinePlanning(formatBreakdownDateTime(segment.ended_at)) : 'sekarang'}</small>${segment.note ? `<p>${escapeMinePlanning(segment.note)}</p>` : ''}<em>${escapeMinePlanning(segment.changed_by_name || 'Sistem')}</em></div></article>`).join('');
+      const release = incident.status === 'resolved' ? `<article><span class="breakdown-timeline-dot" style="background:#16a34a"></span><div><b>Ready</b><small>${escapeMinePlanning(formatBreakdownDateTime(incident.finish_time))}</small></div></article>` : '';
+      return `<article class="breakdown-unit-history-card"${String(incident.id) === String(focusIncidentId) ? ' style="border-color:#60a5fa;box-shadow:0 0 0 2px #dbeafe"' : ''}><header><div><h4>${escapeMinePlanning(`${incident.kode_breakdown || ''} ${incident.kategori_breakdown || ''}`.trim() || 'Breakdown')}</h4><p>${escapeMinePlanning(incident.description || 'Tanpa deskripsi')}</p></div>${breakdownStatusBadge(incident.current_status)}</header><p>Mulai ${escapeMinePlanning(formatBreakdownDateTime(incident.start_time))} · ${formatBreakdownHours(incident.total_breakdown_hours)} jam · PIC ${escapeMinePlanning(incident.pic_name || '—')}</p><div class="breakdown-timeline">${timeline}${release}</div></article>`;
+    }).join('');
+    konten.innerHTML = `<div class="breakdown-unit-history-modal"><header><div><h3>Riwayat Status · ${escapeMinePlanning(data.equipment?.kode_alat || 'Unit')}</h3><p>${escapeMinePlanning(data.equipment?.kelas_alat || '')} · ${escapeMinePlanning(data.equipment?.class_unit || '')} · 20 insiden terakhir</p></div><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button></header><div class="breakdown-unit-history-list">${cards || '<p class="tabel__kosong">Unit belum memiliki riwayat breakdown.</p>'}</div></div>`;
+  } catch (error) {
+    konten.innerHTML = `<div class="breakdown-unit-history-modal"><p class="teks-error">Gagal memuat riwayat unit: ${escapeMinePlanning(error.message)}</p><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button></div>`;
+  }
+}
+
 async function muatProdBreakdown() {
   const tbody = document.getElementById('tbodyProdBreakdown');
   const completedBody = document.getElementById('tbodyProdBreakdownCompleted');
   if (!tbody || !completedBody) return;
   setupBreakdownFilters();
+  void muatBreakdownUnitStatus();
   tbody.innerHTML = '<tr><td colspan="10" class="tabel__kosong">Memuat board breakdown seluruh unit...</td></tr>';
   completedBody.innerHTML = '<tr><td colspan="10" class="tabel__kosong">Memuat unit selesai perbaikan...</td></tr>';
   try {
@@ -6626,16 +7260,14 @@ async function muatProdBreakdown() {
     const metrics = cachedBreakdownMetrics;
     document.getElementById('metricMtbf').textContent = `${formatBreakdownHours(metrics.mtbfHours)} Jam`;
     document.getElementById('metricMttr').textContent = `${formatBreakdownHours(metrics.mttrHours)} Jam`;
-    document.getElementById('metricPa').textContent = `${Number(metrics.calendarPa || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 })}%`;
     document.getElementById('metricBdOpen').textContent = String(metrics.openBreakdowns || 0);
     document.getElementById('metricBdHours').textContent = `${formatBreakdownHours(metrics.totalBdHours)} Jam`;
     document.getElementById('metricBdUnits').textContent = String(metrics.affectedUnits || 0);
-    const basis = document.getElementById('metricPaBasis');
-    if (basis) basis.textContent = `${data.period?.days || 0} hari × ${metrics.activeUnitCount || 0} unit × 24 jam`;
+    void refreshBreakdownMaKpi(year, month);
     terapkanSlicerBreakdown();
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="10" class="teks-error">Gagal memuat Breakdown Workflow: ${escapeMinePlanning(err.message)}. Pastikan migrasi 011 sudah dijalankan.</td></tr>`;
-    completedBody.innerHTML = `<tr><td colspan="10" class="teks-error">Gagal memuat Ready Verification: ${escapeMinePlanning(err.message)}. Pastikan migrasi 013 sudah dijalankan.</td></tr>`;
+    completedBody.innerHTML = `<tr><td colspan="10" class="teks-error">Gagal memuat unit yang sudah release: ${escapeMinePlanning(err.message)}.</td></tr>`;
   }
 }
 
@@ -6681,20 +7313,20 @@ function terapkanSlicerBreakdown() {
   const visibleUnitIds = new Set();
   let visibleIncidents = 0;
   const rowMarkup = (unit, log, index) => {
-    const isPending = log.current_status === 'awaiting_verification';
     const isResolved = log.current_status === 'resolved';
-    const actions = isPending
-      ? `<button class="tombol tombol--kecil breakdown-ready-button" onclick="bukaModalReadyVerification('${escapeMinePlanning(log.id)}')">Verifikasi Ready</button><button class="tombol tombol--kecil standby-review-button" onclick="bukaModalRekonsiliasiReady('${escapeMinePlanning(log.id)}')">Rekonsiliasi Operasi</button><button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">Detail</button>`
-      : isResolved
-        ? `<button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">${Array.isArray(log.ready_verifications) && log.ready_verifications.length ? 'Lihat Verifikasi' : 'Detail'}</button>`
-        : `<button class="tombol tombol--kecil tombol--utama" onclick="bukaModalUpdateStatusBreakdown('${escapeMinePlanning(log.id)}')">Update</button><button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">Detail</button><button class="tombol tombol--kecil tombol--error" onclick="hapusBreakdownLog('${escapeMinePlanning(log.id)}', '${escapeMinePlanning(unit.kode_alat)}')">Hapus</button>`;
+    const actions = isResolved
+      ? `<button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">Detail</button>`
+      : `<button class="tombol tombol--kecil tombol--utama" onclick="bukaModalUpdateStatusBreakdown('${escapeMinePlanning(log.id)}')">Update</button><button class="tombol tombol--kecil" onclick="bukaDetailBreakdown('${escapeMinePlanning(log.id)}')">Detail</button><button class="tombol tombol--kecil tombol--error" onclick="hapusBreakdownLog('${escapeMinePlanning(log.id)}', '${escapeMinePlanning(unit.kode_alat)}')">Hapus</button>`;
     const picCell = isResolved
       ? `<span class="breakdown-pic-static">${escapeMinePlanning(log.pic_name || 'Belum ditetapkan')}</span>`
       : `<select class="breakdown-pic-select" data-breakdown-id="${escapeMinePlanning(log.id)}" onchange="ubahPicBreakdown('${escapeMinePlanning(log.id)}', this.value, this)">${breakdownPersonnelOptions(log.pic_id, true)}</select>`;
-    return `<tr class="breakdown-incident-row${!isResolved && !isPending ? ' is-active' : ''}" data-breakdown-id="${escapeMinePlanning(log.id)}">
+    const damageTypeCell = isResolved
+      ? `<strong>${escapeMinePlanning(`${log.kode_breakdown || ''} ${log.kategori_breakdown || ''}`.trim() || '—')}</strong>`
+      : `<div class="breakdown-damage-editor"><select data-original-value="${escapeMinePlanning(log.breakdown_code_id || '')}" onchange="tandaiJenisKerusakanBreakdown(this)">${breakdownCodeOptions(log.breakdown_code_id)}</select><button type="button" class="tombol tombol--kecil" disabled onclick="simpanJenisKerusakanBreakdown('${escapeMinePlanning(log.id)}', this)">Simpan</button></div>`;
+    return `<tr class="breakdown-incident-row${!isResolved ? ' is-active' : ''}" data-breakdown-id="${escapeMinePlanning(log.id)}">
       <td><strong>${escapeMinePlanning(unit.kode_alat)}</strong><small>${escapeMinePlanning(unit.kelas_alat || unit.class_unit || unit.tipe_alat || 'Unit')}</small>${index ? '<em>Insiden tambahan</em>' : ''}</td>
       <td><strong>${escapeMinePlanning(String(log.tanggal || '').slice(0, 10))}</strong><small>${escapeMinePlanning(log.nama_shift || '—')}</small></td>
-      <td><strong>${escapeMinePlanning(`${log.kode_breakdown || ''} ${log.kategori_breakdown || ''}`.trim() || '—')}</strong><small title="${escapeMinePlanning(log.description || '')}">${escapeMinePlanning(log.description || 'Tanpa deskripsi')}</small></td>
+      <td>${damageTypeCell}<small title="${escapeMinePlanning(log.description || '')}">${escapeMinePlanning(log.description || 'Tanpa deskripsi')}</small></td>
       <td>${escapeMinePlanning(formatBreakdownDateTime(log.start_time))}</td><td>${breakdownStatusBadge(log.current_status)}</td>
       <td class="breakdown-duration-total">${formatBreakdownHours(log.elapsed_breakdown_hours)}<small>jam</small></td>
       <td>${escapeMinePlanning(log.report_by_name || 'Sistem')}</td><td>${picCell}</td>
@@ -6720,7 +7352,7 @@ function terapkanSlicerBreakdown() {
     perUnitIndex.set(unitKey, index + 1);
     visibleUnitIds.add(unitKey);
     visibleIncidents += 1;
-    const target = ['awaiting_verification', 'resolved'].includes(log.current_status) ? completedRows : activeRows;
+    const target = log.current_status === 'resolved' ? completedRows : activeRows;
     target.push(rowMarkup(unit, log, index));
   });
   tbody.innerHTML = activeRows.length ? activeRows.join('') : '<tr><td colspan="10" class="tabel__kosong">Tidak ada breakdown aktif yang sesuai filter.</td></tr>';
@@ -6742,12 +7374,11 @@ function resetSlicerBreakdown() {
 }
 
 // Hapus insiden breakdown aktif (koreksi kesalahan input). Data breakdown beserta
-// seluruh data terkait (timeline, part, verifikasi) ikut dihapus sehingga tidak lagi
-// mempengaruhi Breakdown History maupun Unit Performance. Standby otomatis hasil
-// verifikasi tidak ikut dihapus dan status unit dibiarkan apa adanya.
+// seluruh data terkait ikut dihapus sehingga tidak lagi mempengaruhi Breakdown
+// History maupun Unit Performance. Status unit dibiarkan apa adanya.
 async function hapusBreakdownLog(id, kodeAlat) {
   const label = kodeAlat ? ` unit ${kodeAlat}` : '';
-  if (!confirm(`Hapus insiden breakdown${label} ini?\n\nSeluruh data breakdown (timeline, part, verifikasi) akan dihapus dan tidak lagi mempengaruhi Breakdown History maupun Unit Performance. Tindakan ini tidak dapat dibatalkan.`)) return;
+  if (!confirm(`Hapus insiden breakdown${label} ini?\n\nSeluruh data breakdown terkait akan dihapus dan tidak lagi mempengaruhi Breakdown History maupun Unit Performance. Tindakan ini tidak dapat dibatalkan.`)) return;
   try {
     const res = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}`), {
       method: 'DELETE',
@@ -6817,6 +7448,44 @@ function breakdownPersonnelOptions(selectedId = '', includeEmpty = true) {
   return empty + personnel.map(person => `<option value="${escapeMinePlanning(person.id)}"${String(person.id) === String(selectedId) ? ' selected' : ''}>${escapeMinePlanning(person.nama)} — ${escapeMinePlanning(person.jabatan || person.departemen || person.role || 'Personel')}</option>`).join('');
 }
 
+function breakdownCodeOptions(selectedId = '') {
+  const codes = [...(masterProdData.breakdownCodes || [])]
+    .filter(code => code.id)
+    .sort((a, b) => String(a.kode || '').localeCompare(String(b.kode || ''), 'id-ID', { numeric: true, sensitivity: 'base' }));
+  return codes.map(code => `<option value="${escapeMinePlanning(code.id)}"${String(code.id) === String(selectedId) ? ' selected' : ''}>${escapeMinePlanning(`${code.kode || ''} — ${code.kategori || ''}`)}</option>`).join('');
+}
+
+function tandaiJenisKerusakanBreakdown(selectEl) {
+  const button = selectEl?.closest('.breakdown-damage-editor')?.querySelector('button');
+  if (button) button.disabled = String(selectEl.value || '') === String(selectEl.dataset.originalValue || '');
+}
+
+async function simpanJenisKerusakanBreakdown(breakdownId, button) {
+  const selectEl = button?.closest('.breakdown-damage-editor')?.querySelector('select');
+  if (!selectEl?.value) return;
+  try {
+    const data = await window.OMOSActionFeedback.run(button, async () => {
+      const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(breakdownId)}/damage-code`), {
+        method: 'PATCH',
+        headers: { ...getProdAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ breakdown_code_id: selectEl.value })
+      });
+      return readBreakdownResponse(response);
+    });
+    const log = (cachedBreakdownLogs || []).find(item => String(item.id) === String(breakdownId));
+    if (log) {
+      log.breakdown_code_id = data.breakdown_code_id;
+      log.kode_breakdown = data.kode_breakdown;
+      log.kategori_breakdown = data.kategori_breakdown;
+    }
+    terapkanSlicerBreakdown();
+  } catch (err) {
+    selectEl.value = selectEl.dataset.originalValue || '';
+    tandaiJenisKerusakanBreakdown(selectEl);
+    alert(`Gagal mengubah jenis kerusakan: ${err.message}`);
+  }
+}
+
 async function muatPicMaintenanceBreakdown() {
   try {
     const response = await fetch(getProdApiUrl('/api/admin/karyawan'), { headers: { ...getProdAuthHeaders() } });
@@ -6877,10 +7546,73 @@ function breakdownHistorySearchText(log) {
 function getFilteredBreakdownHistory() {
   const periodFilter = String(document.getElementById('breakdownHistoryPeriod')?.value || '');
   const search = String(document.getElementById('breakdownHistorySearch')?.value || '').trim().toLowerCase();
+  const jenisFilter = String(document.getElementById('breakdownHistoryJenis')?.value || '');
+  const unitFilter = String(document.getElementById('breakdownHistoryUnit')?.value || '');
   return cachedBreakdownHistory.filter(log => {
     const period = log.period_key || String(log.tanggal || '').slice(0, 7);
-    return (!periodFilter || period === periodFilter) && (!search || breakdownHistorySearchText(log).includes(search));
+    return (!periodFilter || period === periodFilter)
+      && (!jenisFilter || String(log.kelas_alat || '') === jenisFilter)
+      && (!unitFilter || String(log.equipment_id || '') === unitFilter)
+      && (!search || breakdownHistorySearchText(log).includes(search));
   });
+}
+
+function daftarJenisBreakdownHistory() {
+  const gabung = [
+    ...((masterProdData.equipment || []).map(unit => unit.kelas_alat)),
+    ...((cachedBreakdownHistory || []).map(log => log.kelas_alat)),
+  ].filter(Boolean);
+  return [...new Set(gabung)].sort((a, b) => a.localeCompare(b, 'id-ID'));
+}
+
+function daftarUnitBreakdownHistory(jenis) {
+  const peta = new Map();
+  for (const unit of (masterProdData.equipment || [])) {
+    if (!unit.id || !unit.kode_alat) continue;
+    if (jenis && String(unit.kelas_alat || '') !== jenis) continue;
+    const id = String(unit.id);
+    if (!peta.has(id)) peta.set(id, { id, unit: unit.kode_alat });
+  }
+  for (const log of (cachedBreakdownHistory || [])) {
+    const id = String(log.equipment_id || '');
+    if (!id || peta.has(id)) continue;
+    if (jenis && String(log.kelas_alat || '') !== jenis) continue;
+    peta.set(id, { id, unit: log.kode_alat || id });
+  }
+  return [...peta.values()].sort((a, b) => a.unit.localeCompare(b.unit, 'id-ID'));
+}
+
+function muatOpsiJenisUnitBreakdownHistory() {
+  const selJenis = document.getElementById('breakdownHistoryJenis');
+  if (selJenis) {
+    const aktif = selJenis.value;
+    selJenis.innerHTML = '<option value="">Semua Jenis</option>' + daftarJenisBreakdownHistory().map(jenis => `<option value="${escapeMinePlanning(jenis)}">${escapeMinePlanning(jenis)}</option>`).join('');
+    if ([...selJenis.options].some(opt => opt.value === aktif)) selJenis.value = aktif;
+  }
+  muatOpsiUnitBreakdownHistory();
+}
+
+function muatOpsiUnitBreakdownHistory() {
+  const selJenis = document.getElementById('breakdownHistoryJenis');
+  const selUnit = document.getElementById('breakdownHistoryUnit');
+  if (!selUnit) return;
+  const aktif = selUnit.value;
+  const daftar = daftarUnitBreakdownHistory(selJenis ? selJenis.value : '');
+  selUnit.innerHTML = '<option value="">Semua Unit</option>' + daftar.map(u => `<option value="${escapeMinePlanning(u.id)}">${escapeMinePlanning(u.unit)}</option>`).join('');
+  if (daftar.some(u => u.id === aktif)) selUnit.value = aktif;
+}
+
+function ubahJenisBreakdownHistory() {
+  muatOpsiUnitBreakdownHistory();
+  renderBreakdownHistory();
+}
+
+let bdTypeTerbuka = new Set();
+
+function toggleBdTypeGroup(tombol) {
+  const kunci = `${tombol.dataset.periode || ''}||${tombol.dataset.jenis || ''}`;
+  if (bdTypeTerbuka.has(kunci)) bdTypeTerbuka.delete(kunci); else bdTypeTerbuka.add(kunci);
+  renderBreakdownHistory();
 }
 
 function renderBreakdownHistory() {
@@ -6905,12 +7637,12 @@ function renderBreakdownHistory() {
     return;
   }
 
-  host.innerHTML = [...periodGroups.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([period, typeGroups]) => {
+  const htmlGrup = [...periodGroups.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([period, typeGroups]) => {
     const periodLogs = [...typeGroups.values()].flat();
     const periodHours = periodLogs.reduce((sum, log) => sum + Number(log.elapsed_breakdown_hours || 0), 0);
     const typeMarkup = [...typeGroups.entries()].sort(([a], [b]) => a.localeCompare(b, 'id-ID')).map(([unitType, logs]) => {
       const typeHours = logs.reduce((sum, log) => sum + Number(log.elapsed_breakdown_hours || 0), 0);
-      const rows = logs.map(log => `<tr>
+      const rows = logs.map(log => `<tr>${hapusBdMode ? `<td><input type="checkbox" data-hapus-bd-unit="${escapeMinePlanning(log.equipment_id || '')}"${hapusBdUnitsDipilih.has(String(log.equipment_id || '')) ? ' checked' : ''} onchange="toggleHapusBreakdownRow('${escapeMinePlanning(log.equipment_id || '')}',this.checked)" aria-label="Pilih unit ${escapeMinePlanning(log.kode_alat || '')}"></td>` : ''}
         <td><strong>${escapeMinePlanning(log.kode_alat || '—')}</strong><small>${escapeMinePlanning(log.tipe_alat || log.class_unit || '')}</small></td>
         <td>${escapeMinePlanning(String(log.tanggal || '').slice(0, 10))}<small>${escapeMinePlanning(log.nama_shift || '—')}</small></td>
         <td><strong>${escapeMinePlanning(`${log.kode_breakdown || ''} ${log.kategori_breakdown || ''}`.trim() || '—')}</strong><small>${escapeMinePlanning(log.description || '—')}</small></td>
@@ -6920,11 +7652,35 @@ function renderBreakdownHistory() {
         <td class="breakdown-history-number">${formatBreakdownHours(log.waiting_tool_hours)}</td><td class="breakdown-history-number">${formatBreakdownHours(log.waiting_manpower_hours)}</td><td class="breakdown-history-number">${formatBreakdownHours(log.waiting_vendor_hours)}</td>
         <td>${escapeMinePlanning(log.report_by_name || 'Sistem')}</td><td>${escapeMinePlanning(log.pic_name || 'Belum ditetapkan')}</td><td><div class="breakdown-parts-cell">${breakdownPartSummary(log.parts)}</div></td>
       </tr>`).join('');
-      return `<section class="breakdown-history-type"><header><div><b>${escapeMinePlanning(unitType)}</b><small>${logs.length} record unit</small></div><span>${formatBreakdownHours(typeHours)} jam BD</span></header>
-        <div class="breakdown-history-table-wrap"><table class="tabel breakdown-history-table"><thead><tr><th>Unit</th><th>Tanggal / Shift</th><th>Jenis Kerusakan</th><th>Mulai</th><th>Selesai</th><th>Status</th><th>Total BD</th><th>Mekanik</th><th>W. Part</th><th>W. Tool</th><th>W. Manpower</th><th>W. Vendor</th><th>Report By</th><th>PIC</th><th>Part / PO</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+      return `<section class="breakdown-history-type" data-expected="${logs.length}"><header><button type="button" class="tombol tombol--ghost tombol--kecil" data-periode="${escapeMinePlanning(period)}" data-jenis="${escapeMinePlanning(unitType)}" onclick="toggleBdTypeGroup(this)" title="Tampil/sembunyi unit" style="font-weight:900;">${bdTypeTerbuka.has(`${period}||${unitType}`) ? '▾' : '▸'}</button><div><b>${escapeMinePlanning(unitType)}</b><small>${logs.length} record unit</small></div><span>${formatBreakdownHours(typeHours)} jam BD</span></header>
+        <div class="breakdown-history-table-wrap"${bdTypeTerbuka.has(`${period}||${unitType}`) ? '' : ' hidden'}><table class="tabel breakdown-history-table"><thead><tr>${hapusBdMode ? '<th>Pilih</th>' : ''}<th>Unit</th><th>Tanggal / Shift</th><th>Jenis Kerusakan</th><th>Mulai</th><th>Selesai</th><th>Status</th><th>Total BD</th><th>Mekanik</th><th>W. Part</th><th>W. Tool</th><th>W. Manpower</th><th>W. Vendor</th><th>Report By</th><th>PIC</th><th>Part / PO</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
     }).join('');
     return `<section class="breakdown-history-period"><header><div><h4>${escapeMinePlanning(breakdownHistoryPeriodLabel(period))}</h4><small>${periodLogs.length} record · ${typeGroups.size} jenis unit</small></div><strong>${formatBreakdownHours(periodHours)} jam breakdown</strong></header>${typeMarkup}</section>`;
   }).join('');
+  // Bar Mode Hapus di AKHIR (docked sticky bawah) agar konten dapat full height.
+  host.innerHTML = htmlGrup + ((typeof hapusBdMode !== 'undefined' && hapusBdMode) ? hapusBdBarHtml() : '');
+  verifikasiBarisBreakdownHistory(host);
+}
+
+function verifikasiBarisBreakdownHistory(host) {
+  if (!host || !host.querySelectorAll) return;
+  host.querySelectorAll('section.breakdown-history-type').forEach(section => {
+    const expected = Number(section.dataset.expected);
+    if (!Number.isFinite(expected)) return;
+    const rendered = section.querySelectorAll('tbody tr').length;
+    if (rendered !== expected) {
+      const nama = section.querySelector('b')?.textContent || '?';
+      console.error('[BreakdownHistory] baris hilang:', nama, { expected, rendered });
+      const tabel = section.querySelector('.breakdown-history-table-wrap');
+      if (tabel && !tabel.querySelector('.bd-row-guard')) {
+        const info = document.createElement('div');
+        info.className = 'bd-row-guard';
+        info.style.cssText = 'padding:8px 12px;font-size:12px;font-weight:700;color:#991b1b;background:#fef2f2;border-top:1px solid #fecaca;';
+        info.textContent = `Ter-render ${rendered} dari ${expected} baris — screenshot console (F12) dan laporkan.`;
+        tabel.appendChild(info);
+      }
+    }
+  });
 }
 
 function exportBreakdownHistoryExcel() {
@@ -7011,6 +7767,7 @@ async function bukaBreakdownHistory() {
   const overlay = document.getElementById('modalOverlay');
   const konten = document.getElementById('modalKonten');
   if (!overlay || !konten) return;
+  hapusBdMode = false; hapusBdUnitsDipilih = new Set(); hapusBdPratinjau = null; hapusBdAlasan = '';
   konten.innerHTML = '<div class="breakdown-history-modal"><h3>📚 Breakdown History</h3><div class="breakdown-history-empty">Memuat seluruh database breakdown...</div></div>';
   overlay.hidden = false;
   try {
@@ -7019,15 +7776,141 @@ async function bukaBreakdownHistory() {
     cachedBreakdownHistory = Array.isArray(data.logs) ? data.logs : [];
     const periods = Array.isArray(data.periods) ? data.periods : [];
     konten.innerHTML = `<div class="breakdown-history-modal">
-      <div class="breakdown-history-head"><div><h3>📚 Breakdown History</h3><p>Seluruh record breakdown, disusun berdasarkan periode dan jenis unit.</p></div><div class="breakdown-history-actions"><button type="button" class="tombol breakdown-history-export" onclick="exportBreakdownHistoryExcel()">📊 Export Excel</button><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button></div></div>
-      <div class="breakdown-history-filters"><label>Periode<select id="breakdownHistoryPeriod" onchange="renderBreakdownHistory()"><option value="">Semua Periode</option>${periods.map(period => `<option value="${escapeMinePlanning(period)}">${escapeMinePlanning(breakdownHistoryPeriodLabel(period))}</option>`).join('')}</select></label><label class="is-wide">Cari Record<input id="breakdownHistorySearch" type="search" placeholder="Cari unit, kerusakan, reporter, PIC, part atau PO…" oninput="renderBreakdownHistory()" /></label><span id="breakdownHistoryCounter">0 record</span></div>
+      <div class="breakdown-history-head"><div><h3>📚 Breakdown History</h3><p>Seluruh record breakdown, disusun berdasarkan periode dan jenis unit.</p></div><div class="breakdown-history-actions"><button type="button" class="tombol breakdown-history-export" onclick="exportBreakdownHistoryExcel()">📊 Export Excel</button><button type="button" id="btnHapusBreakdownMode" class="tombol tombol--hapus" onclick="toggleHapusBreakdownMode()">🗑️ Hapus</button><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button></div></div>
+      <div class="breakdown-history-filters"><label>Periode<select id="breakdownHistoryPeriod" onchange="renderBreakdownHistory()"><option value="">Semua Periode</option>${periods.map(period => `<option value="${escapeMinePlanning(period)}">${escapeMinePlanning(breakdownHistoryPeriodLabel(period))}</option>`).join('')}</select></label><label>Jenis Alat<select id="breakdownHistoryJenis" onchange="ubahJenisBreakdownHistory()"><option value="">Semua Jenis</option></select></label><label>Unit<select id="breakdownHistoryUnit" onchange="renderBreakdownHistory()"><option value="">Semua Unit</option></select></label><label class="is-wide">Cari Record<input id="breakdownHistorySearch" type="search" placeholder="Cari unit, kerusakan, reporter, PIC, part atau PO…" oninput="renderBreakdownHistory()" /></label><span id="breakdownHistoryCounter">0 record</span></div>
       <div id="breakdownHistoryGroups" class="breakdown-history-groups"></div>
     </div>`;
+    if (!(masterProdData.equipment || []).length) {
+      try { await muatMasterDataProduksi(); } catch (errorMaster) { console.warn('Master equipment belum siap:', errorMaster.message); }
+    }
+    muatOpsiJenisUnitBreakdownHistory();
     renderBreakdownHistory();
   } catch (error) {
     konten.innerHTML = `<div class="breakdown-history-modal"><h3>📚 Breakdown History</h3><div class="breakdown-history-empty is-error">Gagal memuat history: ${escapeMinePlanning(error.message)}</div><div class="breakdown-modal-actions"><button class="tombol" onclick="tutupModalGenerik()">Tutup</button></div></div>`;
   }
 }
+
+let hapusBdMode = false;
+let hapusBdUnitsDipilih = new Set();
+let hapusBdPratinjau = null;
+let hapusBdAlasan = '';
+
+function toggleHapusBreakdownMode() {
+  if (!hapusBdMode) {
+    const periode = String(document.getElementById('breakdownHistoryPeriod')?.value || '');
+    if (!/^(\d{4})-(\d{2})$/.test(periode)) {
+      alert('Pilih periode (bulan) dulu sebelum Mode Hapus. Penghapusan dibatasi pada periode terpilih.');
+      return;
+    }
+  }
+  hapusBdMode = !hapusBdMode;
+  hapusBdUnitsDipilih = new Set();
+  hapusBdPratinjau = null;
+  const tombol = document.getElementById('btnHapusBreakdownMode');
+  if (tombol) tombol.textContent = hapusBdMode ? 'Tutup Mode Hapus' : '🗑️ Hapus';
+  renderBreakdownHistory();
+}
+
+function hapusBdBulanRange() {
+  const cocok = /^(\d{4})-(\d{2})$/.exec(String(document.getElementById('breakdownHistoryPeriod')?.value || ''));
+  if (!cocok) return null;
+  return { dari: `${cocok[1]}-${cocok[2]}-01`, sampai: new Date(Number(cocok[1]), Number(cocok[2]), 0).toISOString().slice(0, 10) };
+}
+
+function kodeHapusBdUnit(id) {
+  const log = (cachedBreakdownHistory || []).find(item => String(item.equipment_id || '') === String(id));
+  return log?.kode_alat || String(id);
+}
+
+function toggleHapusBreakdownRow(unitId, checked) {
+  const id = String(unitId || '');
+  if (!id) return;
+  if (checked) hapusBdUnitsDipilih.add(id); else hapusBdUnitsDipilih.delete(id);
+  hapusBdPratinjau = null;
+  renderBreakdownHistory();
+}
+
+function simpanHapusBdAlasan(value) { hapusBdAlasan = String(value || ''); }
+
+function hapusBdPreviewHtml(data) {
+  if (!data) return '';
+  const blokirOpen = (data.blockedOpen || []).map(b => `<li>${escapeMinePlanning(b.unit || b.id)} — verifikasi berjalan (attempt ${escapeMinePlanning(b.attempt ?? '—')})</li>`).join('');
+  const blokirShift = (data.blockedShifts || []).map(b => `<li>${escapeMinePlanning(b.unit || '')} — ${escapeMinePlanning(b.tanggal || '')}</li>`).join('');
+  return `<div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;font-size:13px;margin-top:10px;">
+    <div><strong>${data.totals.units} unit · ${data.totals.incidents} insiden</strong> (${escapeMinePlanning(data.periode.dari)} – ${escapeMinePlanning(data.periode.sampai)})</div>
+    <div style="margin-top:6px;">${(data.units || []).map(u => `<div>${escapeMinePlanning(u.unit)} — ${u.incidents} insiden</div>`).join('')}</div>
+    <div style="margin-top:6px;color:#64748b;">Slice verifikasi tertutup ikut terhapus: ${data.totals.linkedClosed}</div>
+    ${blokirOpen ? `<div style="margin-top:6px;color:#b91c1c;font-weight:700;">Terblokir — verifikasi berjalan:<ul>${blokirOpen}</ul></div>` : ''}
+    ${blokirShift ? `<div style="margin-top:6px;color:#b91c1c;font-weight:700;">Terblokir — shift sudah ditutup:<ul>${blokirShift}</ul></div>` : ''}
+    <div style="margin-top:6px;font-weight:800;color:${data.canExecute ? '#15803d' : '#b91c1c'};">${data.canExecute ? '✅ Siap dieksekusi.' : '⚠️ Tidak dapat dieksekusi sebelum blokir di atas diselesaikan.'}</div>
+  </div>`;
+}
+
+function hapusBdBarHtml() {
+  const units = [...hapusBdUnitsDipilih].map(id => kodeHapusBdUnit(id));
+  return `<div style="position:sticky;bottom:0;z-index:5;background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;font-size:12px;box-shadow:0 -4px 12px rgba(15,23,42,.12);">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <strong>Mode Hapus</strong>
+      <span title="Seluruh insiden unit ini dalam periode terpilih akan dihapus">Terpilih: <strong>${units.length ? units.map(u => escapeMinePlanning(u)).join(', ') : '—'}</strong></span>
+      <input id="hapusBdAlasan" class="input-filter" style="flex:1;min-width:160px;" placeholder="Alasan (wajib, tercatat di audit)" value="${escapeMinePlanning(hapusBdAlasan)}" oninput="simpanHapusBdAlasan(this.value)">
+      <button type="button" class="tombol" onclick="pratinjauHapusBdUnit()">🔍 Pratinjau</button>
+      <button id="btnEksekusiHapusBd" type="button" class="tombol tombol--hapus" onclick="eksekusiHapusBdUnit()">🗑️ Hapus</button>
+    </div>
+    <div id="hapusBdPreview" style="max-height:170px;overflow:auto;">${hapusBdPratinjau ? hapusBdPreviewHtml(hapusBdPratinjau) : ''}</div>
+  </div>`;
+}
+
+async function pratinjauHapusBdUnit() {
+  const host = document.getElementById('hapusBdPreview');
+  const unit_ids = [...hapusBdUnitsDipilih];
+  const range = hapusBdBulanRange();
+  if (!unit_ids.length) return alert('Centang minimal satu unit.');
+  if (!range) return alert('Pilih periode (bulan) dulu.');
+  if (host) host.innerHTML = '<p class="tabel__kosong">Menghitung pratinjau…</p>';
+  try {
+    const response = await fetch(getProdApiUrl('/api/admin/production/breakdown/batch'), {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+      body: JSON.stringify({ unit_ids, tanggal_dari: range.dari, tanggal_sampai: range.sampai }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    hapusBdPratinjau = data;
+    if (host) host.innerHTML = hapusBdPreviewHtml(data);
+  } catch (error) {
+    hapusBdPratinjau = null;
+    if (host) host.innerHTML = `<p class="tabel__kosong">Pratinjau gagal: ${escapeMinePlanning(error.message)}</p>`;
+  }
+}
+
+async function eksekusiHapusBdUnit() {
+  const pratinjau = hapusBdPratinjau;
+  if (!pratinjau || !pratinjau.canExecute) return alert('Jalankan pratinjau dulu dan pastikan tidak ada blokir.');
+  const alasan = String(document.getElementById('hapusBdAlasan')?.value || '').trim();
+  if (!alasan) return alert('Alasan penghapusan wajib diisi.');
+  if (!confirm(`Hapus ${pratinjau.totals.incidents} insiden breakdown (${pratinjau.totals.units} unit)?\n\nData terhapus tidak tampil di laporan & KPI. Jejak audit tersimpan.\nTindakan ini tidak dapat dibatalkan.`)) return;
+  const tombol = document.getElementById('btnEksekusiHapusBd');
+  if (tombol) { tombol.disabled = true; tombol.textContent = 'Menghapus…'; }
+  try {
+    const response = await fetch(getProdApiUrl('/api/admin/production/breakdown/batch'), {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+      body: JSON.stringify({ unit_ids: [...hapusBdUnitsDipilih], tanggal_dari: pratinjau.periode.dari, tanggal_sampai: pratinjau.periode.sampai, alasan, confirm: true }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    alert(`${data.deleted} insiden breakdown berhasil dihapus${data.standbyDeleted ? ` (+${data.standbyDeleted} slice verifikasi)` : ''}.`);
+    hapusBdMode = false;
+    hapusBdUnitsDipilih = new Set();
+    hapusBdPratinjau = null;
+    hapusBdAlasan = '';
+    await bukaBreakdownHistory();
+  } catch (error) {
+    alert(`Gagal menghapus breakdown: ${error.message}`);
+  } finally {
+    const ulang = document.getElementById('btnEksekusiHapusBd');
+    if (ulang) { ulang.disabled = false; ulang.textContent = '🗑️ Hapus'; }
+  }
+}
+
 
 let cachedUnitPerformance = null;
 let unitPerformanceActiveTab = 'units';
@@ -7484,15 +8367,14 @@ async function bukaModalUpdateStatusBreakdown(id) {
     return alert(`PIC Maintenance gagal dimuat: ${error.message}`);
   }
   const statusOptions = Object.entries(BREAKDOWN_STATUS_LABELS).filter(([status]) => status !== log.current_status)
-    .filter(([status]) => status !== 'awaiting_verification')
-    .map(([status, label]) => `<option value="${status}">${escapeMinePlanning(status === 'resolved' ? 'Ajukan Selesai Perbaikan' : label)}</option>`).join('');
+    .map(([status, label]) => `<option value="${status}">${escapeMinePlanning(status === 'resolved' ? 'Release Unit Ready' : label)}</option>`).join('');
   konten.innerHTML = `<div class="breakdown-modal-content"><h3>Update Status · ${escapeMinePlanning(log.kode_alat || 'Unit')}</h3>
     <p class="breakdown-modal-note">Status aktif: ${breakdownStatusBadge(log.current_status)} · Total breakdown ${formatBreakdownHours(log.elapsed_breakdown_hours)} jam.</p>
     <form id="formUpdateBreakdownStatus" class="breakdown-form-grid">
       <div class="breakdown-form-field"><label>Status Baru *</label><select id="ubStatus" required onchange="toggleBreakdownPartFields('ub',this.value)">${statusOptions}</select></div>
       <div class="breakdown-form-field"><label>Waktu Perubahan *</label><input id="ubChangedAt" type="datetime-local" value="${breakdownLocalDateTime()}" required /></div>
       <div class="breakdown-form-field is-wide"><label>PIC</label><select id="ubPic">${breakdownPersonnelOptions(log.pic_id)}</select></div>
-      <div class="breakdown-form-field is-wide"><label>Catatan Status</label><textarea id="ubNote" rows="2" placeholder="Tindakan, kendala, atau alasan perubahan status"></textarea></div>
+      <div class="breakdown-form-field is-wide"><label>Catatan Status</label><textarea id="ubNote" rows="2" placeholder="Tindakan, kendala, atau catatan release unit"></textarea></div>
       ${breakdownPartFields('ub')}
       <div class="breakdown-modal-actions is-wide"><button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button><button type="submit" class="tombol tombol--utama">Simpan Status</button></div>
     </form></div>`;
@@ -7512,119 +8394,12 @@ async function bukaModalUpdateStatusBreakdown(id) {
   });
 }
 
-function bukaModalReadyVerification(id) {
-  const log = findBreakdownLog(id);
-  const overlay = document.getElementById('modalOverlay');
-  const konten = document.getElementById('modalKonten');
-  if (!log || !overlay || !konten) return alert('Data breakdown tidak ditemukan pada periode ini.');
-  if (log.current_status !== 'awaiting_verification') return alert('Unit tidak sedang menunggu Verifikasi Ready.');
-  konten.innerHTML = `<div class="breakdown-modal-content ready-verification-form">
-    <div class="breakdown-detail-head"><div><h3>✅ Verifikasi Ready · ${escapeMinePlanning(log.kode_alat || 'Unit')}</h3><p>Validasi independen sebelum unit di-release ke operasi.</p></div>${breakdownStatusBadge(log.current_status)}</div>
-    <p class="breakdown-modal-note">Selesai diperbaiki oleh <b>${escapeMinePlanning(log.repair_completed_by_name || log.pic_name || 'Maintenance')}</b> pada ${escapeMinePlanning(formatBreakdownDateTime(log.repair_completed_at))}. Validator harus user yang berbeda.</p>
-    <form id="formReadyVerification" class="breakdown-form-grid">
-      <div class="ready-verification-checklist is-wide">
-        <label><input id="rvFunctionalTest" type="checkbox" /> Functional test berhasil</label>
-        <label><input id="rvNoLeakAlarm" type="checkbox" /> Tidak ada kebocoran atau alarm aktif</label>
-        <label><input id="rvSafetyDevices" type="checkbox" /> Sistem keselamatan dan guarding normal</label>
-        <label><input id="rvToolsCleared" type="checkbox" /> Tools dan material perbaikan sudah dibersihkan</label>
-        <label><input id="rvSafeOperate" type="checkbox" /> Unit aman untuk dioperasikan</label>
-      </div>
-      <div class="breakdown-form-field"><label>HM Saat Verifikasi</label><input id="rvMeterHm" type="number" min="0" step="0.01" placeholder="Contoh: 1234,50" /></div>
-      <div class="breakdown-form-field"><label>Lokasi Unit</label><input id="rvLocation" placeholder="Workshop, pit, ROM…" /></div>
-      <div class="breakdown-form-field is-wide"><label>Klasifikasi Jika Ditolak *</label><select id="rvRejectionType" onchange="toggleReadyNewFaultFields(this.value)"><option value="">Pilih saat unit dikembalikan</option><option value="same_fault">Perbaikan belum tuntas / kerusakan sama</option><option value="new_fault">Kerusakan baru / tidak berkaitan</option></select><small>Kerusakan sama mereklasifikasi standby provisional menjadi breakdown.</small></div>
-      <div id="rvNewFaultFields" class="breakdown-part-fields is-wide" hidden>
-        <div class="breakdown-form-field"><label>Kode Kerusakan Baru *</label><select id="rvNewBreakdownCode"><option value="">Pilih kode</option>${(masterProdData.breakdownCodes || []).map(code => `<option value="${escapeMinePlanning(code.id)}">${escapeMinePlanning(code.kode)} · ${escapeMinePlanning(code.kategori)}</option>`).join('')}</select></div>
-        <div class="breakdown-form-field"><label>PIC Maintenance</label><select id="rvNewPic">${breakdownPersonnelOptions(log.pic_id)}</select></div>
-        <div class="breakdown-form-field is-wide"><label>Deskripsi Kerusakan Baru *</label><input id="rvNewDescription" placeholder="Jelaskan temuan kerusakan baru" /></div>
-      </div>
-      <div class="breakdown-form-field is-wide"><label>Catatan Validator</label><textarea id="rvNote" rows="3" placeholder="Temuan validasi atau alasan dikembalikan ke Maintenance"></textarea></div>
-      <div class="breakdown-modal-actions is-wide"><button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button><button type="submit" data-result="rejected" class="tombol ready-verification-reject">Kembalikan ke Maintenance</button><button type="submit" data-result="approved" class="tombol breakdown-ready-button">Release to Operation</button></div>
-    </form>
-  </div>`;
-  overlay.hidden = false;
-  document.getElementById('formReadyVerification').addEventListener('submit', async event => {
-    event.preventDefault();
-    const result = event.submitter?.dataset?.result;
-    const rejectionType = document.getElementById('rvRejectionType').value;
-    if (result === 'rejected' && !rejectionType) return alert('Pilih klasifikasi penolakan: kerusakan sama atau kerusakan baru.');
-    const payload = {
-      result,
-      rejection_type: result === 'rejected' ? rejectionType : null,
-      checklist: {
-        functional_test: document.getElementById('rvFunctionalTest').checked,
-        no_leak_or_alarm: document.getElementById('rvNoLeakAlarm').checked,
-        safety_devices: document.getElementById('rvSafetyDevices').checked,
-        tools_cleared: document.getElementById('rvToolsCleared').checked,
-        safe_to_operate: document.getElementById('rvSafeOperate').checked
-      },
-      meter_hm: document.getElementById('rvMeterHm').value || null,
-      location: document.getElementById('rvLocation').value.trim(),
-      note: document.getElementById('rvNote').value.trim(),
-      new_breakdown_code_id: rejectionType === 'new_fault' ? document.getElementById('rvNewBreakdownCode').value : null,
-      new_description: rejectionType === 'new_fault' ? document.getElementById('rvNewDescription').value.trim() : null,
-      new_pic_id: rejectionType === 'new_fault' ? document.getElementById('rvNewPic').value || null : null
-    };
-    try {
-      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
-        const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/ready-verification`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
-        await readBreakdownResponse(response);
-        tutupModalGenerik();
-        await muatProdBreakdown();
-      });
-    } catch (error) {
-      alert(`Verifikasi Ready gagal: ${error.message}`);
-    }
-  });
-}
-
-function toggleReadyNewFaultFields(value) {
-  const container = document.getElementById('rvNewFaultFields');
-  if (!container) return;
-  const visible = value === 'new_fault';
-  container.hidden = !visible;
-  const code = document.getElementById('rvNewBreakdownCode');
-  const description = document.getElementById('rvNewDescription');
-  if (code) code.required = visible;
-  if (description) description.required = visible;
-}
-
-function bukaModalRekonsiliasiReady(id) {
-  const log = findBreakdownLog(id);
-  const overlay = document.getElementById('modalOverlay');
-  const konten = document.getElementById('modalKonten');
-  if (!log || !overlay || !konten || log.current_status !== 'awaiting_verification') return alert('Unit tidak sedang menunggu Verifikasi Ready.');
-  const minimum = breakdownLocalDateTime(log.repair_completed_at || new Date());
-  konten.innerHTML = `<div class="breakdown-modal-content"><h3>🔄 Rekonsiliasi Ready · ${escapeMinePlanning(log.kode_alat)}</h3><p class="breakdown-modal-note">Gunakan jika unit sudah beroperasi tetapi verifikasi administratif terlambat. Jam standby ditutup pada waktu operasi aktual, sedangkan waktu input tetap tersimpan di audit.</p><form id="formReadyReconciliation" class="breakdown-form-grid">
-    <div class="breakdown-form-field"><label>Waktu Operasi Aktual *</label><input id="rrEffectiveAt" type="datetime-local" min="${escapeMinePlanning(minimum)}" value="${escapeMinePlanning(breakdownLocalDateTime())}" required /></div>
-    <div class="breakdown-form-field"><label>Sumber Bukti *</label><select id="rrSource" required><option value="">Pilih sumber</option><option value="production_log">Production Log / Ritase</option><option value="hm_movement">Perubahan HM</option><option value="dispatch">Dispatch / Assignment</option><option value="manual_supervisor">Konfirmasi Supervisor Produksi</option></select></div>
-    <div class="breakdown-form-field is-wide"><label>Catatan Bukti *</label><textarea id="rrNote" rows="3" required placeholder="Nomor log, HM, ritase, lokasi, atau keterangan supervisor"></textarea></div>
-    <div class="breakdown-modal-actions is-wide"><button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button><button type="submit" class="tombol tombol--utama">Konfirmasi Ready Aktual</button></div>
-  </form></div>`;
-  overlay.hidden = false;
-  document.getElementById('formReadyReconciliation').addEventListener('submit', async event => {
-    event.preventDefault();
-    const payload = { effective_at: breakdownToIso(document.getElementById('rrEffectiveAt').value), evidence_source: document.getElementById('rrSource').value, note: document.getElementById('rrNote').value.trim() };
-    try {
-      await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
-        const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(id)}/ready-reconciliation`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() }, body: JSON.stringify(payload) });
-        await readBreakdownResponse(response); tutupModalGenerik(); await muatProdBreakdown();
-      });
-    } catch (error) { alert(`Rekonsiliasi Ready gagal: ${error.message}`); }
-  });
-}
-
-function breakdownHistoryMarkup(history, verifications = [], breakdownId = null, editable = false) {
+function breakdownHistoryMarkup(history, breakdownId = null, editable = false) {
   const entries = [];
   (Array.isArray(history) ? history : []).forEach(item => entries.push({ type: 'status', at: item.started_at, item }));
-  (Array.isArray(verifications) ? verifications : []).forEach(item => entries.push({ type: 'verification', at: item.verified_at, item }));
   if (!entries.length) return '<div class="breakdown-detail-empty">Belum ada histori status.</div>';
   return entries.sort((a, b) => new Date(a.at) - new Date(b.at)).map(entry => {
     const item = entry.item;
-    if (entry.type === 'verification') {
-      const approved = item.result === 'approved';
-      const rejectionLabel = item.rejection_type === 'same_fault' ? ' · standby direklasifikasi ke breakdown' : item.rejection_type === 'new_fault' ? ' · dibuat breakdown baru' : '';
-      return `<article class="is-ready-verification ${approved ? 'is-approved' : 'is-rejected'}"><span class="breakdown-timeline-dot"></span><div><b>${approved ? 'Ready to Operate' : 'Verifikasi Ditolak'}</b><small>${escapeMinePlanning(formatBreakdownDateTime(item.verified_at))} · ${escapeMinePlanning(item.location || 'Lokasi tidak dicatat')}${item.meter_hm !== null && item.meter_hm !== undefined ? ` · HM ${unitPerformanceValue(item.meter_hm)}` : ''}${escapeMinePlanning(rejectionLabel)}</small>${item.note ? `<p>${escapeMinePlanning(item.note)}</p>` : ''}<em>Validator: ${escapeMinePlanning(item.verified_by_name || 'Sistem')}</em></div></article>`;
-    }
     const end = item.ended_at ? new Date(item.ended_at) : new Date();
     const hours = Math.max(0, (end - new Date(item.started_at)) / 3600000);
     const editBtn = editable && breakdownId
@@ -7640,17 +8415,15 @@ function bukaDetailBreakdown(id) {
   const konten = document.getElementById('modalKonten');
   if (!log || !overlay || !konten) return;
   const parts = Array.isArray(log.parts) ? log.parts : [];
-  const partRows = parts.length ? parts.map(part => `<tr><td>${escapeMinePlanning(part.part_detail)}</td><td>${escapeMinePlanning(part.quantity || '—')}</td><td>${escapeMinePlanning(part.po_number || 'Belum terbit')}</td><td>${escapeMinePlanning(part.po_status || 'requested')}</td><td>${escapeMinePlanning(part.eta_date || '—')}</td></tr>`).join('') : '<tr><td colspan="5" class="tabel__kosong">Belum ada part/PO.</td></tr>';
-  const detailAction = log.current_status === 'awaiting_verification'
-    ? `<button type="button" class="tombol breakdown-ready-button" onclick="bukaModalReadyVerification('${escapeMinePlanning(log.id)}')">Verifikasi Ready</button><button type="button" class="tombol standby-review-button" onclick="bukaModalRekonsiliasiReady('${escapeMinePlanning(log.id)}')">Rekonsiliasi Operasi</button>`
-    : log.current_status !== 'resolved'
-      ? `<button type="button" class="tombol tombol--utama" onclick="bukaModalUpdateStatusBreakdown('${escapeMinePlanning(log.id)}')">Update Status</button>`
-      : '';
+  const partRows = parts.length ? parts.map(part => `<tr><td>${escapeMinePlanning(part.part_detail)}</td><td>${escapeMinePlanning(part.quantity || '—')}</td><td>${escapeMinePlanning(part.po_number || 'Belum terbit')}</td><td>${escapeMinePlanning(part.po_status || 'requested')}</td><td>${escapeMinePlanning(part.eta_date || '—')}</td><td><button type="button" class="tombol tombol--kecil tombol--error" onclick="hapusPartBreakdown('${escapeMinePlanning(id)}','${escapeMinePlanning(part.id)}',this)">Hapus</button></td></tr>`).join('') : '<tr><td colspan="6" class="tabel__kosong">Belum ada part/PO.</td></tr>';
+  const detailAction = log.current_status !== 'resolved'
+    ? `<button type="button" class="tombol tombol--utama" onclick="bukaModalUpdateStatusBreakdown('${escapeMinePlanning(log.id)}')">Update Status</button>`
+    : '';
   konten.innerHTML = `<div class="breakdown-modal-content breakdown-detail">
     <div class="breakdown-detail-head"><div><h3>${escapeMinePlanning(log.kode_alat || 'Unit')} · ${escapeMinePlanning(log.kategori_breakdown || 'Breakdown')}</h3><p>${escapeMinePlanning(log.description || 'Tanpa deskripsi')}</p></div>${breakdownStatusBadge(log.current_status)}</div>
-    <div class="breakdown-detail-meta"><span><b>Mulai</b>${escapeMinePlanning(formatBreakdownDateTime(log.start_time))}</span><span><b>Selesai Perbaikan</b>${log.repair_completed_at ? escapeMinePlanning(formatBreakdownDateTime(log.repair_completed_at)) : '—'}</span><span><b>Ready Release</b>${log.finish_time ? escapeMinePlanning(formatBreakdownDateTime(log.finish_time)) : '—'}</span><span><b>Total BD</b>${formatBreakdownHours(log.elapsed_breakdown_hours)} jam</span><span><b>Report By</b>${escapeMinePlanning(log.report_by_name || 'Sistem')}</span><span><b>PIC</b>${escapeMinePlanning(log.pic_name || 'Belum ditetapkan')}</span></div>
-    <h4>Timeline Status</h4><div class="breakdown-timeline">${breakdownHistoryMarkup(log.status_history, log.ready_verifications, log.id, log.status !== 'resolved')}</div>
-    <h4>Part dan Purchase Order</h4><div class="tabel-wrap"><table class="tabel breakdown-part-table"><thead><tr><th>Detail Part</th><th>Qty</th><th>No. PO</th><th>Status PO</th><th>ETA</th></tr></thead><tbody>${partRows}</tbody></table></div>
+    <div class="breakdown-detail-meta"><span><b>Mulai</b>${escapeMinePlanning(formatBreakdownDateTime(log.start_time))}</span><span><b>Release Unit Ready</b>${log.finish_time ? escapeMinePlanning(formatBreakdownDateTime(log.finish_time)) : '—'}</span><span><b>Total BD</b>${formatBreakdownHours(log.elapsed_breakdown_hours)} jam</span><span><b>Report By</b>${escapeMinePlanning(log.report_by_name || 'Sistem')}</span><span><b>PIC</b>${escapeMinePlanning(log.pic_name || 'Belum ditetapkan')}</span></div>
+    <h4>Timeline Status</h4><div class="breakdown-timeline">${breakdownHistoryMarkup(log.status_history, log.id, log.status !== 'resolved')}</div>
+    <h4>Part dan Purchase Order</h4><div class="tabel-wrap"><table class="tabel breakdown-part-table"><thead><tr><th>Detail Part</th><th>Qty</th><th>No. PO</th><th>Status PO</th><th>ETA</th><th>Aksi</th></tr></thead><tbody>${partRows}</tbody></table></div>
     <form id="formAddBreakdownPart" class="breakdown-inline-part-form"><input id="dbPartDetail" placeholder="Detail part baru" required /><input id="dbPoNumber" placeholder="Nomor PO / belum terbit" /><input id="dbQuantity" type="number" min="0.01" step="0.01" placeholder="Qty" /><select id="dbPoStatus"><option value="requested">Request dibuat</option><option value="po_process">Proses PO</option><option value="ordered">Dipesan</option><option value="arrived">Tiba</option></select><input id="dbEtaDate" type="date" /><button class="tombol tombol--kecil" type="submit">+ Tambah Part</button></form>
     <div class="breakdown-modal-actions"><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button>${detailAction}</div>
   </div>`;
@@ -7667,6 +8440,23 @@ function bukaDetailBreakdown(id) {
   });
 }
 
+async function hapusPartBreakdown(breakdownId, partId, button) {
+  if (!confirm('Hapus Part/PO ini dari detail breakdown? Riwayat penghapusan tetap disimpan untuk audit.')) return;
+  try {
+    await window.OMOSActionFeedback.run(button, async () => {
+      const response = await fetch(getProdApiUrl(`/api/admin/production/breakdown/${encodeURIComponent(breakdownId)}/parts/${encodeURIComponent(partId)}`), {
+        method: 'DELETE',
+        headers: { ...getProdAuthHeaders() }
+      });
+      return readBreakdownResponse(response);
+    });
+    await muatProdBreakdown();
+    bukaDetailBreakdown(breakdownId);
+  } catch (err) {
+    alert(`Gagal menghapus Part/PO: ${err.message}`);
+  }
+}
+
 function bukaModalEditSegmenBreakdown(breakdownId, segmentId) {
   const log = findBreakdownLog(breakdownId);
   const overlay = document.getElementById('modalOverlay');
@@ -7675,13 +8465,10 @@ function bukaModalEditSegmenBreakdown(breakdownId, segmentId) {
   const seg = (Array.isArray(log.status_history) ? log.status_history : []).find(s => String(s.id) === String(segmentId));
   if (!seg) return alert('Segmen timeline tidak ditemukan.');
   const isOpen = !seg.ended_at;
-  const isAwaitingVerification = seg.status === 'awaiting_verification';
   const statusOptions = Object.entries(BREAKDOWN_STATUS_LABELS)
-    .filter(([status]) => status !== 'awaiting_verification' && status !== 'resolved')
+    .filter(([status]) => status !== 'resolved')
     .map(([status, label]) => `<option value="${status}"${status === seg.status ? ' selected' : ''}>${escapeMinePlanning(label)}</option>`).join('');
-  const statusField = isAwaitingVerification
-    ? `<div class="breakdown-form-field"><label>Status</label><input value="${escapeMinePlanning(BREAKDOWN_STATUS_LABELS[seg.status] || seg.status)}" disabled /></div>`
-    : `<div class="breakdown-form-field"><label>Status *</label><select id="esStatus">${statusOptions}</select></div>`;
+  const statusField = `<div class="breakdown-form-field"><label>Status *</label><select id="esStatus">${statusOptions}</select></div>`;
   const endField = isOpen
     ? ''
     : `<div class="breakdown-form-field"><label>Waktu Selesai *</label><input id="esEndedAt" type="datetime-local" value="${breakdownLocalDateTime(new Date(seg.ended_at))}" required /></div>`;
@@ -7702,7 +8489,7 @@ function bukaModalEditSegmenBreakdown(breakdownId, segmentId) {
       started_at: breakdownToIso(document.getElementById('esStartedAt').value),
       note: document.getElementById('esNote').value.trim()
     };
-    if (!isAwaitingVerification) payload.status = document.getElementById('esStatus').value;
+    payload.status = document.getElementById('esStatus').value;
     if (!isOpen) payload.ended_at = breakdownToIso(document.getElementById('esEndedAt').value);
     try {
       await window.OMOSActionFeedback.run(window.OMOSActionFeedback.submitter(event), async () => {
@@ -7750,6 +8537,7 @@ async function muatProdRitase() {
     const fleets = await res.json();
 
     if (!Array.isArray(fleets) || !fleets.length) {
+      ritaseDirtyFleetIds.clear();
       window.OMOSRitaseReportSnapshot = { tanggal, shiftId, fleets: [], truckFactors: {}, loadedAt: Date.now() };
       container.innerHTML = '<p class="tabel__kosong" style="padding:24px;text-align:center;color:#64748b;">Belum ada fleet untuk tanggal ini. Klik "+ Tambah Fleet" untuk membuat tabel fleet.</p>';
       return;
@@ -7773,6 +8561,7 @@ async function muatProdRitase() {
     };
 
     ritaseDistanceContexts.clear();
+    ritaseDirtyFleetIds.clear();
     container.innerHTML = fleets.map(f => renderFleetRitaseCard(f, truckFactors)).join('');
     container.querySelectorAll('input[data-ritase-hour]').forEach(inp => inp.addEventListener('input', hitungTotalRitaseBaris));
   } catch (err) {
@@ -7817,6 +8606,21 @@ function ritaseProductivityButton(metric, fleetId, hour, problemCount = 0) {
     title="${escapeMinePlanning(metric.label)}" style="min-width:48px;padding:4px 7px;border:1px solid ${metric.border};border-radius:7px;background:${metric.bg};color:${metric.color};font-size:10px;font-weight:800;box-shadow:0 3px 0 ${shadow};cursor:${disabled ? 'not-allowed' : 'pointer'};">${escapeMinePlanning(label)}</button>`;
 }
 
+function ritaseNonprodValue(truck, hour) {
+  return Math.max(0, Number(truck?.nonprod_hours?.[hour]) || 0);
+}
+
+function ritaseProductiveValue(truck, hour) {
+  return window.OMOSRitaseNonProd.productive(Number(truck?.hours?.[hour]) || 0, ritaseNonprodValue(truck, hour));
+}
+
+function ritaseNonprodButton(fleetId, hour, total) {
+  const value = Math.max(0, Number(total) || 0);
+  const label = value > 0 ? `${value.toLocaleString('id-ID')} Rit` : 'Non Prod';
+  return `<button type="button" data-nonprod-button-hour="${hour}" onclick="bukaNonProdInpit(event,'${fleetId}',${hour})"
+    style="min-width:58px;padding:5px 8px;border:1px solid #d97706;border-radius:7px;background:#fbbf24;color:#78350f;font-size:10px;font-weight:900;box-shadow:0 3px 0 #b45309;cursor:pointer;">${label}</button>`;
+}
+
 function buildRitaseHourMetric(fleet, truckFactors, hour, planProductivity) {
   const category = fleet.material_type === 'Coal' ? 'Coal' : 'OB';
   const material = fleet.material_detail || '';
@@ -7826,7 +8630,7 @@ function buildRitaseHourMetric(fleet, truckFactors, hour, planProductivity) {
     const factorRaw = truckFactors[`${category}|${truck.tipe_alat}|${material}`];
     const hasFactor = factorRaw !== undefined && factorRaw !== null && factorRaw !== '';
     const hasRitase = Object.prototype.hasOwnProperty.call(truck.hours || {}, hour);
-    if (hasFactor && hasRitase) actual += Number(factorRaw) * (Number(truck.hours[hour]) || 0);
+    if (hasFactor && hasRitase) actual += Number(factorRaw) * ritaseProductiveValue(truck, hour);
     return hasFactor && hasRitase;
   });
   return { actual: complete ? actual : null, ...classifyRitaseProductivityUi(actual, planProductivity, complete) };
@@ -7844,7 +8648,7 @@ function renderFleetRitaseCard(fleet, truckFactors) {
   const planIsValid = fleet.plan_status === 'synced' && Number.isFinite(planProductivity) && planProductivity > 0;
   const planStatusLabel = fleet.plan_status === 'ambiguous' ? 'Plan ganda' : 'Plan tidak ditemukan';
   const planBadge = planIsValid
-    ? `<span title="Sumber: ${fleet.plan_source === 'coal' ? 'Coal' : 'OB'} Productivity Planning${fleet.plan_updated_at ? ` · diperbarui ${escapeMinePlanning(new Date(fleet.plan_updated_at).toLocaleString('id-ID'))}` : ''}" style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:800;">Plan Fleet Productivity: ${planProductivity.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeMinePlanning(fleet.plan_productivity_unit || '')}</span>`
+    ? `<span title="Sumber: Loader Productivity ${fleet.plan_source === 'coal' ? 'Coal' : 'OB'}${fleet.plan_updated_at ? ` · diperbarui ${escapeMinePlanning(new Date(fleet.plan_updated_at).toLocaleString('id-ID'))}` : ''}" style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:800;">Plan Loader Productivity: ${planProductivity.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeMinePlanning(fleet.plan_productivity_unit || '')}</span>`
     : `<span style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:800;">${planStatusLabel}</span>`;
   const distanceSummary = fleet.distance_summary || {};
   const finalDistance = Number(distanceSummary.finalDistanceKm);
@@ -7866,10 +8670,13 @@ function renderFleetRitaseCard(fleet, truckFactors) {
     const tf = truckFactorFor(truck.tipe_alat);
     const hasTf = tf !== null;
     const totalRitase = truck.total_ritase || 0;
-    const produksi = hasTf ? tf * totalRitase : null;
+    const totalProductiveRitase = truck.total_productive_ritase ?? Object.keys(truck.hours || {})
+      .reduce((sum, hour) => sum + ritaseProductiveValue(truck, hour), 0);
+    const produksi = hasTf ? tf * totalProductiveRitase : null;
     const cells = slots.map(s => {
       const v = truck.hours && truck.hours[s.hour] != null ? truck.hours[s.hour] : '';
-      return `<td style="text-align:center;"><input type="number" min="0" step="1" inputmode="numeric" style="width:52px;text-align:center;padding:4px;border:1px solid #cbd5e1;border-radius:6px;" data-ritase-hour data-truck="${truck.dump_truck_id}" data-hour="${s.hour}" value="${v}" /></td>`;
+      const nonprod = ritaseNonprodValue(truck, s.hour);
+      return `<td style="text-align:center;"><input type="number" min="0" step="1" inputmode="numeric" style="width:52px;text-align:center;padding:4px;border:1px solid #cbd5e1;border-radius:6px;" data-ritase-hour data-truck="${truck.dump_truck_id}" data-truck-code="${escapeMinePlanning(truck.kode_alat || '')}" data-hour="${s.hour}" data-nonprod="${nonprod}" value="${v}" /></td>`;
     }).join('');
     const tfBadge = hasTf
       ? `<span style="display:inline-block;margin-top:3px;padding:1px 6px;border-radius:4px;background:#e0f2fe;color:#075985;font-size:10px;font-weight:700;">TF ${tf} ${kategori === 'Coal' ? 'Ton/rit' : 'BCM/rit'}</span>`
@@ -7887,7 +8694,7 @@ function renderFleetRitaseCard(fleet, truckFactors) {
   const fleetFactorsComplete = fleetTrucks.length > 0
     && fleetTrucks.every(t => truckFactorFor(t.tipe_alat) !== null);
   const fleetTotalProduksi = fleetFactorsComplete
-    ? fleetTrucks.reduce((sum, t) => sum + truckFactorFor(t.tipe_alat) * (t.total_ritase || 0), 0)
+    ? fleetTrucks.reduce((sum, t) => sum + truckFactorFor(t.tipe_alat) * (t.total_productive_ritase ?? Object.keys(t.hours || {}).reduce((subtotal, hour) => subtotal + ritaseProductiveValue(t, hour), 0)), 0)
     : null;
 
   // Total per jam (ritase & productivity) dihitung saat render, agar angka
@@ -7897,9 +8704,13 @@ function renderFleetRitaseCard(fleet, truckFactors) {
     const tf = truckFactorFor(truck.tipe_alat);
     Object.keys(truck.hours || {}).forEach(h => {
       const c = Number(truck.hours[h]) || 0;
-      if (!hourTotals[h]) hourTotals[h] = { ritase: 0, prod: 0 };
+      const nonprod = ritaseNonprodValue(truck, h);
+      const productive = window.OMOSRitaseNonProd.productive(c, nonprod);
+      if (!hourTotals[h]) hourTotals[h] = { ritase: 0, nonprod: 0, productive: 0, prod: 0 };
       hourTotals[h].ritase += c;
-      if (tf !== null) hourTotals[h].prod += tf * c;
+      hourTotals[h].nonprod += nonprod;
+      hourTotals[h].productive += productive;
+      if (tf !== null) hourTotals[h].prod += tf * productive;
     });
   });
 
@@ -7956,6 +8767,12 @@ function renderFleetRitaseCard(fleet, truckFactors) {
             <td style="text-align:center;color:#2563eb;" data-fleet-total-ritase>${fleetTotalRitase}</td>
             <td style="text-align:center;color:#2563eb;" data-fleet-total-produksi>${fleetTotalProduksi != null ? fleetTotalProduksi.toLocaleString('id-ID') : '&mdash;'}</td>
           </tr>
+          <tr style="background:#fffbeb;font-weight:800;">
+            <td style="color:#92400e;">NON PROD / INPIT</td>
+            ${slots.map(s => { const t = hourTotals[s.hour] || {}; return `<td style="text-align:center;" data-nonprod-cell="${s.hour}">${ritaseNonprodButton(fleet.id, s.hour, t.nonprod || 0)}</td>`; }).join('')}
+            <td style="text-align:center;color:#92400e;" data-fleet-total-nonprod>${fleet.total_nonprod_ritase || 0} Rit</td>
+            <td style="text-align:center;color:#94a3b8;">—</td>
+          </tr>
           <tr style="font-weight:900;">
             <td style="color:#0f766e;">Productivity <span style="font-weight:600;font-size:10px;color:#64748b;">(${kategori === 'Coal' ? 'Ton' : 'BCM'})</span></td>
             ${slots.map(s => { const m = metricsByHour[s.hour]; return `<td style="text-align:center;background:${m.bg};color:${m.color};font-weight:900;" data-fleet-hour-prod="${s.hour}" data-pdty-state="${m.key}">${m.actual == null ? '—' : m.actual.toLocaleString('id-ID')}</td>`; }).join('')}
@@ -7975,7 +8792,7 @@ function renderFleetRitaseCard(fleet, truckFactors) {
 
 function ritaseTersimpanUntukJarak(fleet, truckId, hour) {
   const truck = (fleet?.trucks || []).find(item => String(item.dump_truck_id) === String(truckId));
-  return Math.max(0, Number(truck?.hours?.[hour]) || 0);
+  return truck ? ritaseProductiveValue(truck, hour) : 0;
 }
 
 function adaRitaseFleetBelumTersimpan(fleet) {
@@ -7983,8 +8800,11 @@ function adaRitaseFleetBelumTersimpan(fleet) {
   if (!card) return false;
   return [...card.querySelectorAll('input[data-ritase-hour]')].some(input => {
     const current = Math.max(0, Math.floor(Number(input.value) || 0));
-    const saved = ritaseTersimpanUntukJarak(fleet, input.dataset.truck, Number(input.dataset.hour));
-    return current !== saved;
+    const currentNonprod = Math.max(0, Math.floor(Number(input.dataset.nonprod) || 0));
+    const truck = (fleet?.trucks || []).find(item => String(item.dump_truck_id) === String(input.dataset.truck));
+    const savedGross = Math.max(0, Number(truck?.hours?.[Number(input.dataset.hour)]) || 0);
+    const savedNonprod = ritaseNonprodValue(truck, Number(input.dataset.hour));
+    return current !== savedGross || currentNonprod !== savedNonprod;
   });
 }
 
@@ -8022,7 +8842,7 @@ function perbaruiInfoAlokasiJarak(element) {
   const hour = Number(row.querySelector('[data-distance-hour]')?.value);
   const available = ritaseTersimpanUntukJarak(context?.fleet, truckId, hour);
   const hint = row.querySelector('[data-distance-available]');
-  if (hint) hint.textContent = `Ritase tersimpan pada jam ini: ${available} rit`;
+  if (hint) hint.textContent = `Ritase produktif tersimpan pada jam ini: ${available} rit`;
   const ritaseInput = row.querySelector('[data-distance-ritase]');
   if (ritaseInput) ritaseInput.max = String(available);
 }
@@ -8191,47 +9011,132 @@ async function bukaProductivityHistory() {
   } catch (error) { konten.innerHTML = `<h3>Productivity History</h3><p style="color:#dc2626;">Gagal memuat histori: ${escapeMinePlanning(error.message)}</p><button class="tombol" onclick="tutupModalGenerik()">Tutup</button>`; }
 }
 
+function bukaNonProdInpit(event, fleetId, hour) {
+  event?.preventDefault?.();
+  const card = document.querySelector(`[data-fleet-card="${fleetId}"]`);
+  const overlay = document.getElementById('modalOverlay');
+  const konten = document.getElementById('modalKonten');
+  if (!card || !overlay || !konten) return;
+  const inputs = [...card.querySelectorAll(`input[data-ritase-hour][data-hour="${hour}"]`)];
+  if (!inputs.length) return alert('Fleet ini belum memiliki Dump Truck.');
+  const rows = inputs.map(input => {
+    const gross = Math.max(0, Math.floor(Number(input.value) || 0));
+    const nonprod = Math.max(0, Math.floor(Number(input.dataset.nonprod) || 0));
+    return `<tr data-nonprod-modal-row data-truck="${escapeMinePlanning(input.dataset.truck)}">
+      <td><strong>${escapeMinePlanning(input.dataset.truckCode || input.dataset.truck)}</strong></td>
+      <td style="text-align:center;font-weight:800;" data-nonprod-gross>${gross}</td>
+      <td style="text-align:center;"><input type="number" min="0" max="${gross}" step="1" inputmode="numeric" data-nonprod-modal-input value="${nonprod}" style="width:82px;text-align:center;padding:7px;border:1px solid #f59e0b;border-radius:7px;"></td>
+      <td style="text-align:center;font-weight:900;color:#0f766e;" data-nonprod-productive>${Math.max(0, gross - nonprod)}</td>
+    </tr>`;
+  }).join('');
+  konten.innerHTML = `<div data-nonprod-modal data-fleet-id="${escapeMinePlanning(fleetId)}" data-hour="${hour}" style="width:min(680px,95vw);">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;margin-bottom:12px;"><div><h3 style="margin:0;color:#0f172a;">Non Prod / Inpit · ${String(hour).padStart(2, '0')}:00</h3><p style="margin:5px 0 0;color:#64748b;font-size:12px;">Ritase non-produktif tidak dihitung sebagai produksi. Nilai bruto tetap tersimpan untuk audit.</p></div><button type="button" class="tombol" onclick="tutupModalGenerik()">Tutup</button></div>
+    <div class="tabel-wrap"><table class="tabel" style="min-width:520px;"><thead><tr><th>Dump Truck</th><th style="text-align:center;">Ritase Bruto</th><th style="text-align:center;">Non Prod</th><th style="text-align:center;">Ritase Produktif</th></tr></thead><tbody>${rows}</tbody><tfoot><tr style="background:#fffbeb;font-weight:900;"><td>TOTAL</td><td style="text-align:center;" data-nonprod-total-gross>0</td><td style="text-align:center;color:#92400e;" data-nonprod-total>0</td><td style="text-align:center;color:#0f766e;" data-nonprod-total-productive>0</td></tr></tfoot></table></div>
+    <p data-nonprod-error hidden style="margin:10px 0 0;color:#b91c1c;font-size:12px;font-weight:700;"></p>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;"><button type="button" class="tombol" onclick="tutupModalGenerik()">Batal</button><button type="button" class="tombol tombol--utama" onclick="terapkanNonProdInpit()">Terapkan</button></div>
+  </div>`;
+  overlay.hidden = false;
+  konten.querySelectorAll('[data-nonprod-modal-input]').forEach(input => input.addEventListener('input', perbaruiRingkasanNonProdModal));
+  perbaruiRingkasanNonProdModal();
+}
+
+function perbaruiRingkasanNonProdModal() {
+  const modal = document.querySelector('[data-nonprod-modal]');
+  if (!modal) return;
+  let grossTotal = 0, nonprodTotal = 0, productiveTotal = 0;
+  let error = '';
+  modal.querySelectorAll('[data-nonprod-modal-row]').forEach(row => {
+    const gross = Number(row.querySelector('[data-nonprod-gross]')?.textContent) || 0;
+    const input = row.querySelector('[data-nonprod-modal-input]');
+    const raw = Number(input?.value);
+    const nonprod = Number.isInteger(raw) && raw >= 0 ? raw : 0;
+    let rowError = '';
+    if (!Number.isInteger(raw) || raw < 0) rowError = 'Non Prod harus berupa bilangan bulat 0 atau lebih.';
+    else if (nonprod > gross) rowError = `Non Prod ${row.querySelector('strong')?.textContent || ''} melebihi ritase bruto.`;
+    if (rowError && !error) error = rowError;
+    input?.toggleAttribute('aria-invalid', Boolean(rowError));
+    const productive = Math.max(0, gross - nonprod);
+    const output = row.querySelector('[data-nonprod-productive]');
+    if (output) output.textContent = String(productive);
+    grossTotal += gross; nonprodTotal += nonprod; productiveTotal += productive;
+  });
+  modal.querySelector('[data-nonprod-total-gross]').textContent = String(grossTotal);
+  modal.querySelector('[data-nonprod-total]').textContent = String(nonprodTotal);
+  modal.querySelector('[data-nonprod-total-productive]').textContent = String(productiveTotal);
+  const errorEl = modal.querySelector('[data-nonprod-error]');
+  if (errorEl) { errorEl.hidden = !error; errorEl.textContent = error; }
+  return !error;
+}
+
+function terapkanNonProdInpit() {
+  const modal = document.querySelector('[data-nonprod-modal]');
+  if (!modal || !perbaruiRingkasanNonProdModal()) return;
+  const card = document.querySelector(`[data-fleet-card="${modal.dataset.fleetId}"]`);
+  if (!card) return;
+  modal.querySelectorAll('[data-nonprod-modal-row]').forEach(row => {
+    const target = card.querySelector(`input[data-ritase-hour][data-truck="${row.dataset.truck}"][data-hour="${modal.dataset.hour}"]`);
+    if (target) target.dataset.nonprod = String(Number(row.querySelector('[data-nonprod-modal-input]')?.value) || 0);
+  });
+  ritaseDirtyFleetIds.add(String(modal.dataset.fleetId));
+  hitungTotalRitaseBaris({ target: card.querySelector('input[data-ritase-hour]') });
+  tutupModalGenerik();
+}
+
 function hitungTotalRitaseBaris(e) {
   const inp = e.target;
   const card = inp.closest('[data-fleet-card]');
   if (!card) return;
 
-  // 1) total baris DT (ritase + produksi = truck factor × ritase)
-  const row = inp.closest('tr');
-  if (row) {
+  ritaseDirtyFleetIds.add(String(card.dataset.fleetCard));
+  // 1) total setiap baris DT. Produksi selalu memakai ritase produktif.
+  card.querySelectorAll('tbody tr[data-tf]').forEach(row => {
     let rowRitase = 0;
-    row.querySelectorAll('input[data-ritase-hour]').forEach(i => { rowRitase += Math.max(0, Number(i.value) || 0); });
+    let rowProductive = 0;
+    row.querySelectorAll('input[data-ritase-hour]').forEach(i => {
+      const gross = Math.max(0, Math.floor(Number(i.value) || 0));
+      const nonprod = Math.max(0, Math.floor(Number(i.dataset.nonprod) || 0));
+      rowRitase += gross;
+      if (nonprod <= gross) rowProductive += gross - nonprod;
+      i.style.borderColor = nonprod > gross ? '#dc2626' : '#cbd5e1';
+      i.title = nonprod > gross ? 'Non Prod melebihi ritase bruto' : '';
+    });
     const tc = row.querySelector('[data-total-ritase]');
     if (tc) tc.textContent = rowRitase;
     const hasTf = row.dataset.tf !== undefined && row.dataset.tf !== '';
     const tf = hasTf ? (Number(row.dataset.tf) || 0) : 0;
     const pc = row.querySelector('[data-total-produksi]');
-    if (pc) pc.textContent = hasTf ? (tf * rowRitase).toLocaleString('id-ID') : '—';
-  }
+    if (pc) pc.textContent = hasTf ? (tf * rowProductive).toLocaleString('id-ID') : '—';
+  });
 
   // 2) footer per jam (ritase + productivity) + total fleet
   const hours = new Set();
   card.querySelectorAll('input[data-ritase-hour]').forEach(i => hours.add(i.dataset.hour));
-  let fleetRitase = 0;
+  let fleetRitase = 0, fleetNonprod = 0;
   let fleetProduksi = 0;
   const fleetFactorComplete = [...card.querySelectorAll('tbody tr[data-tf]')]
-    .every(tr => tr.dataset.tf !== '');
+    .every(tr => tr.dataset.tf !== '' && [...tr.querySelectorAll('input[data-ritase-hour]')].every(input =>
+      (Number(input.dataset.nonprod) || 0) <= (Number(input.value) || 0)));
   hours.forEach(h => {
-    let r = 0, p = 0;
+    let r = 0, n = 0, p = 0;
     card.querySelectorAll('tbody tr[data-tf]').forEach(tr => {
       const hi = tr.querySelector(`input[data-ritase-hour][data-hour="${h}"]`);
       if (!hi) return;
       const c = Math.max(0, Number(hi.value) || 0);
+      const nonprod = Math.max(0, Number(hi.dataset.nonprod) || 0);
       r += c;
-      if (tr.dataset.tf !== '') p += (Number(tr.dataset.tf) || 0) * c;
+      n += Math.min(c, nonprod);
+      if (tr.dataset.tf !== '' && nonprod <= c) p += (Number(tr.dataset.tf) || 0) * (c - nonprod);
     });
     const rCell = card.querySelector(`[data-fleet-hour-total="${h}"]`);
     if (rCell) rCell.textContent = r;
+    const nonprodCell = card.querySelector(`[data-nonprod-cell="${h}"]`);
+    if (nonprodCell) nonprodCell.innerHTML = ritaseNonprodButton(card.dataset.fleetCard, Number(h), n);
     const pCell = card.querySelector(`[data-fleet-hour-prod="${h}"]`);
     const rows = [...card.querySelectorAll('tbody tr[data-tf]')];
     const complete = rows.length > 0 && rows.every(tr => {
-      const value = tr.querySelector(`input[data-ritase-hour][data-hour="${h}"]`)?.value;
-      return tr.dataset.tf !== '' && value !== '' && value != null;
+      const input = tr.querySelector(`input[data-ritase-hour][data-hour="${h}"]`);
+      return tr.dataset.tf !== '' && input?.value !== '' && input?.value != null
+        && (Number(input.dataset.nonprod) || 0) <= (Number(input.value) || 0);
     });
     const plan = Number(card.dataset.planProductivity);
     const metric = classifyRitaseProductivityUi(p, plan, complete);
@@ -8248,10 +9153,13 @@ function hitungTotalRitaseBaris(e) {
     const problemCell = card.querySelector(`[data-pdty-problem-cell="${h}"]`);
     if (problemCell) problemCell.innerHTML = ritaseProductivityButton(metric, fleetId, Number(h), current.exception?.problems?.length || 0);
     fleetRitase += r;
+    fleetNonprod += n;
     fleetProduksi += p;
   });
   const ft = card.querySelector('[data-fleet-total-ritase]');
   if (ft) ft.textContent = fleetRitase;
+  const fn = card.querySelector('[data-fleet-total-nonprod]');
+  if (fn) fn.textContent = `${fleetNonprod.toLocaleString('id-ID')} Rit`;
   card.querySelectorAll('[data-fleet-total-produksi]').forEach(c => {
     c.textContent = fleetFactorComplete ? fleetProduksi.toLocaleString('id-ID') : '\u2014';
   });
@@ -8288,28 +9196,14 @@ function resolveMasterJobForSpo(value) {
   }) || null;
 }
 
-async function muatJobSpoDeployed() {
-  const response = await fetch(getProdApiUrl('/api/admin/production/productivity-plans/spo'), { headers: getProdAuthHeaders() });
+async function muatJobSpoDeployed(operationalDate = '') {
+  const query = new URLSearchParams({ scope: 'production' });
+  if (operationalDate) query.set('operational_date', String(operationalDate).slice(0, 10));
+  const response = await fetch(getProdApiUrl(`/api/admin/production/spo-jobs/deployed?${query}`), { headers: getProdAuthHeaders() });
   if (!response.ok) throw new Error(`JOB SPO tidak dapat dimuat (${response.status})`);
   const payload = await response.json();
-  const result = new Map();
-  const add = value => {
-    const job = resolveMasterJobForSpo(value?.jobCode || value?.job_code || value);
-    if (job) result.set(String(job.job_code), job);
-  };
-  (payload.planningData?.deployedJobs || []).forEach(add);
-  Object.values(payload.planningData?.tables || {}).forEach(table => {
-    if (table?.deployed) add(table.jobCode || table.job_code || table.jobDescription);
-  });
-  if (!result.size) {
-    const documentCopy = parseMinePlanningHtml(payload);
-    [...documentCopy.querySelectorAll('.spo-table')]
-      .filter(table => /^\s*deployed\s*$/i.test(table.querySelector('[data-spo-status]')?.textContent || ''))
-      .forEach(table => add(table.querySelector('[data-spo-job]')?.value
-        || table.querySelector('[data-spo-job]')?.getAttribute('value')
-        || table.querySelector('[data-spo-job-label]')?.textContent));
-  }
-  return [...result.values()].sort((first, second) => String(first.job_code).localeCompare(String(second.job_code)));
+  return (payload.jobs || []).map(value => ({ job_code: value.jobCode, job_desc: value.jobDescription,
+    production_mode: value.productionMode })).sort((first, second) => String(first.job_code).localeCompare(String(second.job_code)));
 }
 
 let ritaseFleetPlanCatalogCache = null;
@@ -8344,7 +9238,7 @@ async function bukaModalInputFleet(fleet) {
   }
   const eligiblePlans = fleetPlanCatalog.filter(plan => plan.equipmentId && plan.jobCode && Number(plan.fleetProductivity) > 0);
   if (!eligiblePlans.length) {
-    alert('Belum ada kombinasi fleet yang siap digunakan. Pastikan Excavator sudah diset pada OB/Coal Productivity Planning, memiliki Fleet Productivity valid, dan JOB unit sudah dipilih pada tabel PA.');
+    alert('Belum ada Loader Productivity yang siap digunakan. Pastikan Excavator, material, dan JOB SPO sudah lengkap pada OB/Coal Productivity Planning.');
     return;
   }
   const initialPlan = fleet ? eligiblePlans.find(plan => String(plan.equipmentId) === String(fleet.excavator_id)
@@ -8375,12 +9269,12 @@ async function bukaModalInputFleet(fleet) {
   const jobOptionsFor = (equipmentId, selected = '') => {
     const unique = new Map();
     eligiblePlans.filter(plan => String(plan.equipmentId) === String(equipmentId)).forEach(plan => unique.set(plan.jobCode, plan));
-    return '<option value="">Pilih JOB dari SPO Deployed sesuai Fleet Planning</option>' + [...unique.values()].map(plan =>
+    return '<option value="">Pilih JOB Prod dari SPO sesuai Fleet Planning</option>' + [...unique.values()].map(plan =>
       `<option value="${escapeMinePlanning(plan.jobCode)}"${String(selected) === String(plan.jobCode) ? ' selected' : ''}>${escapeMinePlanning(plan.jobCode)}${plan.jobDescription ? ' - ' + escapeMinePlanning(plan.jobDescription) : ''}</option>`).join('');
   };
   const materialOptionsFor = (equipmentId, jobCode, selectedRef = '') => '<option value="">Pilih Material / Plan</option>' + eligiblePlans
     .filter(plan => String(plan.equipmentId) === String(equipmentId) && String(plan.jobCode) === String(jobCode))
-    .map(plan => `<option value="${escapeMinePlanning(plan.planRef)}" data-material="${escapeMinePlanning(plan.material)}" data-planning-type="${escapeMinePlanning(plan.planningType)}" data-productivity="${escapeMinePlanning(plan.fleetProductivity)}" data-unit="${escapeMinePlanning(plan.productivityUnit)}"${String(selectedRef) === String(plan.planRef) ? ' selected' : ''}>${escapeMinePlanning(plan.material)} - ${Number(plan.fleetProductivity).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${escapeMinePlanning(plan.productivityUnit)}</option>`).join('');
+    .map(plan => `<option value="${escapeMinePlanning(plan.planRef)}" data-material="${escapeMinePlanning(plan.material)}" data-planning-type="${escapeMinePlanning(plan.planningType)}" data-productivity="${escapeMinePlanning(plan.fleetProductivity)}" data-unit="${escapeMinePlanning(plan.productivityUnit)}"${String(selectedRef) === String(plan.planRef) ? ' selected' : ''}>${escapeMinePlanning(plan.material)} - Loader ${Number(plan.fleetProductivity).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${escapeMinePlanning(plan.productivityUnit)}</option>`).join('');
   const jobOptions = jobOptionsFor(selectedExcavatorId, initialJob);
   const materialOptions = materialOptionsFor(selectedExcavatorId, initialJob, initialPlan?.planRef || '');
 
@@ -8458,7 +9352,7 @@ async function bukaModalInputFleet(fleet) {
       planInfo.textContent = 'Pilih kombinasi Excavator, JOB, dan Material.';
       return;
     }
-    planInfo.innerHTML = `<strong>Plan Fleet Productivity:</strong> ${Number(option.dataset.productivity).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeMinePlanning(option.dataset.unit)} <span style="margin-left:8px;">Sumber: ${option.dataset.planningType === 'coal' ? 'Coal' : 'OB'} Productivity Planning</span>`;
+    planInfo.innerHTML = `<strong>Plan Loader Productivity:</strong> ${Number(option.dataset.productivity).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeMinePlanning(option.dataset.unit)} <span style="margin-left:8px;">Sumber: tab Loader Productivity ${option.dataset.planningType === 'coal' ? 'Coal' : 'OB'}</span>`;
   };
   const syncMaterials = (selectedRef = '') => {
     materialSelect.innerHTML = materialOptionsFor(excavatorSelect.value, jobSelect.value, selectedRef);
@@ -8547,13 +9441,18 @@ async function simpanRitaseFleet(fleetId, saveButton) {
 
   const rows = [];
   card.querySelectorAll('input[data-ritase-hour]').forEach(inp => {
+    const gross = Math.max(0, Math.floor(Number(inp.value) || 0));
+    const nonprod = Math.max(0, Math.floor(Number(inp.dataset.nonprod) || 0));
     rows.push({
       dump_truck_id: inp.dataset.truck,
       period_hour: Number(inp.dataset.hour),
-      ritase_count: Math.max(0, Math.floor(Number(inp.value) || 0))
+      ritase_count: gross,
+      nonprod_ritase_count: nonprod
     });
   });
   if (!rows.length) return alert('Tidak ada baris dump truck pada fleet ini.');
+  const invalid = rows.find(row => row.nonprod_ritase_count > row.ritase_count);
+  if (invalid) return alert(`Non Prod / Inpit jam ${String(invalid.period_hour).padStart(2, '0')}:00 melebihi ritase bruto. Perbaiki data sebelum menyimpan.`);
 
   try {
     await window.OMOSActionFeedback.run(saveButton, async () => {
@@ -8565,6 +9464,7 @@ async function simpanRitaseFleet(fleetId, saveButton) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
       alert(`Ritase fleet berhasil disimpan (${data.saved || rows.length} baris).`);
+      ritaseDirtyFleetIds.delete(String(fleetId));
       await muatProdRitase();
     });
   } catch (err) {
@@ -8631,9 +9531,9 @@ function ekstrakMaterialPlan(contentHtml, planningData) {
       if (v) set.add(v.toUpperCase());
     });
   }
-  // Fallback: plan OB tidak menyimpan material sebagai atribut HTML (format
-  // berbasis fleetCatalog), material hanya ada di planningData.fleetCatalog.
-  const catalog = planningData && Array.isArray(planningData.fleetCatalog) ? planningData.fleetCatalog : [];
+  // Fallback terstruktur: material bersumber dari Loader Productivity.
+  const catalog = planningData && Array.isArray(planningData.loaderCatalog) && planningData.loaderCatalog.length
+    ? planningData.loaderCatalog : (Array.isArray(planningData?.scenarios) ? planningData.scenarios : []);
   catalog.forEach(entry => {
     const v = String(entry?.material || '').trim();
     if (v) set.add(v.toUpperCase());
@@ -8818,63 +9718,209 @@ function pasteTruckFactor() {
 // -------------------------------------------------------------
 async function muatProductivityReport() {
   try {
-    const res = await fetch(getProdApiUrl('/api/admin/production/productivity-report'), {
-      headers: { ...getProdAuthHeaders() }
-    });
-    const data = await res.json();
-
-    const excBox = document.getElementById('listTopExcavators');
-    const dtBox = document.getElementById('listTopDumpTrucks');
-
-    if (excBox) {
-      excBox.innerHTML = (data.topExcavators || []).map((e, idx) => `
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;">
-          <div><strong>#${idx+1} ${e.kode_alat}</strong> <span style="color:#64748b;">(${e.tipe_alat})</span></div>
-          <div><strong style="color:#16a34a;">${e.total_prod} BCM/MT</strong></div>
-        </div>
-      `).join('') || '<p style="color:#64748b;">Belum ada data produksi Excavator.</p>';
-    }
-
-    if (dtBox) {
-      dtBox.innerHTML = (data.topDumpTrucks || []).map((d, idx) => `
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;">
-          <div><strong>#${idx+1} ${d.kode_alat}</strong> <span style="color:#64748b;">(${d.tipe_alat})</span></div>
-          <div><strong style="color:#0284c7;">${d.total_prod} BCM/MT</strong></div>
-        </div>
-      `).join('') || '<p style="color:#64748b;">Belum ada data produksi Dump Truck.</p>';
+    if (window.ProductivityRankingUI && typeof window.ProductivityRankingUI.open === 'function') {
+      return window.ProductivityRankingUI.open();
     }
   } catch (err) {
     console.warn('[Prod Report Error]', err.message);
   }
+  const host = document.querySelector('#tab-prodProductivityReport');
+  if (host) host.innerHTML = '<p style="color:#64748b;">Modul Productivity Report gagal dimuat. Muat ulang halaman.</p>';
 }
 
 // -------------------------------------------------------------
-// 9. MTD & 10. YTD & 11. PTD REPORTS
+// 10. SURVEY REPORT
+// -------------------------------------------------------------
+async function muatSurveyReport() {
+  if (window.SurveyReport && typeof window.SurveyReport.open === 'function') {
+    return window.SurveyReport.open();
+  }
+  const host = document.getElementById('surveyReportRoot');
+  if (!host) return;
+  host.innerHTML = '<p class="tabel__kosong">Memuat volume survey…</p>';
+  try {
+    const now = new Date();
+    const data = await muatSurveyVolumes(now.getFullYear(), now.getMonth() + 1);
+    renderSurveyReport(host, data);
+  } catch (error) {
+    host.innerHTML = `<p class="tabel__kosong teks-error">Gagal memuat volume survey: ${escapeMinePlanning(error.message)}</p>`;
+  }
+}
+
+async function muatSurveyVolumes(year, month) {
+  const response = await fetch(getProdApiUrl(`/api/admin/production/survey-volumes?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`), { headers: { ...getProdAuthHeaders() } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return { year: data.year, month: data.month, materials: data.materials || { ob: [], coal: [] }, pits: data.pits || [], volumes: data.volumes || [] };
+}
+
+function surveyDaysInMonth(year, month) {
+  return new Date(Number(year), Number(month), 0).getDate();
+}
+
+function surveyCellKey(tanggal, pit, type, material) {
+  return [tanggal, pit, type, material].join('||');
+}
+
+function renderSurveyReport(host, data) {
+  const today = new Date();
+  const years = [];
+  for (let y = today.getFullYear() - 3; y <= today.getFullYear() + 1; y += 1) years.push(y);
+  const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const values = new Map((data.volumes || []).map(v => [surveyCellKey(v.tanggal, v.pit_area, v.planning_type, v.material), Number(v.volume) || 0]));
+  const obMats = data.materials.ob || [];
+  const coalMats = data.materials.coal || [];
+  const headRow2 = [...obMats.map(m => ({ type: 'ob', material: m })), { type: 'ob', total: true },
+    ...coalMats.map(m => ({ type: 'coal', material: m })), { type: 'coal', total: true }];
+  const tables = (data.pits || []).map(pit => {
+    const dates = [];
+    for (let d = 1; d <= surveyDaysInMonth(data.year, data.month); d += 1) {
+      dates.push(`${data.year}-${String(data.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+    const rows = dates.map(tanggal => {
+      const cells = headRow2.map(col => {
+        if (col.total) return `<td class="is-number" data-survey-total="${escapeMinePlanning(`${tanggal}||${pit}||${col.type}`)}">0</td>`;
+        const key = surveyCellKey(tanggal, pit, col.type, col.material);
+        const val = values.has(key) ? values.get(key) : '';
+        return `<td><input type="number" min="0" step="0.01" class="input-filter" style="width:100%;min-width:90px;" value="${val === '' ? '' : escapeMinePlanning(val)}" data-survey-tanggal="${escapeMinePlanning(tanggal)}" data-survey-pit="${escapeMinePlanning(pit)}" data-survey-type="${escapeMinePlanning(col.type)}" data-survey-material="${escapeMinePlanning(col.material)}" oninput="surveyCellChanged(this)" /></td>`;
+      }).join('');
+      return `<tr><td style="white-space:nowrap;"><b>${escapeMinePlanning(tanggal)}</b></td>${cells}</tr>`;
+    }).join('');
+    const foot = headRow2.map(col => {
+      if (col.total) return `<td class="is-number" data-survey-month="${escapeMinePlanning(`${pit}||${col.type}||total`)}">0</td>`;
+      return `<td class="is-number" data-survey-month="${escapeMinePlanning(`${pit}||${col.type}||${col.material}`)}">0</td>`;
+    }).join('');
+    return `<section style="margin-bottom:18px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+      <header style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;"><b>PIT ${escapeMinePlanning(pit)}</b></header>
+      <div style="overflow-x:auto;"><table class="tabel" data-survey-pit="${escapeMinePlanning(pit)}" style="min-width:900px;">
+        <thead><tr><th rowspan="2">Tanggal</th><th colspan="${obMats.length + 1}" style="text-align:center;">Overburden Removal</th><th colspan="${coalMats.length + 1}" style="text-align:center;">Coal Getting</th></tr>
+        <tr>${obMats.map(m => `<th>${escapeMinePlanning(m)}</th>`).join('')}<th>Total</th>${coalMats.map(m => `<th>${escapeMinePlanning(m)}</th>`).join('')}<th>Total</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td><b>Total Bulan</b></td>${foot}</tr></tfoot>
+      </table></div>
+    </section>`;
+  }).join('');
+  host.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px;">
+      <label style="font-size:12px;">Tahun<br><select id="surveyTahun" class="input-filter" onchange="muatSurveyReportPeriode()">${years.map(y => `<option value="${y}"${y === data.year ? ' selected' : ''}>${y}</option>`).join('')}</select></label>
+      <label style="font-size:12px;">Bulan<br><select id="surveyBulan" class="input-filter" onchange="muatSurveyReportPeriode()">${months.map((label, i) => `<option value="${i + 1}"${i + 1 === data.month ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+      <button id="btnSimpanSurvey" class="tombol tombol--utama" onclick="simpanSurveyVolumes(this)" disabled>Simpan</button>
+      <span style="font-size:11px;color:#64748b;">Kolom material mengikuti parameter 0.5/0.6 Productivity Planning · sel kosong tidak disimpan</span>
+    </div>
+    ${!obMats.length && !coalMats.length ? '<p class="tabel__kosong">Belum ada material di 0.5 OB / 0.6 Coal Productivity Planning — isi parameter material dahulu.</p>' : ''}
+    ${tables || '<p class="tabel__kosong">Belum ada PIT pada periode ini (belum ada fleet maupun volume survey).</p>'}`;
+  surveyRecalcTotals(host);
+}
+
+function surveyNum(input) {
+  const v = Number(input?.value);
+  return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+
+function surveyFmt(value) {
+  return Number(value || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 });
+}
+
+function surveyRecalcTotals(root) {
+  const host = root || document.getElementById('surveyReportRoot');
+  if (!host) return;
+  const monthSum = new Map();
+  host.querySelectorAll('table[data-survey-pit]').forEach(table => {
+    const pit = table.dataset.surveyPit;
+    table.querySelectorAll('tbody tr').forEach(row => {
+      const perType = {};
+      row.querySelectorAll('input[data-survey-tanggal]').forEach(input => {
+        const key = `${input.dataset.surveyTanggal}||${pit}||${input.dataset.surveyType}`;
+        perType[input.dataset.surveyType] = (perType[input.dataset.surveyType] || 0) + surveyNum(input);
+        const mkey = `${pit}||${input.dataset.surveyType}||${input.dataset.surveyMaterial}`;
+        monthSum.set(mkey, (monthSum.get(mkey) || 0) + surveyNum(input));
+      });
+      row.querySelectorAll('td[data-survey-total]').forEach(cell => {
+        const parts = String(cell.dataset.surveyTotal).split('||');
+        cell.textContent = surveyFmt(perType[parts[2]] || 0);
+      });
+    });
+  });
+  host.querySelectorAll('td[data-survey-month]').forEach(cell => {
+    cell.textContent = surveyFmt(monthSum.get(cell.dataset.surveyMonth) || 0);
+  });
+  // Total per seksi (ob/coal) per PIT = jumlah total materialnya.
+  host.querySelectorAll('table[data-survey-pit]').forEach(table => {
+    const pit = table.dataset.surveyPit;
+    for (const type of ['ob', 'coal']) {
+      let sectionTotal = 0;
+      monthSum.forEach((value, key) => {
+        const parts = String(key).split('||');
+        if (parts[0] === pit && parts[1] === type && parts[2] !== 'total') sectionTotal += value;
+      });
+      const cell = table.querySelector(`td[data-survey-month="${CSS.escape(`${pit}||${type}||total`)}"]`);
+      if (cell) cell.textContent = surveyFmt(sectionTotal);
+    }
+  });
+}
+
+function surveyCellChanged() {
+  const button = document.getElementById('btnSimpanSurvey');
+  if (button) button.disabled = false;
+  surveyRecalcTotals();
+}
+
+async function muatSurveyReportPeriode() {
+  const host = document.getElementById('surveyReportRoot');
+  if (!host) return;
+  const year = document.getElementById('surveyTahun')?.value;
+  const month = document.getElementById('surveyBulan')?.value;
+  host.innerHTML = '<p class="tabel__kosong">Memuat volume survey…</p>';
+  try {
+    const data = await muatSurveyVolumes(year, month);
+    renderSurveyReport(host, data);
+  } catch (error) {
+    host.innerHTML = `<p class="tabel__kosong teks-error">Gagal memuat volume survey: ${escapeMinePlanning(error.message)}</p>`;
+  }
+}
+
+async function simpanSurveyVolumes(button) {
+  const host = document.getElementById('surveyReportRoot');
+  if (!host) return;
+  const volumes = [];
+  host.querySelectorAll('input[data-survey-tanggal]').forEach(input => {
+    if (String(input.value).trim() === '') return;
+    volumes.push({ tanggal: input.dataset.surveyTanggal, pit_area: input.dataset.surveyPit,
+      planning_type: input.dataset.surveyType, material: input.dataset.surveyMaterial, volume: Number(input.value) });
+  });
+  if (!volumes.length) { alert('Tidak ada sel terisi untuk disimpan.'); return; }
+  const feedback = window.OMOSActionFeedback && button
+    ? window.OMOSActionFeedback.begin(button, { loadingText: `Menyimpan ${volumes.length} sel…`, resolveDisabled: () => true, onRestore: () => {} })
+    : null;
+  let completed = false;
+  try {
+    const response = await fetch(getProdApiUrl('/api/admin/production/survey-volumes/batch'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getProdAuthHeaders() },
+      body: JSON.stringify({ volumes }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    completed = true;
+    alert(`${result.saved} sel volume survey tersimpan.`);
+    await muatSurveyReportPeriode();
+  } catch (error) {
+    alert(`Gagal menyimpan: ${error.message}`);
+  } finally {
+    if (feedback) await feedback.finish(completed ? 'success' : 'error', {});
+  }
+}
+
+// -------------------------------------------------------------
+// 11. MTD & 12. YTD & 13. PTD REPORTS
 // -------------------------------------------------------------
 async function muatMtdReport() {
   try {
-    const res = await fetch(getProdApiUrl('/api/admin/production/mtd-report'), {
-      headers: { ...getProdAuthHeaders() }
-    });
-    const data = await res.json();
-    const ctx = document.getElementById('chartMtdTrend');
-    if (!ctx) return;
-    if (chartMtdObj) chartMtdObj.destroy();
-
-    const trend = data.dailyTrend || [];
-    chartMtdObj = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: trend.map(t => t.tanggal ? t.tanggal.split('T')[0] : 'Day'),
-        datasets: [
-          { label: 'Coal (MT)', data: trend.map(t => t.coal), backgroundColor: '#0284c7' },
-          { label: 'Overburden (BCM)', data: trend.map(t => t.ob), backgroundColor: '#16a34a' }
-        ]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
+    if (window.MtdReportUI?.open) return window.MtdReportUI.open();
+    throw new Error('Modul MTD Report belum tersedia.');
   } catch (err) {
     console.warn('[MTD Error]', err.message);
+    const host = document.getElementById('mtdReportRoot');
+    if (host) host.innerHTML = '<div class="mtd-error">MTD Report gagal dimuat. Muat ulang halaman lalu coba lagi.</div>';
   }
 }
 

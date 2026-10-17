@@ -9,13 +9,14 @@
 
   const TZ_OFFSET_MS = 7 * 3600 * 1000; // WIB
   const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-
   const state = {
     initialized: false,
     memuat: false,
+    requestId: 0,
     dari: '',
     sampai: '',
     data: null,
+    planningSource: 'flexible',
     pitAktif: new Set(),
     jobAktif: new Set(),
   };
@@ -42,9 +43,19 @@
 
   function shell() {
     return `
-      <header style="margin-bottom:16px;">
-        <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">Review Performa Produksi</h2>
-        <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Analisis pencapaian produksi dan dekomposisi loss &amp; gain (Plan → PA → UA → Other Fleet → Aktual).</p>
+      <header style="margin-bottom:16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div>
+          <h2 style="margin:0;font-size:20px;font-weight:800;color:#0f172a;">Review Performa Produksi</h2>
+          <p style="margin:2px 0 0 0;font-size:13px;color:#64748b;">Analisis pencapaian produksi dan dekomposisi loss &amp; gain (Plan → PA → UA → Productivity → Data Quality → Aktual).</p>
+        </div>
+        <details id="rpPlanningSourceMenu" style="position:relative;margin-left:auto;z-index:8;">
+          <summary id="rpPlanningSourceButton" class="tombol" style="list-style:none;cursor:pointer;background:#0f766e;color:#fff;border:1px solid #0f766e;border-radius:9px;padding:9px 13px;font-weight:800;box-shadow:0 5px 14px rgba(15,118,110,.18);">Source Planning · Aktual ▾</summary>
+          <div style="position:absolute;right:0;top:calc(100% + 7px);width:310px;padding:8px;background:#fff;border:1px solid #cbd5e1;border-radius:10px;box-shadow:0 14px 35px rgba(15,23,42,.18);display:grid;gap:6px;">
+            <button type="button" data-rp-planning-source="flexible" style="text-align:left;border:0;border-radius:8px;padding:10px;background:#ecfdf5;color:#0f172a;cursor:pointer;"><b>Aktual</b><small style="display:block;margin-top:3px;color:#475569;">Plan efektif 0.5/0.6; PIT mengikuti konteks aktual.</small></button>
+            <button type="button" data-rp-planning-source="conservative" style="text-align:left;border:0;border-radius:8px;padding:10px;background:#f8fafc;color:#0f172a;cursor:pointer;"><b>Fleet Deployment</b><small style="display:block;margin-top:3px;color:#475569;">Unit, PIT, JOB, dan material wajib cocok dengan 0.8.</small></button>
+            <button type="button" data-rp-planning-source="fleet_material" style="text-align:left;border:0;border-radius:8px;padding:10px;background:#f8fafc;color:#0f172a;cursor:pointer;"><b>Fleet x Material</b><small style="display:block;margin-top:3px;color:#475569;">Fleet dari 0.8; material dan productivity dari 0.5/0.6.</small></button>
+          </div>
+        </details>
       </header>
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:12px;">
         <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:#334155;">Periode dari
@@ -55,7 +66,8 @@
         </label>
         <button id="rpMuatUlang" class="tombol tombol--ghost" type="button">🔄 Muat Ulang</button>
       </div>
-      <p id="rpInfoPeriode" style="margin:0 0 12px 0;color:#000;font-weight:700;font-size:13px;"></p>
+      <p id="rpInfoPeriode" style="margin:0 0 5px 0;color:#000;font-weight:700;font-size:13px;"></p>
+      <p id="rpInfoPlanningSource" style="margin:0 0 12px 0;color:#475569;font-size:12px;"></p>
       <div id="rpPitBar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;"></div>
       <div id="rpJobBar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px;"></div>
       <div id="rpDataArea" hidden>
@@ -80,11 +92,11 @@
         </div>
         <div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:16px;">
           <div class="tabel-wrap" style="padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;">
-            <h3 style="margin:0 0 8px;font-size:15px;color:#0f172a;">Fleet planned <span style="font-weight:400;font-size:12px;color:#64748b;">(unit terplotting di Fleet Capacity)</span></h3>
+            <h3 style="margin:0 0 8px;font-size:15px;color:#0f172a;">Fleet planned <span id="rpFleetPlannedCaption" style="font-weight:400;font-size:12px;color:#64748b;">(plan efektif 0.5/0.6)</span></h3>
             <div id="rpUnitPlanned"></div>
           </div>
           <div class="tabel-wrap" style="padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;">
-            <h3 style="margin:0 0 8px;font-size:15px;color:#0f172a;">Other Fleet <span style="font-weight:400;font-size:12px;color:#64748b;">(unit berproduksi di Input Ritase, di luar plotting)</span></h3>
+            <h3 style="margin:0 0 8px;font-size:15px;color:#0f172a;">Other / Data Quality <span id="rpOtherCaption" style="font-weight:400;font-size:12px;color:#64748b;">(aktual tanpa plan yang cocok)</span></h3>
             <div id="rpUnitOtherFleet"></div>
           </div>
         </div>
@@ -95,7 +107,7 @@
           <div id="rpPaBadge" style="margin-top:8px;font-size:12px;"></div>
         </div>
         <div class="tabel-wrap" style="padding:12px;margin-top:16px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;">
-          <h3 style="margin:0 0 8px;font-size:15px;color:#0f172a;">Waterfall UA <span style="font-weight:400;font-size:12px;color:#64748b;">(bedah ΔUA per kategori standby)</span></h3>
+          <h3 style="margin:0 0 8px;font-size:15px;color:#0f172a;">Waterfall UA <span style="font-weight:400;font-size:12px;color:#64748b;">(dampak plan delay SPO vs standby aktual)</span></h3>
           <div id="rpUaWaterfall"><p class="tabel__kosong">Menunggu data…</p></div>
           <div style="position:relative;height:300px;margin-top:12px;"><canvas id="rpCanvasUaWaterfall"></canvas></div>
           <div id="rpUaBadge" style="margin-top:8px;font-size:12px;"></div>
@@ -142,6 +154,43 @@
     el.textContent = `Periode terpilih: ${dari} – ${sampai}`;
   }
 
+  function updatePlanningSourceUi() {
+    const configs = {
+      flexible: {
+        label: 'Aktual',
+        info: '<b>Aktual:</b> plan efektif halaman 0.5/0.6 dicocokkan dengan tanggal, unit, JOB, material, dan satuan; PIT mengikuti aktual.',
+        planned: '(plan efektif 0.5/0.6)',
+        other: '(aktual tanpa plan efektif yang cocok)',
+      },
+      conservative: {
+        label: 'Fleet Deployment',
+        info: '<b>Fleet Deployment:</b> plan halaman 0.8 dicocokkan penuh sampai material; konteks di luar plotting masuk Other Fleet.',
+        planned: '(plotting penuh 0.8 Fleet Deployment)',
+        other: '(unit, PIT, JOB, atau material di luar plotting)',
+      },
+      fleet_material: {
+        label: 'Fleet x Material',
+        info: '<b>Fleet x Material:</b> unit, PIT, JOB, dan tanggal mengikuti 0.8; material serta productivity mengikuti plan efektif 0.5/0.6.',
+        planned: '(fleet 0.8 × material efektif 0.5/0.6)',
+        other: '(Other Fleet hanya unit yang tidak terdeploy; plan material yang hilang ditandai terpisah)',
+      },
+    };
+    const config = configs[state.planningSource] || configs.flexible;
+    const button = document.getElementById('rpPlanningSourceButton');
+    if (button) button.textContent = `Source Planning · ${config.label} ▾`;
+    const info = document.getElementById('rpInfoPlanningSource');
+    if (info) info.innerHTML = config.info;
+    const planned = document.getElementById('rpFleetPlannedCaption');
+    if (planned) planned.textContent = config.planned;
+    const other = document.getElementById('rpOtherCaption');
+    if (other) other.textContent = config.other;
+    document.querySelectorAll('[data-rp-planning-source]').forEach(item => {
+      const active = item.dataset.rpPlanningSource === state.planningSource;
+      item.setAttribute('aria-pressed', String(active));
+      item.style.outline = active ? '2px solid #0f766e' : 'none';
+    });
+  }
+
   function kategoriTerpilih() {
     const data = state.data;
     if (!data || !Array.isArray(data.kategori)) return [];
@@ -153,7 +202,7 @@
   }
 
   async function muatData() {
-    if (state.memuat) return;
+    const requestId = ++state.requestId;
     const dari = document.getElementById('rpDari')?.value || state.dari;
     const sampai = document.getElementById('rpSampai')?.value || state.sampai;
     if (!dari || !sampai || sampai < dari) {
@@ -164,11 +213,13 @@
     updateInfoPeriode();
     state.memuat = true;
     try {
-      const response = await fetch(api(`/review-produksi?tanggal_dari=${encodeURIComponent(dari)}&tanggal_sampai=${encodeURIComponent(sampai)}`), {
+      const params = new URLSearchParams({ tanggal_dari: dari, tanggal_sampai: sampai, planning_source: state.planningSource });
+      const response = await fetch(api(`/review-produksi?${params.toString()}`), {
         headers: { ...auth() }, cache: 'no-store',
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Gagal memuat data review produksi.');
+      if (requestId !== state.requestId) return;
       state.data = data;
       renderPitBar(data.pits || []);
       renderJobBar(data.jobs || []);
@@ -178,15 +229,26 @@
       }
       muatPareto();
     } catch (error) {
+      if (requestId !== state.requestId) return;
       state.data = null;
       const el = document.getElementById('rpInfoPeriode');
       if (el) el.textContent = `Gagal memuat: ${error.message}`;
     } finally {
-      state.memuat = false;
+      if (requestId === state.requestId) state.memuat = false;
     }
   }
 
   function onClick(event) {
+    const sourceButton = event.target.closest('[data-rp-planning-source]');
+    if (sourceButton) {
+      const source = sourceButton.dataset.rpPlanningSource;
+      if (!['flexible', 'conservative', 'fleet_material'].includes(source)) return;
+      state.planningSource = source;
+      document.getElementById('rpPlanningSourceMenu')?.removeAttribute('open');
+      updatePlanningSourceUi();
+      muatData();
+      return;
+    }
     const pitBtn = event.target.closest('[data-rp-pit]');
     if (pitBtn) {
       const pit = pitBtn.dataset.rpPit;
@@ -215,6 +277,7 @@
     if (!host) return;
     if (!state.initialized) {
       host.innerHTML = shell();
+      updatePlanningSourceUi();
       state.dari = tanggalWib(-1);
       state.sampai = tanggalWib(-1);
       document.getElementById('rpDari').value = state.dari;
@@ -348,24 +411,17 @@
   // PPlan = totalEWH x Prod_plan (totalEWH sudah menjumlah seluruh unit x hari).
   function nilaiKategori(k) {
     const core = global.ReviewProduksiCore || {};
-    const ewh = Number(k.totalEwh); const prod = Number(k.prodPlan);
-    const serverPlan = Number(k.pPlan);
-    const pPlan = Number.isFinite(serverPlan) && serverPlan > 0
-      ? serverPlan
-      : ((Number.isFinite(ewh) && ewh !== 0 && Number.isFinite(prod) && prod > 0) ? ewh * prod : null);
+    const value = key => k[key] != null && Number.isFinite(Number(k[key])) ? Number(k[key]) : null;
+    const pPlan = value('pPlan');
     const paAktual = typeof core.hitungPAAktual === 'function' ? core.hitungPAAktual(k.hm, k.standby, k.breakdown) : null;
     const uaAktual = typeof core.hitungUAAktual === 'function' ? core.hitungUAAktual(k.hm, k.standby) : null;
-    // Komponen waterfall dari server (dihitung per unit); fallback ke rumus agregat.
-    const dppa = Number.isFinite(Number(k.dppa)) ? Number(k.dppa)
-      : ((pPlan != null && typeof core.hitungDppa === 'function') ? core.hitungDppa(pPlan, k.paPlan, paAktual) : null);
-    const dpua = Number.isFinite(Number(k.dpua)) ? Number(k.dpua)
-      : ((pPlan != null && typeof core.hitungDpua === 'function') ? core.hitungDpua(pPlan, k.paPlan, paAktual, k.uaPlan, uaAktual) : null);
-    const dprod = Number.isFinite(Number(k.dProd)) ? Number(k.dProd) : null;
+    const dppa = value('dppa'); const dpua = value('dpua'); const dprod = value('dProd');
     const fleet = Number(k.produksiFleet) || 0;
-    const other = Number(k.produksiOtherFleet) || 0;
+    const other = (Number(k.produksiOtherFleet) || 0) + (Number(k.produksiMissingPlan) || 0);
     const rekonsiliasi = typeof core.cekRekonsiliasi === 'function' ? core.cekRekonsiliasi({ pPlan, dppa, dpua, dprod, aktualFleet: fleet }) : null;
     const achievement = (pPlan != null && pPlan > 0) ? ((fleet + other) / pPlan * 100) : null;
-    return { pPlan, paAktual, uaAktual, dppa, dpua, dprod, fleet, other, totalAktual: fleet + other, unit: k.unit, rekonsiliasi, achievement };
+    return { pPlan, paAktual, uaAktual, dppa, dpua, dprod, fleet, other,
+      totalAktual: fleet + other, unit: k.unit, rekonsiliasi, achievement };
   }
 
   function renderTabelKategori(kategori, hasil) {
@@ -484,11 +540,11 @@
     const badge = document.getElementById('rpBadgeRekonsiliasi');
     if (badge) {
       if (pPlan == null) {
-        badge.innerHTML = '<span style="color:#b45309;font-weight:700;">⚠️ Plan belum dapat dihitung — EWH plan (page 0.4) / Prod_plan (Fleet Capacity) belum lengkap.</span>';
+        badge.innerHTML = '<span style="color:#b45309;font-weight:700;">⚠️ Plan belum dapat dihitung — periksa PA plan, delay SPO dan productivity pada Source Planning terpilih.</span>';
       } else {
         const rek = global.ReviewProduksiCore?.cekRekonsiliasi({ pPlan, dppa, dpua, dprod, aktualFleet: fleet });
         if (rek && rek.reconciled) {
-          badge.innerHTML = `<span style="color:#15803d;font-weight:700;">✅ Rekonsiliasi cocok</span> · Plan ${fmt(pPlan)} + ΔPA ${fmt(dppa)} + ΔUA ${fmt(dpua)} + ΔProd ${fmt(dprod)} = ${fmt(rek.total)} ≈ Aktual ${fmt(fleet)} (selisih ${fmt(rek.selisih)})`;
+          badge.innerHTML = `<span style="color:#15803d;font-weight:700;">✅ Rekonsiliasi fleet terhitung cocok</span> · Plan ${fmt(pPlan)} + ΔPA ${fmt(dppa)} + ΔUA ${fmt(dpua)} + ΔProd ${fmt(dprod)} = ${fmt(rek.total)} ≈ Aktual ${fmt(fleet)} (selisih ${fmt(rek.selisih)})`;
         } else {
           badge.innerHTML = `<span style="color:#b45309;font-weight:700;">⚠️ Rekonsiliasi tidak persis</span> · fleet-expected ${fmt(rek?.total)} vs Aktual ${fmt(fleet)} (selisih ${fmt(rek?.selisih)})`;
         }
@@ -511,14 +567,22 @@
         cur.ewhPlan += Number(u.ewhPlan) || 0;
         cur.hm += Number(u.hmAktual) || 0;
         cur.mohh += Number(u.mohhAktual) || 0;
-        const tambahRasio = (keySum, keyN, val) => { if (val != null && Number.isFinite(Number(val))) { cur[keySum] += Number(val); cur[keyN] += 1; } };
-        tambahRasio('paPlanSum', 'paPlanN', u.paPlan);
-        tambahRasio('paAktSum', 'paAktN', u.paAktual);
-        tambahRasio('uaPlanSum', 'uaPlanN', u.uaPlan);
-        tambahRasio('uaAktSum', 'uaAktN', u.uaAktual);
+        cur.paPlanSum += Number(u.availablePlanHours) || 0;
+        cur.paPlanN += Number(u.schedulePlanHours) || 0;
+        cur.paAktSum += Number(u.availableActualHours) || 0;
+        cur.paAktN += Number(u.mohhAktual) || 0;
+        cur.uaPlanSum += Number(u.ewhPlan) || 0;
+        cur.uaPlanN += Number(u.availablePlanHours) || 0;
+        cur.uaAktSum += Number(u.hmAktual) || 0;
+        cur.uaAktN += Number(u.availableActualHours) || 0;
         plannedMap.set(u.unit, cur);
       }
-      for (const u of (Array.isArray(k.unitOtherFleet) ? k.unitOtherFleet : [])) otherMap.set(u.unit, (otherMap.get(u.unit) || 0) + (Number(u.produksi) || 0));
+      for (const u of [...(k.unitOtherFleet || []), ...(k.unitMissingPlan || [])]) {
+        const key = `${u.unit}|${u.material || '—'}|${u.reason || 'Unplanned'}`;
+        const current = otherMap.get(key) || { unit: u.unit, material: u.material || '—', reason: u.reason || 'Unplanned', produksi: 0 };
+        current.produksi += Number(u.produksi) || 0;
+        otherMap.set(key, current);
+      }
     }
     const plannedRows = [...plannedMap.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     if (!plannedRows.length) {
@@ -535,17 +599,28 @@
         }).join('')}</tbody></table></div>`;
     }
     const render = (map, host, kosongMsg) => {
-      const rows = [...map.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+      const rows = [...map.values()].sort((a, b) => String(a.unit).localeCompare(String(b.unit)) || String(a.material).localeCompare(String(b.material)));
       if (!rows.length) { host.innerHTML = `<p class="tabel__kosong">${kosongMsg}</p>`; return; }
       host.innerHTML = `<div class="tabel-wrap"><table class="tabel" style="font-size:12px;">
-        <thead><tr><th>Unit Excavator</th><th style="text-align:right;">Aktual</th></tr></thead>
-        <tbody>${rows.map(([unit, prod]) => `<tr><td>${esc(unit)}</td><td style="text-align:right;">${fmt(prod)}</td></tr>`).join('')}</tbody></table></div>`;
+        <thead><tr><th>Unit Excavator</th><th>Material</th><th>Status</th><th style="text-align:right;">Aktual</th></tr></thead>
+        <tbody>${rows.map(row => `<tr><td>${esc(row.unit)}</td><td>${esc(row.material)}</td><td><span style="display:inline-block;padding:3px 7px;border-radius:999px;background:#fff7ed;color:#9a3412;font-weight:700;">${esc(row.reason)}</span></td><td style="text-align:right;">${fmt(row.produksi)}</td></tr>`).join('')}</tbody></table></div>`;
     };
-    render(otherMap, otherHost, 'Tidak ada unit produksi di luar plotting.');
+    render(otherMap, otherHost, 'Tidak ada Other Fleet atau data productivity yang belum lengkap.');
   }
 
   global.ReviewProduksiRender = function (kategori) {
     const list = Array.isArray(kategori) ? kategori : [];
+    if (new Set(list.map(row => row.unit)).size > 1) {
+      kategoriTerakhir = []; hasilTerakhir = [];
+      for (const chart of [chartPencapaian, chartWaterfall]) if (chart) chart.destroy();
+      chartPencapaian = null; chartWaterfall = null;
+      panggilPaWaterfall();
+      for (const id of ['rpTabelKategori', 'rpUnitPlanned', 'rpUnitOtherFleet', 'rpBadgeRekonsiliasi']) {
+        const host = document.getElementById(id);
+        if (host) host.innerHTML = '<p class="tabel__kosong">Pilih satu JOB/satuan. BCM dan Ton ditampilkan terpisah.</p>';
+      }
+      return;
+    }
     const hasil = list.map(nilaiKategori);
     kategoriTerakhir = list; hasilTerakhir = hasil;
     renderTabelKategori(list, hasil);
@@ -557,15 +632,17 @@
 
   // ===== Pareto Mining Intelligence (sumber: endpoint review-produksi/pareto) =====
   let paretoMemuat = false;
+  let paretoRequestId = 0;
 
   async function muatPareto() {
     const host = document.getElementById('rpPareto');
     if (!host || !state.data) return;
-    if (paretoMemuat) return;
+    const requestId = ++paretoRequestId;
     paretoMemuat = true;
     host.innerHTML = '<p class="tabel__kosong">Memuat pareto…</p>';
     try {
       const params = new URLSearchParams({ tanggal_dari: state.dari, tanggal_sampai: state.sampai });
+      params.set('planning_source', state.planningSource);
       if (state.pitAktif.size === 1) params.set('pit', [...state.pitAktif][0]);
       if (state.jobAktif.size === 1) params.set('job', [...state.jobAktif][0]);
       const response = await fetch(api(`/review-produksi/pareto?${params.toString()}`), {
@@ -573,16 +650,18 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Gagal memuat pareto.');
+      if (requestId !== paretoRequestId) return;
       paretoTerakhir = data;
       paretoErrorTerakhir = null;
       renderPareto(data);
       panggilPaWaterfall();
     } catch (error) {
+      if (requestId !== paretoRequestId) return;
       paretoErrorTerakhir = error.message;
       host.innerHTML = `<p class="tabel__kosong">Pareto gagal dimuat: ${esc(error.message)}</p>`;
       panggilPaWaterfall();
     } finally {
-      paretoMemuat = false;
+      if (requestId === paretoRequestId) paretoMemuat = false;
     }
   }
 
@@ -590,7 +669,12 @@
     const host = document.getElementById('rpPareto');
     if (!host) return;
     const core = global.ReviewParetoCore || {};
-    const hasil = kategoriTerpilih().map(nilaiKategori);
+    const selected = kategoriTerpilih();
+    if (new Set(selected.map(row => row.unit)).size > 1) {
+      host.innerHTML = '<p class="tabel__kosong">Pilih satu JOB/satuan untuk analisis dampak.</p>';
+      return;
+    }
+    const hasil = selected.map(nilaiKategori);
     const jumlah = key => {
       const nilai = hasil.map(h => Number(h[key])).filter(v => Number.isFinite(v));
       return nilai.length ? nilai.reduce((total, v) => total + v, 0) : null;
@@ -602,11 +686,16 @@
     const seksi = [];
     const dppa = jumlah('dppa'); const dpua = jumlah('dpua'); const dprod = jumlah('dprod');
     if (typeof core.shouldShow === 'function' && core.shouldShow(dppa, pPlan)) {
-      const jadi = core.buildPaText({ delta: dppa, pPlan, periode, job: jobLabel, items: data && data.pa && data.pa.items });
+      const items = selected.flatMap(row => row.paWaterfall?.items || []).filter(row => row.key.startsWith('BD:'))
+        .map(row => ({ kategori: row.description, jam: row.hours }));
+      const jadi = core.buildPaText({ delta: dppa, pPlan, periode, job: jobLabel, items });
+      if (jadi) jadi.smartText = `Dampak PA/jam tersedia ${fmt(dppa)} ${selected[0]?.unit || ''}. Rincian jam breakdown di atas bersifat deskriptif; budget plan dan selisih cakupan waktu dijelaskan pada Waterfall PA.`;
       if (jadi) seksi.push(jadi);
     }
     if (typeof core.shouldShow === 'function' && core.shouldShow(dpua, pPlan)) {
-      const jadi = core.buildUaText({ delta: dpua, pPlan, periode, job: jobLabel, items: data && data.ua && data.ua.items });
+      const items = selected.flatMap(row => row.uaWaterfall?.items || []).map(row => ({ kategori: row.description, jam: row.actualHours }));
+      const jadi = core.buildUaText({ delta: dpua, pPlan, periode, job: jobLabel, items });
+      if (jadi) jadi.smartText = `Dampak UA ${fmt(dpua)} ${selected[0]?.unit || ''}, dihitung dari selisih Plan Delay SPO dan aktual × productivity plan per konteks. Jam standby terbesar tidak selalu menjadi loss terbesar; lihat Waterfall UA.`;
       if (jadi) seksi.push(jadi);
     }
     if (typeof core.shouldShow === 'function' && core.shouldShow(dprod, pPlan)) {

@@ -116,4 +116,32 @@ async function hapusSubjectWajah(subject) {
   }
 }
 
-module.exports = { verifikasiWajah, daftarkanWajahReferensi, hapusSubjectWajah, getComprefaceBaseUrl };
+/**
+ * Cari subject lain yang wajahnya mirip (cegah satu orang punya dua akun).
+ * Mengembalikan [{ subject, similarity }] (≥ ambang) atau null bila CompreFace
+ * tidak bisa dihubungi — pemanggil memutuskan (tidak memblokir pendaftaran).
+ */
+async function cariWajahSerupa(imageBuffer, { limit = 3, threshold = THRESHOLD } = {}) {
+  const baseUrl = await getComprefaceBaseUrl();
+  if (!baseUrl) return null;
+  const form = new FormData();
+  form.append('file', imageBuffer, { filename: 'probe.jpg' });
+  try {
+    const { data } = await axios.post(`${baseUrl}/api/v1/recognition/recognize`, form, {
+      headers: { ...form.getHeaders(), 'x-api-key': API_KEY },
+      params: { limit: 1, prediction_count: limit },
+      timeout: TIMEOUT_MS,
+    });
+    const subjects = data?.result?.[0]?.subjects || [];
+    return subjects
+      .filter(s => Number(s.similarity) >= threshold)
+      .map(s => ({ subject: s.subject, similarity: Number(s.similarity) }));
+  } catch (err) {
+    // 400 "No face is found" atau koleksi kosong → anggap tidak ada yang mirip.
+    if (err.response && err.response.status === 400) return [];
+    console.warn(`[CompreFace Recognize Fallback] Gagal cek wajah serupa (${baseUrl}): ${err.message}`);
+    return null;
+  }
+}
+
+module.exports = { verifikasiWajah, daftarkanWajahReferensi, hapusSubjectWajah, cariWajahSerupa, getComprefaceBaseUrl };

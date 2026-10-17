@@ -1,0 +1,124 @@
+.cuti-segmented { display:inline-flex; padding:4px; background:#e2e8f0; border-radius:10px; margin:12px 0; }
+.cuti-segmented button { border:0; background:transparent; padding:9px 15px; border-radius:7px; font-weight:800; color:#475569; cursor:pointer; white-space:nowrap; }
+.cuti-segmented button.is-active { background:#fff; color:#9f1239; box-shadow:0 1px 4px #0f172a1f; }
+.cuti-toolbar { display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap; padding:12px; background:#fff; border:1px solid #dbe4ee; border-radius:12px; margin-bottom:12px; }
+.cuti-filters,.cuti-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.cuti-kpis { display:grid; grid-template-columns:repeat(6,minmax(135px,1fr)); gap:10px; margin-bottom:14px; }
+.cuti-kpi { border:1px solid #dbe4ee; border-top:4px solid var(--accent,#9f1239); border-radius:11px; background:var(--soft,#fff); padding:13px; text-align:left; }
+.cuti-kpi span { display:block; font-size:11px; color:#64748b; font-weight:800; text-transform:uppercase; }
+.cuti-kpi strong { display:block; font-size:25px; color:#0f172a; margin:3px 0; }
+.cuti-kpi small { color:#64748b; }
+.cuti-card { background:#fff; border:1px solid #dbe4ee; border-radius:12px; padding:15px; margin-bottom:12px; }
+.cuti-card h3 { margin:0 0 4px; color:#0f172a; }
+.cuti-card>p.sub { margin:0 0 12px; color:#64748b; font-size:12px; }
+.cuti-table { width:100%; border-collapse:collapse; font-size:13px; }
+.cuti-table th { background:#eef4f8; color:#334155; text-align:left; padding:10px; position:sticky; top:0; }
+.cuti-table td { border-top:1px solid #e2e8f0; padding:10px; vertical-align:top; }
+.cuti-wrap { overflow:auto; max-height:590px; border:1px solid #dbe4ee; border-radius:10px; }
+.cuti-badge { display:inline-flex; padding:3px 8px; border-radius:99px; font-size:11px; font-weight:800; white-space:nowrap; }
+.cuti-badge--AMAN,.cuti-badge--ok { background:#dcfce7; color:#166534; }
+.cuti-badge--JATUH_TEMPO,.cuti-badge--warn { background:#fef9c3; color:#854d0e; }
+.cuti-badge--REKONSILIASI,.cuti-badge--bad { background:#fee2e2; color:#b91c1c; }
+.cuti-badge--HABIS { background:#e2e8f0; color:#475569; }
+.cuti-badge--BELUM_SETUP { background:#f1f5f9; color:#334155; }
+.cuti-badge--info { background:#dbeafe; color:#1d4ed8; }
+.cuti-row,.cuti-cycle tbody tr { cursor:pointer; }
+.cuti-row:hover,.cuti-cycle tbody tr:hover { background:#f8fafc; }
+.cuti-person-cards { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
+.cuti-person { min-width:0; border:1px solid #dbe4ee; border-radius:12px; background:#fff; padding:14px; }
+.cuti-person-head { border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-bottom:8px; font-size:13px; color:#0f172a; line-height:1.55; }
+.cuti-person-head b { display:block; font-size:16px; }
+.cuti-cycle-wrap { overflow-x:auto; }
+.cuti-cycle { width:100%; min-width:980px; border-collapse:collapse; font-size:12px; margin-top:6px; }
+.cuti-cycle th { background:#f8fafc; color:#475569; text-align:center; padding:8px 7px; font-size:10px; text-transform:uppercase; border:1px solid #dbe4ee; }
+.cuti-cycle td { border:1px solid #e2e8f0; padding:8px 7px; vertical-align:top; }
+.cuti-drawer { margin-top:12px; border:1px solid #9f1239; border-radius:10px; background:#fff1f2; padding:13px; }
+.cuti-drawer h4 { margin:0 0 6px; color:#0f172a; }
+.cuti-timeline { margin:8px 0 0; padding-left:18px; color:#0f172a; font-size:13px; }
+.cuti-timeline li { margin-bottom:6px; }
+.cuti-modal-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; }
+.cuti-modal-grid label { font-size:12px; font-weight:700; color:#475569; }
+.cuti-modal-grid input,.cuti-modal-grid select,.cuti-modal-grid textarea { width:100%; margin-top:4px; }
+.cuti-modal-grid .span-2 { grid-column:1/-1; }
+.cuti-policy-cycle-intro { display:flex; flex-direction:column; gap:4px; padding:12px 14px; border:1px solid #99f6e4; border-left:4px solid #0f766e; border-radius:10px; background:#f0fdfa; color:#134e4a; }
+.cuti-policy-cycle-intro b { font-size:14px; }
+.cuti-policy-cycle-intro small { color:#475569; line-height:1.45; }
+.cuti-policy-actions { display:flex; gap:8px; align-items:center; white-space:nowrap; }
+.cuti-policy-actions .tombol { min-width:70px; }
+.tombol--danger { border-color:#fecaca; background:#fff1f2; color:#b91c1c; }
+.tombol--danger:hover { border-color:#ef4444; background:#fee2e2; }
+.cuti-request-summary { display:flex; flex-direction:column; gap:5px; padding:12px 14px; border-radius:10px; background:#f8fafc; border:1px solid #cbd5e1; color:#0f172a; }
+.cuti-request-summary b { color:#000; font-size:14px; }
+.cuti-request-summary strong { color:#0f172a; font-size:16px; }
+.cuti-form-note { margin:0; padding:9px; border-radius:8px; background:#eff6ff; color:#1e3a8a; font-size:12px; }
+.cuti-cal { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+.cuti-cal-day { min-height:64px; border:1px solid #e2e8f0; border-radius:8px; padding:4px; font-size:11px; background:#fff; }
+.cuti-cal-day.is-other { opacity:.4; }
+.cuti-cal-day b { display:block; }
+.cuti-cal-mark { display:block; margin-top:2px; padding:1px 4px; border-radius:4px; background:#ffe4e6; color:#9f1239; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cuti-cal-mark.is-plan { background:#dbeafe; color:#1d4ed8; }
+
+#modalKonten:has(.cuti-person-modal-wrap) {
+  width: min(1200px, 96vw);
+  max-width: min(1200px, 96vw);
+  max-height: 92vh;
+  padding: 24px;
+}
+.cuti-person-modal-wrap {
+  width: 100%;
+  max-height: calc(88vh - 120px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin: 14px 0;
+  padding-right: 4px;
+}
+.cuti-person-modal-wrap .cuti-person {
+  margin: 0;
+  box-shadow: none;
+  border: 1px solid #cbd5e1;
+}
+.cuti-kpi--highlight {
+  border: 2px solid var(--accent) !important;
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.08) 0%, #ffffff 100%) !important;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.18) !important;
+  transform: translateY(-2px);
+  position: relative;
+}
+.cuti-kpi--highlight span {
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.cuti-aktual-highlight {
+  font-weight: 700;
+  color: #6d28d9;
+  background: #ede9fe;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-block;
+  border: 1px solid #ddd6fe;
+}
+.cuti-row:hover {
+  background: #f1f5f9;
+  transition: background 0.15s ease;
+}
+.cuti-sub-info {
+  color: #64748b;
+  font-size: 11px;
+}
+
+
+@media(max-width:1000px) {
+  .cuti-kpis { grid-template-columns:repeat(3,1fr); }
+}
+
+@media(max-width:640px) {
+  .cuti-kpis { grid-template-columns:repeat(2,1fr); }
+  .cuti-modal-grid { grid-template-columns:1fr; }
+  .cuti-modal-grid .span-2 { grid-column:auto; }
+  .cuti-table thead { display:none; }
+  .cuti-table,.cuti-table tbody,.cuti-table tr,.cuti-table td { display:block; }
+  .cuti-table tr { border:1px solid #dbe4ee; border-radius:10px; margin-bottom:9px; padding:7px; }
+  .cuti-table td { border:0; padding:5px; }
+  .cuti-table td:before { content:attr(data-label); display:block; font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase; }
+  .cuti-cycle { min-width:880px; }
+}

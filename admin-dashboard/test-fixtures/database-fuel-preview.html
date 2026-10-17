@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Database Fuel Preview</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../style.css?v=54">
+  <style>
+    body { margin: 0; background: #f6f4ef; }
+    .preview { max-width: 1450px; margin: 0 auto; padding: 28px; }
+  </style>
+</head>
+<body>
+  <main class="preview">
+    <div id="databaseFuelWorkspace"></div>
+  </main>
+  <script>
+    window.__databaseFuelPreviewErrors = [];
+    window.addEventListener('error', event => window.__databaseFuelPreviewErrors.push(String(event.error?.message || event.message)));
+    window.addEventListener('unhandledrejection', event => window.__databaseFuelPreviewErrors.push(String(event.reason?.message || event.reason)));
+    window.getProdApiUrl = path => path;
+    window.getProdAuthHeaders = () => ({});
+    window.tutupDatabaseFuel = () => {};
+    window.fetch = async (url, options = {}) => {
+      const path = String(url);
+      let payload = [];
+      if (path.endsWith('/api/admin/production/master')) payload = {
+        equipment: [{ id:'eq-1', kode_alat:'FT 01', tipe_alat:'Fuel Truck' }],
+        shifts: [{ id:'shift-1', nama_shift:'Shift Siang' }],
+        operators: [{ id:'op-1', nama:'Operator Fuel' }],
+      };
+      if (path.endsWith('/locations')) payload = [
+        { id: 'loc-1', location_code: 'FT-BEI', location_name: 'Fuel Tank BEI' },
+        { id: 'loc-2', location_code: 'FT-DKC', location_name: 'Fuel Tank DKC' },
+      ];
+      else if (path.endsWith('/products')) payload = [
+        { id: 'prod-1', product_code: 'BIOSOLAR-B35' },
+      ];
+      else if (path.includes('/stock-summary')) payload = [
+        { location_id: 'loc-1', location_code: 'FT-BEI', product_code: 'BIOSOLAR-B35', balance_liter: 48750, fifo_liter: 48750, fifo_value_idr: 671775000, open_layers: 4, unknown_cost_layers: 0 },
+        { location_id: 'loc-2', location_code: 'FT-DKC', product_code: 'BIOSOLAR-B35', balance_liter: 26400, fifo_liter: 26400, fifo_value_idr: 363792000, open_layers: 2, unknown_cost_layers: 0 },
+      ];
+      else if (path.includes('/usage-stats')) payload = { adu_liter_per_day: 4250, basis: 'calendar_day', day_count: 30, days_of_stock: 17.7, total_issue_liter: 127500, formula_version: 'fuel-ledger-v1' };
+      else if (path.includes('/integrity-report')) payload = { ok: true, ledger_fifo: [], transfers: [], adjustments: [] };
+      else if (path.includes('/transactions?')) payload = [
+        { id:'tx-1', operational_date:'2026-09-24', transaction_number:'FI-20260924-0001', transaction_type:'receipt', status:'posted', source_code:null, destination_code:'FT-BEI', product_code:'BIOSOLAR-B35', quantity_liter:10000, running_balance:48750 },
+        { id:'tx-2', operational_date:'2026-09-24', transaction_number:'FI-20260924-0002', transaction_type:'issue_equipment', status:'draft', source_code:'FT-BEI', destination_code:null, product_code:'BIOSOLAR-B35', quantity_liter:250, running_balance:48750 },
+      ];
+      else if (path.endsWith('/mappings')) payload = [{ id:'map-1', shift_id:'shift-1', product_id:'prod-1', product_code:'BIOSOLAR-B35', location_id:'loc-1', location_code:'FT-BEI', priority:100, is_active:true }];
+      else if (path.includes('/reconciliation')) payload = { unlinkedLogs:[{id:'log-1',tanggal:'2026-09-24',fuel_filled:200,kode_alat:'DT30 126',dapatDipetakan:true}], orphanIssues:[], mismatched:[] };
+      else if (options.method && options.method !== 'GET') payload = { id:'created-1', created:1, synced:0, skipped:0, errors:[] };
+      return { ok: true, status: 200, json: async () => payload };
+    };
+  </script>
+  <script src="../ui-action-feedback.js?v=3"></script>
+  <script src="../databaseFuel.workspace.js?v=3"></script>
+  <script>window.DatabaseFuelWorkspace.open();</script>
+</body>
+</html>

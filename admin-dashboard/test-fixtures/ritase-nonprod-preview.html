@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Preview Non Prod / Inpit Ritase</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f6f4ef; color: #10213d; font: 14px Arial, sans-serif; }
+    main { padding: 24px; }
+    .card { min-width: 1080px; overflow: hidden; border: 1px solid #cbd9e9; border-radius: 14px; background: #fff; box-shadow: 0 8px 24px #18315312; }
+    .scroll { overflow-x: auto; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #dbe5f0; }
+    header strong { font-size: 17px; }
+    header span { margin-left: 8px; padding: 5px 9px; border-radius: 7px; background: #e8f7ef; color: #08734e; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { border-bottom: 1px solid #dbe5f0; padding: 12px 8px; text-align: center; }
+    th:first-child, td:first-child { width: 205px; text-align: left; padding-left: 18px; }
+    th { background: #f6f9fd; color: #53617a; font-size: 12px; }
+    input { width: 58px; padding: 8px; border: 1px solid #bfd0e3; border-radius: 7px; text-align: center; }
+    .truck { color: #06864e; font-weight: 800; }
+    .muted { display: block; margin-top: 4px; color: #74839a; font-size: 11px; }
+    tfoot td { font-weight: 800; background: #edf3f9; }
+    tfoot .nonprod-row td { background: #fff9df; }
+    .nonprod-btn { min-width: 66px; padding: 7px 8px; border: 1px solid #cb9000; border-radius: 7px; background: #f4bd21; color: #332500; font-weight: 800; box-shadow: 0 3px 0 #9c6900; cursor: pointer; }
+    .nonprod-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #9c6900; }
+    .productive td { color: #006d59; background: #effcf8; font-weight: 800; }
+    .overlay { position: fixed; inset: 0; display: none; place-items: center; padding: 20px; background: #07111f99; }
+    .overlay.open { display: grid; }
+    .modal { width: min(680px, 96vw); max-height: 88vh; overflow: auto; border-radius: 14px; background: #fff; box-shadow: 0 25px 80px #0008; }
+    .modal h2 { margin: 0; padding: 20px 22px 5px; }
+    .modal p { margin: 0; padding: 0 22px 16px; color: #65738b; }
+    .modal table { table-layout: auto; }
+    .modal table th:first-child, .modal table td:first-child { width: auto; }
+    .modal .summary { display: flex; gap: 12px; padding: 14px 22px; background: #f5f8fc; font-weight: 800; }
+    .modal footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 22px; }
+    button.secondary, button.primary { padding: 10px 16px; border-radius: 8px; font-weight: 800; cursor: pointer; }
+    button.secondary { border: 1px solid #ccd6e3; background: #fff; }
+    button.primary { border: 1px solid #9b6800; background: #f4bd21; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="scroll">
+      <section class="card" aria-label="Preview tabel Input Ritase">
+        <header><div><strong>EX30 350-15</strong><span>Target: 140,77 BCM/Hr</span></div><b>Shift Siang · BEI</b></header>
+        <table>
+          <thead><tr><th>DUMP TRUCK (HAULER)</th><th>06</th><th>07</th><th>08</th><th>09</th><th>TOTAL RITASE</th><th>TOTAL PRODUKSI</th></tr></thead>
+          <tbody>
+            <tr><td><span class="truck">DT30 126 (6-88)</span><span class="muted">TF 11 BCM/rit</span></td><td><input value="0"></td><td><input value="6"></td><td><input value="4"></td><td><input value="3"></td><td>13</td><td>121</td></tr>
+            <tr><td><span class="truck">DT30 128 (6-90)</span><span class="muted">TF 11 BCM/rit</span></td><td><input value="0"></td><td><input value="5"></td><td><input value="3"></td><td><input value="4"></td><td>12</td><td>99</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><td>TOTAL RIT/JAM</td><td>0</td><td>11</td><td>7</td><td>7</td><td>25</td><td>220</td></tr>
+            <tr class="nonprod-row"><td>NON PROD / INPIT</td><td><button class="nonprod-btn">Non Prod</button></td><td><button class="nonprod-btn" id="open">5 Rit</button></td><td><button class="nonprod-btn">Non Prod</button></td><td><button class="nonprod-btn">Non Prod</button></td><td>5 Rit</td><td>—</td></tr>
+            <tr class="productive"><td>PRODUCTIVITY (BCM)</td><td>0</td><td>66</td><td>77</td><td>77</td><td>—</td><td>220</td></tr>
+          </tfoot>
+        </table>
+      </section>
+    </div>
+  </main>
+  <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="title">
+    <section class="modal">
+      <h2 id="title">Non Prod / Inpit · Jam 07:00</h2>
+      <p>Masukkan ritase yang tidak dihitung sebagai produksi. Nilai tidak boleh melebihi ritase bruto.</p>
+      <table>
+        <thead><tr><th>Dump Truck</th><th>Ritase Bruto</th><th>Non Prod</th><th>Ritase Produktif</th></tr></thead>
+        <tbody><tr><td>DT30 126 (6-88)</td><td>6</td><td><input value="2"></td><td>4</td></tr><tr><td>DT30 128 (6-90)</td><td>5</td><td><input value="3"></td><td>2</td></tr></tbody>
+      </table>
+      <div class="summary"><span>Bruto: 11 Rit</span><span>Non Prod: 5 Rit</span><span>Produktif: 6 Rit</span></div>
+      <footer><button class="secondary" id="close">Batal</button><button class="primary" id="apply">Terapkan</button></footer>
+    </section>
+  </div>
+  <script>
+    const overlay = document.getElementById('overlay');
+    document.getElementById('open').onclick = () => overlay.classList.add('open');
+    document.getElementById('close').onclick = () => overlay.classList.remove('open');
+    document.getElementById('apply').onclick = () => overlay.classList.remove('open');
+  </script>
+</body>
+</html>

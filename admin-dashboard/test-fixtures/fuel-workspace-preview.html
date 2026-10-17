@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OMOS Database Fuel — Preview Workspace 4 Alur</title>
+  <!-- Preview statis (data contoh). Tidak memanggil API, tidak mengubah route/DB. -->
+  <style>
+    :root{--ink:#0f1b2d;--ink2:#334155;--muted:#64748b;--line:#e2e8f0;--line2:#cbd5e1;--bg:#f5f7f9;--card:#fff;--soft:#f1f5f9;
+      --accent:#0e6e58;--accent-soft:#e3f4ee;--blue:#1f5fbf;--blue-soft:#e8f0fc;--amber:#9a5b00;--amber-soft:#fdf1dc;--red:#b42318;--red-soft:#fdecea;--ok:#0f7a55;--ok-soft:#e3f5ec;
+      --r:10px;--mono:ui-monospace,"SF Mono",Consolas,monospace}
+    @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ink:#e6edf5;--ink2:#c3cfdc;--muted:#8a9bb0;--line:#243246;--line2:#33445c;--bg:#0c1420;--card:#111c2b;--soft:#162334;
+      --accent:#3fc19c;--accent-soft:#0f3329;--blue:#7aa8f0;--blue-soft:#14284a;--amber:#f0b44c;--amber-soft:#3a2a0d;--red:#f2867c;--red-soft:#3d1714;--ok:#4cc995;--ok-soft:#0f3324}}
+    *{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);font-size:13px}
+    button,input,select{font:inherit;color:inherit}
+    .app{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
+    .side{background:#0f1b2d;color:#aab8cb;padding:20px 14px;position:sticky;top:0;height:100vh}
+    .side .brand{color:#fff;font-weight:700;font-size:17px;margin:0 8px 26px}.side .brand small{display:block;color:#7d8ea6;font-weight:400;font-size:11px}
+    .side .lbl{font-size:11px;color:#5f7290;margin:16px 10px 6px}.side .it{padding:9px 10px;border-radius:8px;margin:2px 0}.side .it.on{background:#1d6b58;color:#fff;font-weight:600}
+    main{padding:22px 28px 60px;min-width:0}
+    .crumb{color:var(--muted);font-size:12px}.head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin:4px 0 14px}
+    .head h1{margin:0;font-size:22px;letter-spacing:-.02em;font-weight:650}.head p{margin:3px 0 0;color:var(--muted)}
+    .sync{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ok)}.dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+    .btn{border:1px solid var(--line2);background:var(--card);border-radius:8px;padding:7px 12px;cursor:pointer;white-space:nowrap}
+    .btn:hover{background:var(--soft)}.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}.btn.pri:hover{filter:brightness(1.08)}
+    .btn.sm{padding:4px 9px;font-size:12px}.btn.ghost{border-color:transparent;background:transparent}
+    .ctx{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;margin-bottom:12px}
+    .ctx .f{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ctx label{font-size:11px;color:var(--muted);display:grid;gap:2px}
+    select,input{border:1px solid var(--line2);background:var(--card);border-radius:7px;padding:6px 8px;min-height:32px}
+    .menu{position:relative}.menu-list{position:absolute;right:0;top:calc(100% + 4px);background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 30px rgba(15,27,45,.14);min-width:230px;z-index:15;display:none;padding:4px}
+    .menu-list.show{display:block}.menu-list button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:7px;cursor:pointer}.menu-list button:hover{background:var(--soft)}.menu-list small{display:block;color:var(--muted)}
+    .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:16px;overflow-x:auto}
+    .tab{border:0;background:none;padding:10px 12px;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;display:flex;gap:6px;align-items:center}
+    .tab .no{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--soft);font-size:11px}
+    .tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}.tab.on .no{background:var(--accent);color:#fff}
+    .view{display:none}.view.on{display:block}
+    .grid{display:grid;gap:12px}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g2{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}.g2e{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;min-width:0}
+    .card h3{margin:0;font-size:14px;font-weight:600}.card .sub{color:var(--muted);font-size:12px;margin-top:2px}
+    .ch{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px}
+    .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+    .kpi .l{color:var(--muted);font-size:12px}.kpi .v{font-size:22px;font-weight:650;margin:4px 0 2px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}.kpi .s{color:var(--muted);font-size:11px}
+    .tip{border-bottom:1px dotted var(--muted);cursor:help}
+    table{width:100%;border-collapse:collapse}th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);padding:8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+    td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}tbody tr:hover{background:var(--soft)}tr.click{cursor:pointer}
+    .n{text-align:right;font-variant-numeric:tabular-nums}.code{font-family:var(--mono);font-size:12px}
+    .scroll{overflow-x:auto}
+    .b{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
+    .ok{background:var(--ok-soft);color:var(--ok)}.wr{background:var(--amber-soft);color:var(--amber)}.bd{background:var(--red-soft);color:var(--red)}.in{background:var(--blue-soft);color:var(--blue)}.mu{background:var(--soft);color:var(--muted)}
+    .tank{display:grid;gap:4px;padding:10px 0;border-bottom:1px solid var(--line)}.tank:last-child{border:0}
+    .tank .t{display:flex;justify-content:space-between;align-items:center}.tank .nm{font-weight:600}.tank .ty{color:var(--muted);font-size:12px;margin-left:6px}
+    .gauge{position:relative;height:10px;background:var(--soft);border-radius:5px;overflow:visible}.gauge i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:var(--ok)}.gauge i.lo{background:var(--amber)}
+    .gauge em{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--red);opacity:.7}
+    .tank .meta{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+    .todo{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;text-align:left;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer}.todo:last-child{border:0}.todo:hover{background:var(--soft)}
+    .todo .ic{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-weight:700;flex:none}.todo .tx{flex:1}.todo small{display:block;color:var(--muted)}.todo .go{color:var(--muted)}
+    .flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 0}.flow .nd{border:1px solid var(--line2);border-radius:8px;padding:6px 10px;background:var(--soft)}.flow .nd b{display:block;font-size:12px}.flow .nd small{color:var(--muted);font-size:11px}.flow .ar{color:var(--muted)}
+    .rule{font-size:12.5px}.rule b{font-weight:600}
+    .eq{font-size:12px;color:var(--muted);background:var(--soft);border-radius:8px;padding:8px 10px;margin-top:10px}
+    .bars .r{display:grid;grid-template-columns:110px 1fr 90px;gap:10px;align-items:center;padding:5px 0}.bars .tr{height:8px;background:var(--soft);border-radius:4px}.bars .tr i{display:block;height:100%;border-radius:4px;background:var(--blue)}
+    .chart{position:relative;height:240px}
+    .drawer-bg{position:fixed;inset:0;background:rgba(10,20,35,.38);display:none;z-index:20}.drawer-bg.show{display:block}
+    .drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--card);border-left:1px solid var(--line);z-index:21;transform:translateX(100%);transition:transform .2s ease;display:flex;flex-direction:column}
+    .drawer.show{transform:none}.drawer header{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 18px;border-bottom:1px solid var(--line)}.drawer header h2{margin:2px 0 0;font-size:17px}
+    .drawer .bd2{padding:16px 18px;overflow:auto;flex:1}.drawer footer{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+    .dl{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;margin-bottom:16px}.dl dt{color:var(--muted)}.dl dd{margin:0}
+    .tl{border-left:2px solid var(--line2);margin-left:6px;padding-left:14px}.tl div{position:relative;margin-bottom:12px}.tl div:before{content:"";position:absolute;left:-19px;top:4px;width:8px;height:8px;border-radius:50%;background:var(--accent)}.tl small{display:block;color:var(--muted)}
+    .modal-bg{position:fixed;inset:0;background:rgba(10,20,35,.45);display:none;align-items:center;justify-content:center;z-index:30;padding:16px}.modal-bg.show{display:flex}
+    .modal{background:var(--card);border-radius:14px;width:min(560px,100%);max-height:92vh;overflow:auto;border:1px solid var(--line)}
+    .modal header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}.modal header h2{margin:2px 0 0;font-size:17px}
+    .steps{display:flex;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}.steps span.on{color:var(--accent);font-weight:600}
+    .form{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px 20px}.form label{display:grid;gap:4px;font-size:12px;color:var(--ink2)}.form .full{grid-column:1/-1}.req{color:var(--red)}
+    .hint{grid-column:1/-1;font-size:12px;color:var(--muted);background:var(--soft);border-radius:8px;padding:8px 10px}
+    .modal footer{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:space-between}
+    .toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:var(--card);padding:10px 14px;border-radius:9px;display:none;z-index:40}.toast.show{display:block}
+    .foot{color:var(--muted);font-size:11px;margin-top:16px}
+    .att{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink2);white-space:nowrap}.att svg{width:14px;height:14px}.att.miss{color:var(--red)}
+    .src{font-size:11px;color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:1px 6px;white-space:nowrap}.src.apk{color:var(--blue);border-color:var(--blue)}
+    .gal{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+    .ph{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--soft);cursor:zoom-in}
+    .ph .img{aspect-ratio:4/3;display:grid;place-items:center;color:var(--muted);font-size:11px;background:repeating-linear-gradient(45deg,var(--soft),var(--soft) 8px,var(--card) 8px,var(--card) 16px)}
+    .ph .cap{padding:5px 7px;font-size:11px;border-top:1px solid var(--line);background:var(--card)}.ph .cap b{display:block;font-size:11.5px}.ph .cap small{color:var(--muted)}
+    .ph.empty{border-style:dashed;cursor:default}.ph.empty .img{background:none;color:var(--red)}
+    .flag{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:8px;background:var(--amber-soft);color:var(--amber);font-size:12px;margin-bottom:8px}
+    .meta{font-family:var(--mono);font-size:11px;color:var(--muted);word-break:break-all}
+    .drop{grid-column:1/-1;border:1px dashed var(--line2);border-radius:8px;padding:12px;font-size:12px;color:var(--muted);display:grid;gap:6px}
+    .drop .sl{display:flex;justify-content:space-between;align-items:center;color:var(--ink2)}
+    @media(max-width:1100px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g2,.g2e,.g3{grid-template-columns:1fr}}
+    @media(max-width:760px){.app{display:block}.side{display:none}main{padding:14px 16px 40px}.head{flex-direction:column;align-items:flex-start}.form{grid-template-columns:1fr}.bars .r{grid-template-columns:80px 1fr 76px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">OMOS<small>One Mining Operating System</small></div>
+    <div class="lbl">Mining production</div>
+    <div class="it">1. Input Data</div><div class="it on">2. Input Fuel</div><div class="it">3. Breakdown</div><div class="it">5. Input Ritase</div><div class="it">7. Data Produksi</div>
+  </aside>
+  <main>
+    <div class="crumb">Input Fuel / Database Fuel</div>
+    <div class="head">
+      <div><h1>Database Fuel</h1><p>Stok masuk, distribusi, rekonsiliasi, dan tren konsumsi fuel dalam satu alur.</p></div>
+      <div style="display:flex;gap:12px;align-items:center"><span class="sync"><span class="dot"></span>Online · tersinkron</span><button class="btn">← Kembali ke Input Fuel</button></div>
+    </div>
+
+    <div class="ctx">
+      <div class="f">
+        <label>Periode<select><option>1 – 17 Okt 2026</option><option>Bulan ini</option><option>30 hari terakhir</option></select></label>
+        <label>Lokasi<select><option>Semua lokasi</option><option>FT-BEI</option><option>DP-PIT2</option><option>FTR-01</option><option>FTR-02</option></select></label>
+        <label>Produk<select><option>Biosolar B40</option></select></label>
+      </div>
+      <div class="f">
+        <button class="btn">Export CSV</button>
+        <div class="menu"><button class="btn pri" id="btnCatat">+ Catat transaksi ▾</button>
+          <div class="menu-list" id="menuCatat">
+            <button data-modal="terima"><b>Terima fuel</b><small>Kedatangan dari transportir (DO)</small></button>
+            <button data-toast="Wizard transfer dibuka"><b>Transfer antar-lokasi</b><small>Tangki → fuel truck, depot → depot</small></button>
+            <button data-toast="Wizard opname dibuka"><b>Catat opname fisik</b><small>Ukur stok aktual (dipstick/sounding)</small></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab on" data-t="ring">Ringkasan</button>
+      <button class="tab" data-t="masuk"><span class="no">1</span>Stok masuk</button>
+      <button class="tab" data-t="alok"><span class="no">2</span>Alokasi &amp; distribusi</button>
+      <button class="tab" data-t="rek"><span class="no">3</span>Validasi &amp; rekonsiliasi <span class="b bd">5</span></button>
+      <button class="tab" data-t="tren"><span class="no">4</span>Tren konsumsi</button>
+      <button class="tab" data-t="set">Pengaturan</button>
+    </nav>
+
+    <!-- RINGKASAN -->
+    <section class="view on" data-v="ring">
+      <div class="grid g4" style="margin-bottom:12px">
+        <div class="kpi"><div class="l">Total stok</div><div class="v">148.320 L</div><div class="s">4 lokasi penyimpanan</div></div>
+        <div class="kpi"><div class="l">Nilai persediaan</div><div class="v">Rp2,08 M</div><div class="s">metode FIFO · 1 batch tanpa harga</div></div>
+        <div class="kpi"><div class="l"><span class="tip" title="Total pengisian unit ÷ jumlah hari kalender">Rata-rata pemakaian/hari</span></div><div class="v">18.450 L</div><div class="s">30 hari terakhir</div></div>
+        <div class="kpi"><div class="l"><span class="tip" title="Total stok ÷ rata-rata pemakaian per hari">Ketahanan stok</span></div><div class="v">8,0 hari</div><div class="s">perkiraan habis 25 Okt</div></div>
+      </div>
+      <div class="grid g2">
+        <div class="card">
+          <div class="ch"><div><h3>Posisi stok per lokasi</h3><div class="sub">Garis merah = batas minimum (reorder)</div></div><button class="btn sm ghost" data-go="alok">Detail →</button></div>
+          <div class="tank"><div class="t"><span><span class="nm">FT-BEI</span><span class="ty">Fuel tank utama</span></span><span class="b ok">Aman</span></div><div class="gauge"><i style="width:72%"></i><em style="left:25%"></em></div><div class="meta"><span>86.400 / 120.000 L</span><span>72%</span></div></div>
+          <div class="tank"><div class="t"><span><span class="nm">DP-PIT2</span><span class="ty">Depot pit 2</span></span><span class="b ok">Aman</span></div><div class="gauge"><i style="width:58%"></i><em style="left:25%"></em></div><div class="meta"><span>46.400 / 80.000 L</span><span>58%</span></div></div>
+          <div class="tank"><div class="t"><span><span class="nm">FTR-01</span><span class="ty">Fuel truck</span></span><span class="b wr">Di bawah minimum</span></div><div class="gauge"><i class="lo" style="width:22%"></i><em style="left:25%"></em></div><div class="meta"><span>3.520 / 16.000 L</span><span>22%</span></div></div>
+          <div class="tank"><div class="t"><span><span class="nm">FTR-02</span><span class="ty">Fuel truck</span></span><span class="b ok">Aman</span></div><div class="gauge"><i style="width:75%"></i><em style="left:25%"></em></div><div class="meta"><span>12.000 / 16.000 L</span><span>75%</span></div></div>
+        </div>
+        <div class="card">
+          <div class="ch"><div><h3>Perlu tindakan</h3><div class="sub">Diurutkan dari dampak terbesar</div></div><span class="b bd">5</span></div>
+          <button class="todo" data-go="rek"><span class="ic wr">◉</span><span class="tx">3 transaksi APK menunggu validasi foto<small>2 penerimaan · 1 transfer · stok belum berubah</small></span><span class="go">›</span></button>
+          <button class="todo" data-go="rek"><span class="ic bd">!</span><span class="tx">12 pengisian unit belum ber-sumber<small>Stok lokasi belum berkurang · 2.840 L</small></span><span class="go">›</span></button>
+          <button class="todo" data-go="rek"><span class="ic bd">%</span><span class="tx">Selisih FTR-01 −3,4%<small>Melebihi ambang ±2% · perlu investigasi</small></span><span class="go">›</span></button>
+          <button class="todo" data-go="rek"><span class="ic wr">✓</span><span class="tx">2 opname menunggu persetujuan<small>Disetujui oleh user berbeda (maker-checker)</small></span><span class="go">›</span></button>
+          <button class="todo" data-go="alok"><span class="ic wr">↓</span><span class="tx">FTR-01 di bawah batas minimum<small>Rencanakan transfer dari FT-BEI</small></span><span class="go">›</span></button>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="ch"><div><h3>Aktivitas terakhir</h3><div class="sub">Klik baris untuk detail dan jejak audit</div></div><button class="btn sm ghost">Lihat semua transaksi →</button></div>
+        <div class="scroll"><table><thead><tr><th>Waktu</th><th>Jenis</th><th>Dokumen</th><th>Asal → tujuan</th><th class="n">Liter</th><th>Bukti</th><th>Sumber</th><th>Status</th></tr></thead><tbody>
+          <tr class="click" data-drawer><td>17 Okt 14:20</td><td><span class="b in">Penerimaan</span></td><td class="code">DO-88213</td><td>Transportir → FT-BEI</td><td class="n">16.000</td><td><span class="att"><i class="clip"></i>3/3</span></td><td><span class="src apk">APK</span></td><td><span class="b wr">Menunggu validasi</span></td></tr>
+          <tr class="click" data-drawer><td>17 Okt 10:05</td><td><span class="b mu">Transfer</span></td><td class="code">TRF-0412</td><td>FT-BEI → FTR-01</td><td class="n">12.000</td><td><span class="att"><i class="clip"></i>2/2</span></td><td><span class="src apk">APK</span></td><td><span class="b ok">Posted</span></td></tr>
+          <tr class="click" data-drawer><td>17 Okt 09:40</td><td><span class="b mu">Pengisian unit</span></td><td class="code">HD-012</td><td>FTR-01 → HD-012</td><td class="n">640</td><td><span class="att"><i class="clip"></i>2/2</span></td><td><span class="src apk">APK</span></td><td><span class="b ok">Posted</span></td></tr>
+          <tr class="click" data-drawer><td>17 Okt 08:10</td><td><span class="b mu">Pengisian unit</span></td><td class="code">D375-02</td><td>FTR-02 → D375-02</td><td class="n">420</td><td><span class="att miss"><i class="clip"></i>0/2</span></td><td><span class="src">Excel</span></td><td><span class="b ok">Posted</span></td></tr>
+        </tbody></table></div>
+      </div>
+    </section>
+
+    <!-- 1 STOK MASUK -->
+    <section class="view" data-v="masuk">
+      <div class="grid g4" style="margin-bottom:12px">
+        <div class="kpi"><div class="l">Total diterima</div><div class="v">312.000 L</div><div class="s">39 dokumen DO</div></div>
+        <div class="kpi"><div class="l">Harga rata-rata</div><div class="v">Rp14.050/L</div><div class="s">tertimbang volume</div></div>
+        <div class="kpi"><div class="l">Batch tanpa harga</div><div class="v">1</div><div class="s">nilai persediaan belum lengkap</div></div>
+        <div class="kpi"><div class="l">Menunggu validasi</div><div class="v">2</div><div class="s">dari APK · stok belum bertambah</div></div>
+      </div>
+      <div class="card">
+        <div class="ch"><div><h3>Penerimaan fuel</h3><div class="sub">Fuel masuk dari transportir ke lokasi penyimpanan. Stok bertambah setelah status Posted.</div></div>
+          <div style="display:flex;gap:8px"><button class="btn sm" data-toast="Saldo awal hanya untuk go-live / migrasi">Saldo awal…</button><button class="btn sm pri" data-modal="terima">+ Terima fuel</button></div></div>
+        <div class="scroll"><table><thead><tr><th>Tanggal</th><th>No. DO</th><th>Transportir</th><th>Ke lokasi</th><th class="n">Liter</th><th class="n">Rp/L</th><th>Bukti</th><th>Sumber</th><th>Status</th><th></th></tr></thead><tbody>
+          <tr class="click" data-drawer><td>17 Okt</td><td class="code">DO-88213</td><td>PT Patra Niaga</td><td>FT-BEI</td><td class="n">16.000</td><td class="n">14.050</td><td><span class="att"><i class="clip"></i>3/3</span></td><td><span class="src apk">APK</span></td><td><span class="b wr">Menunggu validasi</span></td><td><button class="btn sm" data-drawer-btn>Periksa</button></td></tr>
+          <tr class="click" data-drawer><td>17 Okt</td><td class="code">DO-88209</td><td>PT Patra Niaga</td><td>DP-PIT2</td><td class="n">8.000</td><td class="n">14.050</td><td><span class="att"><i class="clip"></i>2/3</span></td><td><span class="src apk">APK</span></td><td><span class="b wr">Menunggu validasi</span></td><td><button class="btn sm" data-drawer-btn>Periksa</button></td></tr>
+          <tr class="click" data-drawer><td>16 Okt</td><td class="code">DO-88190</td><td>PT Patra Niaga</td><td>FT-BEI</td><td class="n">16.000</td><td class="n">14.050</td><td><span class="att"><i class="clip"></i>3/3</span></td><td><span class="src apk">APK</span></td><td><span class="b ok">Posted</span></td><td></td></tr>
+          <tr class="click" data-drawer><td>15 Okt</td><td class="code">DO-88102</td><td>PT Patra Niaga</td><td>FT-BEI</td><td class="n">16.000</td><td class="n"><span class="b wr">Belum ada</span></td><td><span class="att"><i class="clip"></i>1 lama</span></td><td><span class="src">Dashboard</span></td><td><span class="b ok">Posted</span></td><td></td></tr>
+          <tr class="click" data-drawer><td>14 Okt</td><td class="code">DO-88050</td><td>PT Patra Niaga</td><td>FT-BEI</td><td class="n">16.000</td><td class="n">14.000</td><td><span class="att"><i class="clip"></i>3/3</span></td><td><span class="src apk">APK</span></td><td><span class="b bd">Ditolak</span></td><td></td></tr>
+        </tbody></table></div>
+      </div>
+    </section>
+
+    <!-- 2 ALOKASI & DISTRIBUSI -->
+    <section class="view" data-v="alok">
+      <div class="card" style="margin-bottom:12px">
+        <div class="ch"><div><h3>Jaringan penyimpanan dan alur distribusi</h3><div class="sub">Dari mana fuel datang, disimpan di mana, dan disalurkan ke mana · periode terpilih</div></div></div>
+        <div class="flow"><div class="nd"><b>Transportir</b><small>312.000 L masuk</small></div><span class="ar">→</span><div class="nd"><b>FT-BEI</b><small>tank · 86.400 L</small></div><span class="ar">→</span><div class="nd"><b>FTR-01 · FTR-02</b><small>transfer 273.600 L</small></div><span class="ar">→</span><div class="nd"><b>Unit (HD, D375, support)</b><small>pengisian 268.080 L</small></div></div>
+        <div class="flow"><div class="nd"><b>Transportir</b><small>32.000 L masuk</small></div><span class="ar">→</span><div class="nd"><b>DP-PIT2</b><small>depot · 46.400 L</small></div><span class="ar">→</span><div class="nd"><b>Unit pit 2 (PC2000)</b><small>pengisian 7.600 L</small></div></div>
+      </div>
+      <div class="grid g2e" style="margin-bottom:12px">
+        <div class="card"><div class="ch"><div><h3>Lokasi penyimpanan</h3><div class="sub">Stok saat ini per lokasi</div></div></div>
+          <div class="scroll"><table><thead><tr><th>Lokasi</th><th>Tipe</th><th class="n">Stok</th><th class="n">Kapasitas</th><th class="n">Minimum</th></tr></thead><tbody>
+            <tr><td>FT-BEI</td><td>Tank</td><td class="n">86.400</td><td class="n">120.000</td><td class="n">30.000</td></tr>
+            <tr><td>DP-PIT2</td><td>Depot</td><td class="n">46.400</td><td class="n">80.000</td><td class="n">20.000</td></tr>
+            <tr><td>FTR-01</td><td>Fuel truck</td><td class="n" style="color:var(--amber);font-weight:600">3.520</td><td class="n">16.000</td><td class="n">4.000</td></tr>
+            <tr><td>FTR-02</td><td>Fuel truck</td><td class="n">12.000</td><td class="n">16.000</td><td class="n">4.000</td></tr>
+          </tbody></table></div></div>
+        <div class="card"><div class="ch"><div><h3>Transfer antar-lokasi</h3><div class="sub">Dua sisi (keluar & masuk) tercatat sekaligus</div></div><button class="btn sm" data-toast="Wizard transfer dibuka">+ Transfer</button></div>
+          <div class="scroll"><table><thead><tr><th>Tanggal</th><th>Asal → tujuan</th><th>Dokumen</th><th class="n">Liter</th></tr></thead><tbody>
+            <tr class="click" data-drawer><td>17 Okt</td><td>FT-BEI → FTR-01</td><td class="code">TRF-0412</td><td class="n">12.000</td></tr>
+            <tr class="click" data-drawer><td>17 Okt</td><td>FT-BEI → FTR-02</td><td class="code">TRF-0411</td><td class="n">12.000</td></tr>
+            <tr class="click" data-drawer><td>16 Okt</td><td>DP-PIT2 → FTR-01</td><td class="code">TRF-0405</td><td class="n">8.000</td></tr>
+          </tbody></table></div></div>
+      </div>
+      <div class="card">
+        <div class="ch"><div><h3>Aturan sumber pengisian unit</h3><div class="sub">Setiap pengisian di Input Fuel otomatis mengurangi stok lokasi sesuai aturan ini. Aturan paling spesifik menang.</div></div>
+          <div style="display:flex;gap:8px;align-items:center"><span class="b ok">Cakupan 92%</span><button class="btn sm pri" data-toast="Form aturan: pilih unit/shift/operator dari daftar">+ Tambah aturan</button></div></div>
+        <div class="scroll"><table><thead><tr><th>Jika pengisian oleh…</th><th>Maka stok diambil dari</th><th>Produk</th><th class="n">Prioritas</th><th>Status</th></tr></thead><tbody>
+          <tr class="rule"><td>Fuel truck <b>FTR-01</b> · shift <b>Siang</b></td><td>FTR-01</td><td>Biosolar B40</td><td class="n">10</td><td><span class="b ok">Aktif</span></td></tr>
+          <tr class="rule"><td>Fuel truck <b>FTR-02</b> (semua shift)</td><td>FTR-02</td><td>Biosolar B40</td><td class="n">20</td><td><span class="b ok">Aktif</span></td></tr>
+          <tr class="rule"><td>Unit <b>PC2000-03</b></td><td>DP-PIT2</td><td>Biosolar B40</td><td class="n">50</td><td><span class="b ok">Aktif</span></td></tr>
+          <tr class="rule"><td>Operator <b>Andi S.</b></td><td>FTR-01</td><td>Biosolar B40</td><td class="n">100</td><td><span class="b mu">Nonaktif</span></td></tr>
+        </tbody></table></div>
+      </div>
+    </section>
+
+    <!-- 3 REKONSILIASI -->
+    <section class="view" data-v="rek">
+      <div class="grid g2" style="margin-bottom:12px">
+        <div class="card">
+          <div class="ch"><div><h3>Perlu validasi bukti</h3><div class="sub">Penerimaan dan transfer dari APK. Stok baru berubah setelah divalidasi.</div></div><span class="b wr">3</span></div>
+          <div class="scroll"><table><thead><tr><th>Masuk</th><th>Jenis</th><th>Dokumen</th><th>Lokasi</th><th class="n">Liter</th><th>Bukti</th><th>Oleh</th><th></th></tr></thead><tbody>
+            <tr class="click" data-drawer><td>17 Okt 14:22</td><td><span class="b in">Penerimaan</span></td><td class="code">DO-88213</td><td>→ FT-BEI</td><td class="n">16.000</td><td><span class="att"><i class="clip"></i>3/3</span></td><td>Rudi</td><td><button class="btn sm" data-drawer-btn>Periksa</button></td></tr>
+            <tr class="click" data-drawer><td>17 Okt 11:48</td><td><span class="b in">Penerimaan</span></td><td class="code">DO-88209</td><td>→ DP-PIT2</td><td class="n">8.000</td><td><span class="att"><i class="clip"></i>2/3</span> <span class="b wr">Jam foto +3j</span></td><td>Sapto</td><td><button class="btn sm" data-drawer-btn>Periksa</button></td></tr>
+            <tr class="click" data-drawer><td>17 Okt 10:07</td><td><span class="b mu">Transfer</span></td><td class="code">TRF-0413</td><td>FT-BEI → FTR-02</td><td class="n">10.000</td><td><span class="att"><i class="clip"></i>2/2</span> <span class="b bd">Foto dobel</span></td><td>Rudi</td><td><button class="btn sm" data-drawer-btn>Periksa</button></td></tr>
+          </tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="ch"><div><h3>Sampling pengisian unit</h3><div class="sub">Pengisian langsung posted · 5% acak per hari untuk diperiksa</div></div><span class="b in">8 / 164</span></div>
+          <table><tbody>
+            <tr class="click" data-drawer><td>HD-012 · 640 L<br><small style="color:var(--muted)">FTR-01 · 09:40 · Andi</small></td><td><span class="b ok">Sesuai</span></td></tr>
+            <tr class="click" data-drawer><td>PC2000-03 · 1.120 L<br><small style="color:var(--muted)">DP-PIT2 · 08:55 · Joko</small></td><td><span class="b bd">Foto meragukan</span></td></tr>
+            <tr class="click" data-drawer><td>HD-031 · 610 L<br><small style="color:var(--muted)">FTR-02 · 08:20 · Andi</small></td><td><span class="b mu">Belum diperiksa</span></td></tr>
+          </tbody></table>
+          <div style="display:flex;gap:8px;margin-top:10px"><button class="btn sm" data-toast="Membuka 5 sampel berikutnya">Periksa sampel berikutnya</button></div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="ch"><div><h3>Rekonsiliasi stok · 1 – 17 Okt 2026</h3><div class="sub">Membandingkan stok menurut catatan (buku) dengan hasil ukur fisik</div></div><button class="btn sm pri" data-toast="Wizard opname dibuka">+ Catat opname fisik</button></div>
+        <div class="scroll"><table style="min-width:820px"><thead><tr><th>Lokasi</th><th class="n">Saldo awal</th><th class="n">+ Masuk</th><th class="n">+ Transfer masuk</th><th class="n">− Transfer keluar</th><th class="n">− Pengisian unit</th><th class="n">± Penyesuaian</th><th class="n">= Saldo buku</th><th class="n">Fisik</th><th class="n">Selisih</th></tr></thead><tbody>
+          <tr class="click" data-drawer><td><b>FT-BEI</b></td><td class="n">72.000</td><td class="n">280.000</td><td class="n">0</td><td class="n">265.600</td><td class="n">0</td><td class="n">0</td><td class="n"><b>86.400</b></td><td class="n">86.150<br><small style="color:var(--muted)">17 Okt</small></td><td class="n"><span class="b ok">−250 L · −0,3%</span></td></tr>
+          <tr class="click" data-drawer><td><b>DP-PIT2</b></td><td class="n">30.000</td><td class="n">32.000</td><td class="n">0</td><td class="n">8.000</td><td class="n">7.600</td><td class="n">0</td><td class="n"><b>46.400</b></td><td class="n">46.100<br><small style="color:var(--muted)">16 Okt</small></td><td class="n"><span class="b ok">−300 L · −0,6%</span></td></tr>
+          <tr class="click" data-drawer><td><b>FTR-01</b></td><td class="n">4.000</td><td class="n">0</td><td class="n">140.800</td><td class="n">0</td><td class="n">141.280</td><td class="n">0</td><td class="n"><b>3.520</b></td><td class="n">3.400<br><small style="color:var(--muted)">17 Okt</small></td><td class="n"><span class="b bd">−120 L · −3,4%</span></td></tr>
+          <tr class="click" data-drawer><td><b>FTR-02</b></td><td class="n">6.000</td><td class="n">0</td><td class="n">132.800</td><td class="n">0</td><td class="n">126.800</td><td class="n">0</td><td class="n"><b>12.000</b></td><td class="n">—</td><td class="n"><span class="b wr">Belum opname</span></td></tr>
+        </tbody></table></div>
+        <div class="eq">Saldo buku = saldo awal + masuk + transfer masuk − transfer keluar − pengisian unit ± penyesuaian opname. Status merah bila selisih melebihi ±2%. Angka dihitung server (formula fuel-ledger v1).</div>
+      </div>
+      <div class="grid g3">
+        <div class="card"><div class="ch"><div><h3>Belum ber-sumber</h3><div class="sub">Pengisian unit yang belum mengurangi stok lokasi mana pun</div></div><span class="b bd">12</span></div>
+          <table><tbody><tr><td>17 Okt · HD-012</td><td class="n">640 L</td><td><span class="b ok">Siap</span></td></tr><tr><td>17 Okt · D375-02</td><td class="n">420 L</td><td><span class="b wr">Tanpa aturan</span></td></tr><tr><td>16 Okt · LV-07</td><td class="n">60 L</td><td><span class="b wr">Tanpa aturan</span></td></tr></tbody></table>
+          <div style="display:flex;gap:8px;margin-top:10px"><button class="btn sm pri" data-toast="9 pengisian ditautkan sesuai aturan">Terapkan aturan (9)</button><button class="btn sm" data-toast="Pilih lokasi sumber dari daftar">Tautkan manual</button></div></div>
+        <div class="card"><div class="ch"><div><h3>Menunggu persetujuan</h3><div class="sub">Opname disetujui oleh user berbeda dari pencatat</div></div><span class="b wr">2</span></div>
+          <table><tbody><tr><td>FTR-01 · 17 Okt<br><small style="color:var(--muted)">dipstick · oleh Rudi</small></td><td class="n">3.400 L<br><span class="b bd">−3,4%</span></td></tr><tr><td>FT-BEI · 17 Okt<br><small style="color:var(--muted)">sounding · oleh Rudi</small></td><td class="n">86.150 L<br><span class="b ok">−0,3%</span></td></tr></tbody></table>
+          <div style="display:flex;gap:8px;margin-top:10px"><button class="btn sm pri" data-toast="Disetujui · penyesuaian −250 L diposting">Setujui</button><button class="btn sm" data-toast="Tolak: alasan wajib diisi">Tolak…</button></div></div>
+        <div class="card"><div class="ch"><div><h3>Integritas sistem</h3><div class="sub">Pemeriksaan otomatis konsistensi data</div></div><span class="b ok">OK</span></div>
+          <table><tbody><tr><td>Saldo buku = lapisan biaya</td><td><span class="b ok">Cocok</span></td></tr><tr><td>Transfer berpasangan</td><td><span class="b ok">Cocok</span></td></tr><tr><td>Penyesuaian bertaut opname</td><td><span class="b ok">Cocok</span></td></tr><tr><td>Jumlah liter log vs stok</td><td><span class="b ok">Cocok</span></td></tr></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- 4 TREN KONSUMSI -->
+    <section class="view" data-v="tren">
+      <div class="grid g4" style="margin-bottom:12px">
+        <div class="kpi"><div class="l">Total pengisian unit</div><div class="v">275.680 L</div><div class="s">17 hari kalender</div></div>
+        <div class="kpi"><div class="l">Rata-rata pemakaian/hari</div><div class="v">16.216 L</div><div class="s">▲ 4,1% vs periode lalu</div></div>
+        <div class="kpi"><div class="l">Hari tertinggi</div><div class="v">19.320 L</div><div class="s">12 Okt</div></div>
+        <div class="kpi"><div class="l">Ketahanan stok</div><div class="v">8,0 hari</div><div class="s">FTR-01: 0,4 hari</div></div>
+      </div>
+      <div class="card" style="margin-bottom:12px"><div class="ch"><div><h3>Fuel masuk vs pengisian unit per hari</h3><div class="sub">Liter · batang = penerimaan transportir, garis = pengisian unit</div></div></div><div class="chart"><canvas id="cFlow"></canvas></div></div>
+      <div class="grid g2e">
+        <div class="card"><div class="ch"><div><h3>Konsumsi per kelas unit</h3><div class="sub">Liter pada periode terpilih</div></div><select><option>Per kelas</option><option>Top 10 unit</option></select></div>
+          <div class="bars">
+            <div class="r"><span>HD785</span><span class="tr"><i style="width:100%"></i></span><span class="n">142.300 L</span></div>
+            <div class="r"><span>PC2000</span><span class="tr"><i style="width:48%"></i></span><span class="n">68.900 L</span></div>
+            <div class="r"><span>D375</span><span class="tr"><i style="width:25%"></i></span><span class="n">36.200 L</span></div>
+            <div class="r"><span>GD825</span><span class="tr"><i style="width:9%"></i></span><span class="n">12.400 L</span></div>
+            <div class="r"><span>Support</span><span class="tr"><i style="width:11%"></i></span><span class="n">15.880 L</span></div>
+          </div></div>
+        <div class="card"><div class="ch"><div><h3>Tren selisih opname</h3><div class="sub">% per opname · merah = melewati ±2%</div></div></div><div class="chart" style="height:200px"><canvas id="cVar"></canvas></div></div>
+      </div>
+    </section>
+
+    <!-- PENGATURAN -->
+    <section class="view" data-v="set">
+      <div class="grid g3">
+        <div class="card"><div class="ch"><div><h3>Produk fuel</h3><div class="sub">Jenis BBM yang dicatat</div></div><button class="btn sm">+ Produk</button></div>
+          <table><thead><tr><th>Kode</th><th>Nama</th><th class="n">Densitas</th></tr></thead><tbody><tr><td class="code">BIOSOLAR-B40</td><td>Biosolar B40</td><td class="n">0,840 kg/L</td></tr></tbody></table></div>
+        <div class="card"><div class="ch"><div><h3>Lokasi penyimpanan</h3><div class="sub">Tank, depot, fuel truck</div></div><button class="btn sm">+ Lokasi</button></div>
+          <table><thead><tr><th>Kode</th><th>Tipe</th><th class="n">Kapasitas</th></tr></thead><tbody><tr><td class="code">FT-BEI</td><td>Tank</td><td class="n">120.000 L</td></tr><tr><td class="code">DP-PIT2</td><td>Depot</td><td class="n">80.000 L</td></tr><tr><td class="code">FTR-01</td><td>Fuel truck</td><td class="n">16.000 L</td></tr><tr><td class="code">FTR-02</td><td>Fuel truck</td><td class="n">16.000 L</td></tr></tbody></table></div>
+        <div class="card"><div class="ch"><div><h3>Export data</h3><div class="sub">CSV mencantumkan filter, satuan, versi formula</div></div></div>
+          <div style="display:grid;gap:8px"><button class="btn">Buku transaksi (CSV)</button><button class="btn">Rekonsiliasi periode (CSV)</button><button class="btn">Riwayat opname (CSV)</button></div></div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="ch"><div><h3>Slot foto bukti per jenis transaksi</h3><div class="sub">Dibaca APK saat sinkron. Transaksi dari APK ditolak server bila slot wajib kosong. Perubahan menaikkan versi konfigurasi.</div></div><div style="display:flex;gap:8px;align-items:center"><span class="b mu">Versi 3</span><button class="btn sm">+ Slot</button></div></div>
+        <div class="scroll"><table><thead><tr><th>Jenis transaksi</th><th>Slot</th><th>Sumber foto</th><th>Aturan</th><th>Status</th></tr></thead><tbody>
+          <tr><td>Pengisian unit</td><td>Flow meter / totalizer</td><td>Kamera</td><td><span class="b bd">Wajib</span></td><td><span class="b ok">Aktif</span></td></tr>
+          <tr><td>Pengisian unit</td><td>HM / KM unit</td><td>Kamera</td><td><span class="b bd">Wajib</span></td><td><span class="b ok">Aktif</span></td></tr>
+          <tr><td>Transfer</td><td>Flow meter</td><td>Kamera</td><td><span class="b bd">Wajib</span></td><td><span class="b ok">Aktif</span></td></tr>
+          <tr><td>Transfer</td><td>Surat jalan</td><td>Kamera / scan dokumen</td><td><span class="b bd">Wajib</span></td><td><span class="b ok">Aktif</span></td></tr>
+          <tr><td>Penerimaan</td><td>DO / surat jalan transportir</td><td>Kamera / scan dokumen</td><td><span class="b bd">Wajib</span></td><td><span class="b ok">Aktif</span></td></tr>
+          <tr><td>Penerimaan</td><td>Segel tangki transportir</td><td>Kamera</td><td><span class="b bd">Wajib</span></td><td><span class="b ok">Aktif</span></td></tr>
+          <tr><td>Penerimaan</td><td>Flow meter / sounding</td><td>Kamera</td><td><span class="b mu">Opsional</span></td><td><span class="b ok">Aktif</span></td></tr>
+          <tr><td>Opname</td><td>Alat ukur (dipstick / sounding)</td><td>Kamera</td><td><span class="b bd">Wajib</span></td><td><span class="b ok">Aktif</span></td></tr>
+        </tbody></table></div>
+        <div class="eq">Foto dikompres di APK (maks 1.600 px), lalu dicek ulang server. Bila melebihi batas, server mengompres ulang sebelum menyimpan dan mencatat hash asli serta hash tersimpan.</div>
+      </div>
+    </section>
+
+    <p class="foot">Satuan liter observed · formula fuel-ledger v1 · Preview statis dengan data contoh — tidak terhubung API.</p>
+  </main>
+</div>
+
+<div class="drawer-bg" id="drawerBg"></div>
+<aside class="drawer" id="drawer" aria-label="Detail transaksi">
+  <header><div><div class="crumb">Penerimaan · DO-88213 · <span class="src apk">APK</span></div><h2>16.000 L ke FT-BEI</h2></div><button class="btn sm ghost" id="drawerClose" aria-label="Tutup">✕</button></header>
+  <div class="bd2">
+    <div class="flag"><b>!</b><span>Jam foto segel 3 jam 10 menit sebelum waktu transaksi. Pastikan foto berasal dari kedatangan ini.</span></div>
+    <h3 style="font-size:13px;margin:0 0 8px">Bukti foto <span class="b ok">3/3 slot terisi</span></h3>
+    <div class="gal">
+      <div class="ph" data-toast="Membuka foto ukuran penuh"><div class="img">Foto DO</div><div class="cap"><b>DO / surat jalan</b><small>17 Okt 14:18 · scan</small></div></div>
+      <div class="ph" data-toast="Membuka foto ukuran penuh"><div class="img">Foto segel</div><div class="cap"><b>Segel tangki</b><small>17 Okt 11:08 · kamera</small></div></div>
+      <div class="ph" data-toast="Membuka foto ukuran penuh"><div class="img">Foto meter</div><div class="cap"><b>Flow meter</b><small>17 Okt 14:19 · kamera</small></div></div>
+    </div>
+    <details style="margin-bottom:14px"><summary style="cursor:pointer;font-size:12px;color:var(--ink2)">Metadata dan integritas file</summary>
+      <dl class="dl" style="margin-top:8px"><dt>Perangkat</dt><dd>Samsung A15 · OMOS Fuel 1.0.0</dd><dt>Diunggah oleh</dt><dd>Rudi (fuel_operator)</dd><dt>Diterima server</dt><dd>17 Okt 14:22 (antre offline 3 menit)</dd><dt>GPS</dt><dd>-0,4921, 117,1532 <small style="color:var(--muted)">informasi saja</small></dd><dt>Hash dari HP</dt><dd class="meta">9f2c…a71e</dd><dt>Hash tersimpan</dt><dd class="meta">9f2c…a71e <span class="b ok">cocok</span></dd><dt>Ukuran</dt><dd>284 KB · 1600×1200 · tidak dikompres ulang</dd></dl>
+    </details>
+    <dl class="dl"><dt>Status</dt><dd><span class="b wr">Menunggu validasi</span> — belum menambah stok</dd><dt>Tanggal operasional</dt><dd>17 Okt 2026 · shift Siang</dd><dt>Transportir</dt><dd>PT Patra Niaga</dd><dt>Produk</dt><dd>Biosolar B40</dd><dt>Harga</dt><dd>Rp14.050 / L · Rp224.800.000</dd><dt>Batch</dt><dd class="code">B-1017A</dd><dt>No. transaksi</dt><dd class="code">FIN-20261017-0213</dd></dl>
+    <h3 style="font-size:13px;margin:0 0 8px">Lapisan biaya (FIFO)</h3>
+    <p class="sub" style="color:var(--muted);margin:0 0 14px">Terbentuk setelah divalidasi: 16.000 L @ Rp14.050.</p>
+    <h3 style="font-size:13px;margin:0 0 8px">Jejak audit</h3>
+    <div class="tl"><div>Dicatat di APK (offline)<small>17 Okt 14:19 · Rudi · Samsung A15</small></div><div>3 foto diunggah, hash diverifikasi<small>17 Okt 14:22 · server</small></div><div>Masuk antrean validasi<small>17 Okt 14:22 · server</small></div></div>
+  </div>
+  <footer><button class="btn" data-toast="Tolak: alasan wajib diisi, dikirim balik ke APK">Tolak…</button><button class="btn" data-toast="Ganti lampiran: versi lama disimpan (tombstone)">Ganti lampiran</button><button class="btn pri" data-toast="Divalidasi & diposting · stok FT-BEI +16.000 L">Validasi &amp; posting</button></footer>
+</aside>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <header><div><div class="crumb">Catat transaksi</div><h2 id="mTitle">Terima fuel dari transportir</h2></div><button class="btn sm ghost" data-close aria-label="Tutup">✕</button></header>
+    <div class="steps"><span class="on">1 · Dokumen</span><span>2 · Kuantitas &amp; harga</span><span>3 · Konfirmasi</span></div>
+    <div class="form">
+      <div class="hint">Catat fuel yang benar-benar diterima. Nomor DO dan batch menjaga ketertelusuran biaya (FIFO).</div>
+      <label>Tanggal operasional <span class="req">*</span><input type="date" value="2026-10-17"></label>
+      <label>Shift<select><option>Siang</option><option>Malam</option></select></label>
+      <label>Lokasi tujuan <span class="req">*</span><select><option>FT-BEI — Fuel tank utama</option><option>DP-PIT2 — Depot pit 2</option></select></label>
+      <label>Produk <span class="req">*</span><select><option>Biosolar B40</option></select></label>
+      <label>No. DO / dokumen<input placeholder="DO-88214"></label>
+      <label>Transportir<input placeholder="PT Patra Niaga"></label>
+      <div class="drop"><b style="color:var(--ink2)">Lampiran bukti</b><span>Input dari dashboard: lampiran opsional. Foto dikompres otomatis sebelum disimpan.</span>
+        <div class="sl"><span>DO / surat jalan transportir</span><button class="btn sm" data-toast="Pilih file foto/PDF">Unggah</button></div>
+        <div class="sl"><span>Segel tangki transportir</span><button class="btn sm" data-toast="Pilih file foto">Unggah</button></div>
+        <div class="sl"><span>Flow meter / sounding</span><button class="btn sm" data-toast="Pilih file foto">Unggah</button></div>
+      </div>
+    </div>
+    <footer><button class="btn" data-close>Batal</button><div style="display:flex;gap:8px"><button class="btn" data-close data-toast="Disimpan sebagai draf">Simpan draf</button><button class="btn pri" data-toast="Langkah 2: kuantitas dan harga">Lanjutkan →</button></div></footer>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+(function(){
+  const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
+  let charts=false;
+  function show(t){
+    $$('#tabs .tab').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+    $$('.view').forEach(v=>v.classList.toggle('on',v.dataset.v===t));
+    if(t==='tren'&&!charts){charts=true;draw();}
+  }
+  $$('#tabs .tab').forEach(b=>b.addEventListener('click',()=>show(b.dataset.t)));
+  $$('[data-go]').forEach(b=>b.addEventListener('click',()=>{show(b.dataset.go);window.scrollTo({top:0,behavior:'smooth'});}));
+  let tt;function toast(m){const e=$('#toast');e.textContent=m;e.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('show'),2200);}
+  document.addEventListener('click',e=>{
+    const t=e.target.closest('[data-toast]');if(t){e.stopPropagation();toast(t.dataset.toast);$('#menuCatat').classList.remove('show');}
+    if(!e.target.closest('.menu'))$('#menuCatat').classList.remove('show');
+  },true);
+  $('#btnCatat').addEventListener('click',()=>$('#menuCatat').classList.toggle('show'));
+  $$('[data-modal]').forEach(b=>b.addEventListener('click',()=>{$('#menuCatat').classList.remove('show');$('#modalBg').classList.add('show');}));
+  $$('#modalBg [data-close]').forEach(b=>b.addEventListener('click',()=>$('#modalBg').classList.remove('show')));
+  $('#modalBg').addEventListener('click',e=>{if(e.target.id==='modalBg')$('#modalBg').classList.remove('show');});
+  function openD(){$('#drawer').classList.add('show');$('#drawerBg').classList.add('show');}
+  function closeD(){$('#drawer').classList.remove('show');$('#drawerBg').classList.remove('show');}
+  $$('[data-drawer]').forEach(r=>r.addEventListener('click',e=>{if(!e.target.closest('button'))openD();}));
+  $$('[data-drawer-btn]').forEach(b=>b.addEventListener('click',openD));
+  $$('i.clip').forEach(i=>{i.outerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l8.6-8.6a3.7 3.7 0 015.2 5.2l-8.6 8.6a1.8 1.8 0 01-2.6-2.6l8-8"/></svg>';});
+  $('#drawerClose').addEventListener('click',closeD);$('#drawerBg').addEventListener('click',closeD);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeD();$('#modalBg').classList.remove('show');}});
+  function draw(){
+    if(!window.Chart){$('#cFlow').parentElement.innerHTML='<p style="color:var(--muted)">Grafik tidak tersedia (offline).</p>';return;}
+    const css=getComputedStyle(document.documentElement),mut=css.getPropertyValue('--muted').trim(),grid=css.getPropertyValue('--line').trim();
+    Chart.defaults.color=mut;Chart.defaults.font.size=11;
+    const L=Array.from({length:17},(_,i)=>(i+1)+' Okt');
+    const masuk=[16,24,16,32,16,16,24,16,32,16,16,24,16,16,32,24,16].map(v=>v*1000);
+    const isi=L.map((_,i)=>Math.round(15600+Math.sin(i/2)*1900+(i%3)*450));
+    new Chart($('#cFlow'),{data:{labels:L,datasets:[
+      {type:'bar',label:'Masuk dari transportir',data:masuk,backgroundColor:'rgba(14,110,88,.28)',borderRadius:3},
+      {type:'line',label:'Pengisian unit',data:isi,borderColor:'#1f5fbf',backgroundColor:'#1f5fbf',tension:.3,pointRadius:2}]},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{boxWidth:10}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y.toLocaleString('id-ID')+' L'}}},
+        scales:{y:{grid:{color:grid},ticks:{callback:v=>(v/1000)+'k'}},x:{grid:{display:false}}}}});
+    const vp=[-0.4,0.6,-1.1,-0.3,-2.6,0.2,-0.8,-0.6,-3.4,-0.3];
+    new Chart($('#cVar'),{type:'bar',data:{labels:['2/10','4/10','5/10','7/10','9/10','11/10','13/10','16/10','17/10','17/10'],datasets:[{label:'Selisih %',data:vp,backgroundColor:vp.map(v=>Math.abs(v)>2?'#b42318':'#7aa8f0'),borderRadius:3}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:grid},ticks:{callback:v=>v+'%'}},x:{grid:{display:false}}}}});
+  }
+})();
+</script>
+</body>
+</html>

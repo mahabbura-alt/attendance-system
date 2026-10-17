@@ -11,12 +11,12 @@ android {
         applicationId = "com.perusahaan.absensi"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 6
+        versionName = "3.0.1"
         // Disuplai dari gradle property API_BASE_URL (CI atau local.properties).
         // Nilai default sengaja tidak dapat dipakai agar konfigurasi produksi tidak terlewat.
         val apiBaseUrl = providers.gradleProperty("API_BASE_URL")
-            .orElse("https://attendance-system-eta-opal.vercel.app/")
+            .orElse("https://omos-mining.com/")
             .get()
             .let { if (it.endsWith('/')) it else "$it/" }
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
@@ -71,6 +71,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")

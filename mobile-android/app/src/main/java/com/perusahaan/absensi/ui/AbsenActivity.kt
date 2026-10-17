@@ -18,6 +18,7 @@ import com.perusahaan.absensi.R
 import com.perusahaan.absensi.face.LivenessAnalyzer
 import com.perusahaan.absensi.location.LokasiResult
 import com.perusahaan.absensi.location.ambilLokasiSaatIni
+import com.perusahaan.absensi.media.PhotoCompressor
 import com.perusahaan.absensi.network.RetrofitClient
 import com.perusahaan.absensi.network.dto.OpsiPendaftaranDto
 import com.perusahaan.absensi.network.dto.CheckLokasiRequest
@@ -238,7 +239,7 @@ class AbsenActivity : AppCompatActivity() {
                     } finally {
                         fotoFile.delete()
                     }
-                    prosesAbsen(fotoBytes)
+                    prosesAbsen(PhotoCompressor.compressJpeg(fotoBytes, maxDimension = 960, quality = 72))
                 }
 
                 override fun onError(exception: ImageCaptureException) {

@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const People = require('../services/peopleEmployees');
 const { dalamRadius, dalamRadiusMultiPoint, validasiAkurasi, MAX_ACCURACY_METER } = require('../utils/geofence');
 const { autoCloseExpiredSessions } = require('../services/attendanceSession');
 const { getRosterForUserDate } = require('../services/roster');
@@ -21,6 +22,72 @@ const { cacheGet, cacheSet, cacheDel, LOCATIONS_KEY } = require('../utils/cache'
 const LOCATIONS_TTL_MS = 60 * 1000; // 60 detik
 const SHIFT_ID_CACHE_KEY_PREFIX = 'shift:id:';
 const SHIFT_TTL_MS = 10 * 60 * 1000; // 10 menit
+const MAX_EMPLOYEE_REPORT_RANGE_DAYS = 366;
+
+function parseEmployeeReportDate(value, label) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const error = new Error(`${label} wajib memakai format YYYY-MM-DD`);
+    error.statusCode = 400;
+    throw error;
+  }
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    const error = new Error(`${label} tidak valid`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return parsed;
+}
+
+function resolveEmployeeReportRange(query = {}, fallback = null) {
+  const startValue = query.tanggal_mulai;
+  const endValue = query.tanggal_akhir;
+  if (!startValue && !endValue) return fallback;
+  if (!startValue || !endValue) {
+    const error = new Error('Tanggal awal dan tanggal akhir wajib diisi bersama');
+    error.statusCode = 400;
+    throw error;
+  }
+  const start = parseEmployeeReportDate(startValue, 'Tanggal awal');
+  const end = parseEmployeeReportDate(endValue, 'Tanggal akhir');
+  const days = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  if (days < 1) {
+    const error = new Error('Tanggal akhir tidak boleh mendahului tanggal awal');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (days > MAX_EMPLOYEE_REPORT_RANGE_DAYS) {
+    const error = new Error(`Rentang periode maksimal ${MAX_EMPLOYEE_REPORT_RANGE_DAYS} hari`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return { start: startValue, end: endValue, days };
+}
+
+function currentWibMonthRange() {
+  const today = getWibClock().date;
+  const [year, month] = today.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    start: `${year}-${String(month).padStart(2, '0')}-01`,
+    end: `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+    days: lastDay,
+  };
+}
+
+function employeeReportPeriodLabel(startValue, endValue) {
+  const start = parseEmployeeReportDate(startValue, 'Tanggal awal');
+  const end = parseEmployeeReportDate(endValue, 'Tanggal akhir');
+  const short = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  if (startValue.slice(0, 7) === endValue.slice(0, 7) && start.getUTCDate() === 1) {
+    const monthEnd = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0)).getUTCDate();
+    if (end.getUTCDate() === monthEnd) {
+      return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(start);
+    }
+  }
+  return `${short.format(start)} – ${short.format(end)}`;
+}
 
 async function getUserLengkap(userId) {
   const { rows } = await pool.query(
@@ -42,6 +109,30 @@ async function getSemuaLokasiKantor() {
   const hasil = rows || [];
   cacheSet(LOCATIONS_KEY, hasil, LOCATIONS_TTL_MS);
   return hasil;
+}
+
+/**
+ * Lokasi absen yang berlaku untuk karyawan (OMOS People v2).
+ * Tidak ada baris di employee_attendance_locations = boleh di semua lokasi
+ * (perilaku lama). Bila tabel belum dimigrasi, juga jatuh ke semua lokasi.
+ */
+async function getLokasiAbsenKaryawan(userId) {
+  const semua = await getSemuaLokasiKantor();
+  let diizinkan = null;
+  try {
+    diizinkan = await People.getAllowedLocations(pool, userId);
+  } catch (err) {
+    if (err.code !== '42P01') throw err; // 42P01 = tabel belum ada (migrasi 094 belum jalan)
+  }
+  return { lokasi: diizinkan || semua, terbatas: Boolean(diizinkan) };
+}
+
+function pesanDiLuarLokasi(lokasiAbsen, jarak) {
+  if (lokasiAbsen.terbatas) {
+    const nama = lokasiAbsen.lokasi.map(l => l.nama_lokasi).join(', ');
+    return `Di luar radius lokasi absen Anda (${nama}); jarak terdekat ${jarak}m`;
+  }
+  return `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${jarak}m)`;
 }
 
 async function getShift(shiftId) {
@@ -244,9 +335,9 @@ async function absenDatang(req, res, next) {
       });
     }
 
-    // 3. Validasi lokasi Multi-Point (Kantor, Parkiran Tambang, dll)
-    const semuaLokasi = await getSemuaLokasiKantor();
-    const cekLokasi = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
+    // 3. Validasi lokasi Multi-Point — hanya lokasi absen yang diizinkan untuk karyawan ini
+    const lokasiAbsen = await getLokasiAbsenKaryawan(user.id);
+    const cekLokasi = dalamRadiusMultiPoint(lat, lng, lokasiAbsen.lokasi, cekAkurasi.accuracy);
     if (cekLokasi.configuration_error) {
       return res.status(503).json({
         code: 'ATTENDANCE_LOCATION_UNCONFIGURED',
@@ -260,7 +351,7 @@ async function absenDatang(req, res, next) {
       });
       return res.status(403).json({
         code: 'ATTENDANCE_OUTSIDE_APPROVED_GEOFENCES',
-        error: `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${cekLokasi.jarak_meter}m)`,
+        error: pesanDiLuarLokasi(lokasiAbsen, cekLokasi.jarak_meter),
       });
     }
 
@@ -368,8 +459,8 @@ async function absenPulang(req, res, next) {
       return res.status(400).json({ error: 'Tidak ada sesi absen datang yang aktif untuk di-checkout' });
     }
 
-    const semuaLokasi = await getSemuaLokasiKantor();
-    const cekLokasi = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
+    const lokasiAbsen = await getLokasiAbsenKaryawan(user.id);
+    const cekLokasi = dalamRadiusMultiPoint(lat, lng, lokasiAbsen.lokasi, cekAkurasi.accuracy);
     if (cekLokasi.configuration_error) {
       return res.status(503).json({
         code: 'ATTENDANCE_LOCATION_UNCONFIGURED',
@@ -383,7 +474,7 @@ async function absenPulang(req, res, next) {
       });
       return res.status(403).json({
         code: 'ATTENDANCE_OUTSIDE_APPROVED_GEOFENCES',
-        error: `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${cekLokasi.jarak_meter}m)`,
+        error: pesanDiLuarLokasi(lokasiAbsen, cekLokasi.jarak_meter),
       });
     }
 
@@ -467,8 +558,13 @@ async function absenPulang(req, res, next) {
  *  checkout tetap berfungsi. */
 async function riwayat(req, res, next) {
   try {
+    const range = resolveEmployeeReportRange(req.query || {});
     await autoCloseExpiredSessions(req.user.id);
     res.setHeader('Cache-Control', 'no-store');
+    const rangeSql = range
+      ? 'AND COALESCE(a.tanggal_kerja, kp.tanggal) BETWEEN $2::date AND $3::date'
+      : '';
+    const params = range ? [req.user.id, range.start, range.end] : [req.user.id];
     const { rows } = await pool.query(
       `SELECT COALESCE(a.id::text, kp.id::text) AS id,
               COALESCE(a.user_id, kp.user_id) AS user_id,
@@ -488,9 +584,10 @@ async function riwayat(req, res, next) {
         FROM absensi a
         FULL OUTER JOIN keterangan_presensi kp ON kp.user_id = a.user_id AND kp.tanggal = a.tanggal_kerja
         WHERE COALESCE(a.user_id, kp.user_id) = $1
+          ${rangeSql}
         ORDER BY COALESCE(a.tanggal_kerja, kp.tanggal) DESC, a.waktu_datang DESC NULLS LAST
-        LIMIT 100`,
-      [req.user.id]
+        LIMIT ${range ? 400 : 100}`,
+      params
     );
 
     const rowsDenganUrlFoto = await Promise.all(
@@ -624,9 +721,14 @@ async function lokasiKantorSaya(req, res, next) {
     }
     if (!rows[0]) return res.status(404).json({ error: 'Lokasi kantor belum diset di sistem' });
 
+    // People v2: daftar lokasi absen yang diizinkan (null = semua lokasi).
+    let lokasiAbsen = null;
+    try { lokasiAbsen = await People.getAllowedLocations(pool, req.user.id); } catch (err) { if (err.code !== '42P01') throw err; }
+
     res.json({
       ...rows[0],
-      user: userObj
+      user: userObj,
+      lokasi_absen: lokasiAbsen,
     });
   } catch (err) {
     next(err);
@@ -638,13 +740,9 @@ async function rekapHmKaryawan(req, res, next) {
   try {
     await ensureHmDailySchema(pool);
     const userId = req.user.id;
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth();
-
-    const tglMulai = `${y}-${String(m + 1).padStart(2, '0')}-01`;
-    const tglAkhirDate = new Date(y, m + 1, 0);
-    const tglAkhir = `${y}-${String(m + 1).padStart(2, '0')}-${String(tglAkhirDate.getDate()).padStart(2, '0')}`;
+    const range = resolveEmployeeReportRange(req.query || {}, currentWibMonthRange());
+    const tglMulai = range.start;
+    const tglAkhir = range.end;
 
     const rows = await getHmPayableDailyRows(pool, userId, tglMulai, tglAkhir);
 
@@ -652,8 +750,8 @@ async function rekapHmKaryawan(req, res, next) {
     const uniqueDays = new Set(rows.map((r) => (r.tanggal ? new Date(r.tanggal).toISOString().split('T')[0] : ''))).size;
 
     res.json({
-      periode: 'bulanan',
-      bulan_tahun: `${now.toLocaleString('id-ID', { month: 'long' })} ${y}`,
+      periode: 'rentang_tanggal',
+      bulan_tahun: employeeReportPeriodLabel(tglMulai, tglAkhir),
       tanggal_mulai: tglMulai,
       tanggal_akhir: tglAkhir,
       total_hm_bulan_ini: Number(totalHmBulanIni.toFixed(2)),
@@ -692,9 +790,9 @@ async function checkLokasi(req, res, next) {
 
     const user = await getUserLengkap(req.user.id);
     if (!user) return res.status(404).json({ valid: false, message: 'Data karyawan tidak ditemukan' });
-    const semuaLokasi = await getSemuaLokasiKantor();
+    const lokasiAbsen = await getLokasiAbsenKaryawan(user.id);
 
-    const cekLokasiObj = dalamRadiusMultiPoint(lat, lng, semuaLokasi);
+    const cekLokasiObj = dalamRadiusMultiPoint(lat, lng, lokasiAbsen.lokasi, cekAkurasi.accuracy);
     if (cekLokasiObj.configuration_error) {
       return res.status(503).json({
         valid: false,
@@ -727,7 +825,7 @@ async function checkLokasi(req, res, next) {
       maxAccuracyMeter: MAX_ACCURACY_METER,
       message: cekLokasiObj.valid
         ? `Lokasi sah (${namaLok})`
-        : `Di luar radius seluruh area kantor & tambang resmi (jarak terdekat ${Math.round(cekLokasiObj.jarak_meter)}m)`
+        : pesanDiLuarLokasi(lokasiAbsen, Math.round(cekLokasiObj.jarak_meter)),
     });
   } catch (err) {
     next(err);

@@ -5,9 +5,10 @@
   const contexts = new Map();
   let excavators = [];
   let dumpTrucks = [];
-  const DISTANCES = Array.from({ length: 16 }, (_, index) => 500 + index * 100);
+  // Jarak pendek front/backfill tetap sah: 0,1 km = 100 meter.
+  const DISTANCES = Array.from({ length: 20 }, (_, index) => 100 + index * 100);
   const DEFAULT_CAPACITY_UOM = { ob: 'BCM', coal: 'Ton' };
-  const FORMULA_VERSION = 'loader-fleet-database-v1';
+  const FORMULA_VERSION = 'loader-hauler-database-v2';
   const HAULER_FORMULA_VERSION = 'hauler-distance-matrix-v1';
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -72,9 +73,48 @@
     }
     return row;
   }
+  function assignHaulerField(context, row, field, value) {
+    if (field === 'capacity') {
+      const expectedUom = DEFAULT_CAPACITY_UOM[context.type];
+      if (capacityKind(row.capacityUom) !== capacityKind(expectedUom)) {
+        // Jangan reinterpretasi capacity legacy (mis. M3) sebagai Ton/BCM.
+        // Pertahankan sumbernya untuk audit, lalu nilai yang diketik user
+        // menjadi override eksplisit dalam satuan planning yang terlihat.
+        if (row.sourceCapacity == null) row.sourceCapacity = row.capacity;
+        if (row.sourceCapacityUom == null) row.sourceCapacityUom = row.capacityUom;
+        row.capacityUom = expectedUom;
+      }
+    }
+    row[field] = value;
+  }
+  // Cerminan aturan backend validateLoaderFleetDatabase agar baris invalid
+  // terlihat SEBELUM Simpan (UI selalu menyimpan versi 8 → aturan coal v7+
+  // berlaku). Kembalikan daftar {field, note} per sel input yang salah.
+  function haulerRowInvalidFields(row, planningType) {
+    if (!row) return [];
+    const sup = value => String(value ?? '').trim() !== '';
+    const bad = [];
+    const push = (field, note) => bad.push({ field, note });
+    if (sup(row.capacity) && !(Number(row.capacity) > 0)) push('capacity', 'capacity harus angka > 0');
+    const uom = String(row.capacityUom || '').toLowerCase();
+    if (sup(row.capacityUom) && !['bcm', 'ton'].includes(uom)) push('capacity', `capacityUom '${row.capacityUom}' tidak dikenal`);
+    if (sup(row.loadedSpeed) && !(Number(row.loadedSpeed) > 0)) push('loadedSpeed', 'loadedSpeed harus angka > 0');
+    if (sup(row.emptySpeed) && !(Number(row.emptySpeed) > 0)) push('emptySpeed', 'emptySpeed harus angka > 0');
+    if (sup(row.spotDumpTime) && !(Number(row.spotDumpTime) >= 0)) push('spotDumpTime', 'spotDumpTime harus angka ≥ 0');
+    if (sup(row.workEfficiency) && !(Number(row.workEfficiency) > 0 && Number(row.workEfficiency) <= 1)) push('workEfficiency', 'workEfficiency harus desimal 0–1 (mis. 0.85)');
+    if (planningType === 'ob' && sup(row.capacityUom) && uom !== 'bcm') push('capacity', "OB wajib satuan 'BCM'");
+    if (planningType === 'coal' && sup(row.capacityUom) && uom !== 'ton') push('capacity', "coal wajib satuan 'Ton' — isi density material agar konversi otomatis");
+    return bad;
+  }
   function normalizeHaulerUnits(context) {
     context.haulerRows.forEach(row => {
       const kind = capacityKind(row.capacityUom);
+      // Capacity kosong belum bermakna apa-apa: paksa ke satuan ekspektasi
+      // agar sel input muncul dan baris bisa dilengkapi (anti-deadlock).
+      if (!(num(row.capacity) > 0)) {
+        row.capacityUom = context.type === 'coal' ? 'Ton' : 'BCM';
+        return;
+      }
       if (context.type === 'ob') {
         if (kind === 'bcm' || (!kind && !(num(row.capacity) > 0))) row.capacityUom = 'BCM';
         return;
@@ -184,19 +224,30 @@
 
   function buildPlanningData(context) {
     const scenarios = context.scenarios.map(scenario => scenarioSnapshot(context, scenario));
-    const fleetSetups = context.fleetSetups.map(setting => ({ id: setting.id,
-      planRef: setting.planRef || `${context.type}:${setting.id}`,
-      loaderScenarioId: setting.loaderScenarioId, jobCode: setting.jobCode,
-      benchmarkDistanceMeters: setting.benchmarkDistanceMeters,
-      dumpTruckIds: [...new Set(setting.dumpTruckIds || [])] }));
+    const loaderCatalog = scenarios.flatMap(scenario => (scenario.jobCodes || []).map(jobCode => ({
+      planRef: `${context.type}:loader:${scenario.id}:${jobCode}`,
+      tableId: scenario.id,
+      planningType: context.type,
+      jobCode,
+      loaderCode: scenario.loaderCode,
+      material: scenario.material,
+      density: context.type === 'coal' ? scenario.density : null,
+      loaderProductivity: scenario.loaderProductivity,
+      fleetProductivity: scenario.loaderProductivity,
+      complete: scenario.complete,
+      productivityUnit: context.type === 'coal' ? 'Ton/Hr' : 'BCM/Hr',
+      formulaVersion: scenario.formulaVersion,
+      targetSource: 'loader_productivity',
+      effectiveFrom: context.effectiveFrom
+    })));
     return {
-      version: 7,
+      version: 8,
       formulaVersion: FORMULA_VERSION,
       effectiveFrom: context.effectiveFrom,
       fleets: context.fleets,
       parameters: context.parameters,
       scenarios,
-      fleetSetups,
+      loaderCatalog,
       haulerRows: context.haulerRows,
       haulerFormulaVersion: HAULER_FORMULA_VERSION,
       distanceHeadersMeters: distanceHeaders(context)
@@ -293,16 +344,10 @@
         loaderCode: item.loaderCode, material: item.material,
         jobCodes: Array.isArray(item.jobCodes) ? item.jobCodes : item.jobCode ? [item.jobCode] : [],
         cycleTimeLoading: item.cycleTimeLoading, workEffLoader: item.workEffLoader }));
-      const fleetSetups = Number(data.version) >= 6 && Array.isArray(data.fleetSetups)
-        ? data.fleetSetups : oldScenarios.filter(item => item.jobCode).map(item => ({
-          id: `${item.id}-fleet`, planRef: item.planRef || `${type}:${item.id}`,
-          loaderScenarioId: item.id, jobCode: item.jobCode,
-          dumpTruckIds: item.dumpTruckIds || [],
-          benchmarkDistanceMeters: item.benchmarkDistanceMeters || Math.round(num(item.distance, 1.2) * 1000) }));
       const legacyRows = Number(data.version) < 5 ? legacyHaulerRows(oldScenarios, data.haulerProfiles || []) : [];
       return {
         parameters: Array.isArray(data.parameters) && data.parameters.length ? data.parameters : defaultParameters(type),
-        scenarios, fleetSetups,
+        scenarios,
         fleets: Array.isArray(data.fleets) ? data.fleets : [],
         haulerProfiles: Array.isArray(data.haulerProfiles) ? data.haulerProfiles : [],
         distanceHeadersMeters: Array.isArray(data.distanceHeadersMeters) && data.distanceHeadersMeters.length
@@ -315,16 +360,12 @@
       scenarios: legacy.scenarios.map(item => ({ id: item.id, loaderId: item.loaderId,
         loaderCode: item.loaderCode, material: item.material, jobCodes: item.jobCode ? [item.jobCode] : [],
         cycleTimeLoading: item.cycleTimeLoading, workEffLoader: item.workEffLoader })),
-      fleetSetups: legacy.scenarios.filter(item => item.jobCode).map(item => ({
-        id: `${item.id}-fleet`, planRef: item.planRef || `${type}:${item.id}`,
-        loaderScenarioId: item.id, jobCode: item.jobCode,
-        dumpTruckIds: item.dumpTruckIds || [], benchmarkDistanceMeters: Math.round(num(item.distance, 1.2) * 1000) })),
       haulerRows: legacyHaulerRows(legacy.scenarios, legacy.haulerProfiles),
       distanceHeadersMeters: [...DISTANCES] };
   }
 
-  async function fetchJobs() {
-    const response = await fetch(apiUrl('/api/admin/production/spo-jobs/deployed'), { headers: auth() });
+  async function fetchJobs(operationalDate) {
+    const response = await fetch(apiUrl(`/api/admin/production/spo-jobs/deployed?scope=production&operational_date=${encodeURIComponent(operationalDate || '')}`), { headers: auth() });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     return payload.jobs || [];
@@ -336,7 +377,7 @@
     global.OMOSActionFeedback?.status(status, 'loading', 'Perubahan belum disimpan');
   }
 
-  function readonlyAttr(context) { return context.periodEnd && context.effectiveFrom > context.periodEnd ? 'disabled aria-disabled="true"' : ''; }
+  function readonlyAttr(context) { return context.view !== 'setting' && context.periodEnd && context.effectiveFrom > context.periodEnd ? 'disabled aria-disabled="true"' : ''; }
 
   function renderHighlight(context) {
     const materials = context.parameters.map(item => item.material);
@@ -352,7 +393,7 @@
   }
 
   function renderParameterTable(context) {
-    return `<details class="ppw-parameters" data-plan-factor-type="${context.type === 'coal' ? 'coal' : 'merged'}"><summary>⚙ Parameter Material</summary><div class="ppw-scroll"><table><thead><tr><th>Material</th>${context.type === 'coal' ? '<th>Density (Ton/BCM)</th>' : ''}<th>Bucket Fill Factor</th><th>Swell Factor</th><th></th></tr></thead><tbody>${context.parameters.map(row => `<tr data-parameter-id="${esc(row.id)}"><td><input data-parameter-field="material" data-plan-factor-field="material" value="${esc(row.material)}" ${readonlyAttr(context)}></td>${context.type === 'coal' ? `<td><input type="number" step="0.01" data-parameter-field="density" data-plan-factor-field="density" value="${esc(row.density)}" ${readonlyAttr(context)}></td>` : ''}<td><input type="number" step="0.01" data-parameter-field="fill" data-plan-factor-field="fill" value="${esc(row.fill)}" ${readonlyAttr(context)}></td><td><input type="number" step="0.01" data-parameter-field="swell" data-plan-factor-field="swell" value="${esc(row.swell)}" ${readonlyAttr(context)}></td><td><button type="button" class="tombol tombol--ghost" data-delete-parameter ${readonlyAttr(context)}>Hapus</button></td></tr>`).join('')}</tbody></table></div><button type="button" class="tombol tombol--ghost" data-add-parameter ${readonlyAttr(context)}>+ Material</button></details>`;
+    return `<details class="ppw-parameters" open data-plan-factor-type="${context.type === 'coal' ? 'coal' : 'merged'}"><summary>⚙ Parameter Material</summary><div class="ppw-scroll"><table><thead><tr><th>Material</th>${context.type === 'coal' ? '<th>Density (Ton/BCM)</th>' : ''}<th>Bucket Fill Factor</th><th>Swell Factor</th><th></th></tr></thead><tbody>${context.parameters.map(row => `<tr data-parameter-id="${esc(row.id)}"><td><input data-parameter-field="material" data-plan-factor-field="material" value="${esc(row.material)}" ${readonlyAttr(context)}></td>${context.type === 'coal' ? `<td><input type="number" step="0.01" data-parameter-field="density" data-plan-factor-field="density" value="${esc(row.density)}" ${readonlyAttr(context)}></td>` : ''}<td><input type="number" step="0.01" data-parameter-field="fill" data-plan-factor-field="fill" value="${esc(row.fill)}" ${readonlyAttr(context)}></td><td><input type="number" step="0.01" data-parameter-field="swell" data-plan-factor-field="swell" value="${esc(row.swell)}" ${readonlyAttr(context)}></td><td><button type="button" class="tombol tombol--ghost" data-delete-parameter ${readonlyAttr(context)}>Hapus</button></td></tr>`).join('')}</tbody></table></div><button type="button" class="tombol tombol--ghost" data-add-parameter ${readonlyAttr(context)}>+ Material</button></details>`;
   }
 
   function scenarioCard(context, scenario) {
@@ -456,24 +497,33 @@
     const ready = trucks.reduce((count, truck) => count + materials.filter(material =>
       haulerProductivity(context, truck, haulerRow(context, loaderId, truck, material)
         || { loaderId, material }, distances[0]) != null).length, 0);
-    const input = (row, field, step = '0.01') =>
-      '<input type="number" min="0" step="' + step + '" data-hauler-row-field="' + field
-      + '" value="' + esc(row?.[field] ?? '') + '" ' + readonlyAttr(context) + '>';
+    const input = (row, field, step = '0.01', bad = []) => {
+      const hit = bad.find(item => item.field === field);
+      return '<input type="number" min="0" step="' + step + '" data-hauler-row-field="' + field
+      + '" value="' + esc(row?.[field] ?? '') + '" ' + readonlyAttr(context)
+      + (hit ? ' class="ppw-invalid" title="' + esc(hit.note) + '"' : '') + '>';
+    };
     const rows = trucks.flatMap(truck => materials.map((material, materialIndex) => {
       const row = haulerRow(context, loaderId, truck, material);
+      const bad = haulerRowInvalidFields(row, context.type);
       const legacyUnit = row && capacityKind(row.capacityUom) !== capacityKind(capacityUom);
       const loadingTime = loadingFor(context, loaderId, truck, material, row);
       const start = '<tr data-hauler-truck-id="' + esc(truck.id) + '" data-hauler-material="' + esc(material)
-        + '" class="' + (materialIndex === 0 ? 'ppw-unit-start' : '') + '">';
+        + '" class="' + [materialIndex === 0 ? 'ppw-unit-start' : '', bad.length ? 'ppw-row-invalid' : ''].filter(Boolean).join(' ') + '"'
+        + (bad.length ? ' title="Belum valid: ' + esc(bad.map(item => item.note).join('; ')) + '"' : '') + '>';
       const identity = '<th>' + esc(truck.code) + (truck.active ? '' : '<small>Nonaktif</small>') + '</th>'
         + '<td class="ppw-material-cell">' + esc(material) + '</td>'
         + '<td>' + esc(truck.classUnit || '—') + '</td><td>' + esc(truck.type || '—') + '</td>';
-      const capacity = '<td class="ppw-capacity-cell">' + (legacyUnit
-        ? '<small class="ppw-unit-warning">Satuan lama belum dapat dikonversi; tinjau density dan sumber capacity.</small>'
-        : input(row, 'capacity', '0.1') + '<span>' + capacityUom + '</span>') + '</td>';
+      const legacySource = legacyUnit
+        ? '<small class="ppw-unit-warning">Sumber lama: ' + esc(row.capacity ?? '—') + ' '
+          + esc(row.capacityUom || 'tanpa satuan') + '. Masukkan Capacity ' + capacityUom + '.</small>'
+        : '';
+      const capacityInputRow = legacyUnit ? { ...row, capacity: '' } : row;
+      const capacity = '<td class="ppw-capacity-cell">' + legacySource
+        + input(capacityInputRow, 'capacity', '0.1', bad) + '<span>' + capacityUom + '</span></td>';
       const operations = '<td>' + (loadingTime == null ? '—' : loadingTime.toFixed(2)) + '</td>'
-        + '<td>' + input(row, 'loadedSpeed') + '</td><td>' + input(row, 'emptySpeed') + '</td>'
-        + '<td>' + input(row, 'spotDumpTime') + '</td><td>' + input(row, 'workEfficiency') + '</td>';
+        + '<td>' + input(row, 'loadedSpeed', '0.01', bad) + '</td><td>' + input(row, 'emptySpeed', '0.01', bad) + '</td>'
+        + '<td>' + input(row, 'spotDumpTime', '0.01', bad) + '</td><td>' + input(row, 'workEfficiency', '0.01', bad) + '</td>';
       const values = distances.map(distance => {
         const value = haulerProductivity(context, truck, row || { loaderId, material }, distance);
         return '<td data-hauler-detail="' + esc(truck.id) + '" data-distance="' + distance
@@ -519,7 +569,7 @@
       + (context.haulerClipboard ? readonlyAttr(context) : 'disabled') + '>Tempel ke Excavator Ini</button>'
       + '<span>' + trucks.length + ' unit × ' + materials.length + ' material pada filter aktif.</span></div>'
       + quick + '<div class="ppw-distance-tools"><label>Tambah header jarak (meter)'
-      + '<input type="number" min="500" step="100" data-new-distance value="' + (Math.max(...distances) + 100) + '" '
+      + '<input type="number" min="100" step="100" data-new-distance value="' + (Math.max(...distances) + 100) + '" '
       + readonlyAttr(context) + '></label><button type="button" data-add-distance class="tombol tombol--ghost" '
       + readonlyAttr(context) + '>+ Jarak</button><span>Interval 100 meter · '
       + distances.length + ' kolom</span></div>'
@@ -564,21 +614,30 @@
     if (!jobs.includes(context.settingJobChoice)) context.settingJobChoice = jobs[0] || '';
     const unit = context.type === 'coal' ? 'Ton/Hr' : 'BCM/Hr';
     const classes = [...new Set(dumpTrucks.map(item => item.classUnit).filter(Boolean))].sort();
-    const cards = context.fleetSetups.map(setting => {
+    const cards = context.simulationSetups.map(setting => {
       const scenario = context.scenarios.find(item => item.id === setting.loaderScenarioId);
       const result = computeFleetSetup(context, setting);
       const selected = new Set((setting.dumpTruckIds || []).map(String));
       const classFilters = new Set(setting.classFilters || []);
-      return `<article class="ppw-setting-card" data-setting-id="${esc(setting.id)}"><header><div><small>FLEET TARGET</small><strong>${esc(scenario?.loaderCode || 'Excavator tidak ditemukan')} · ${esc(scenario?.material || 'Material tidak ditemukan')} · ${esc(setting.jobCode)}</strong></div><button type="button" data-delete-setting ${readonlyAttr(context)}>Hapus</button></header><div class="ppw-setting-meta"><label>Jarak acuan<select data-setting-field="benchmarkDistanceMeters" ${readonlyAttr(context)}>${distanceHeaders(context).map(distance => `<option value="${distance}" ${Number(setting.benchmarkDistanceMeters) === distance ? 'selected' : ''}>${(distance / 1000).toFixed(1)} km</option>`).join('')}</select></label><span>${selected.size} Dump Truck dipilih</span></div><details class="ppw-truck-picker"><summary>Pilih Dump Truck (${selected.size} unit)</summary><label>Filter Class<select multiple data-setting-class-slicer size="${Math.min(4, Math.max(2, classes.length))}">${classes.map(value => `<option value="${esc(value)}" ${classFilters.has(value) ? 'selected' : ''}>${esc(value)}</option>`).join('')}</select></label><div class="ppw-truck-tools"><input type="search" data-truck-search placeholder="Cari kode atau model"><button type="button" data-select-filtered ${readonlyAttr(context)}>Pilih Semua Hasil</button><button type="button" data-clear-trucks ${readonlyAttr(context)}>Kosongkan</button></div><div data-truck-options>${dumpTrucks.filter(truck => truck.active || selected.has(String(truck.id))).map(truck => `<label data-truck-class="${esc(truck.classUnit)}" data-truck-search-text="${esc(`${truck.code} ${truck.type} ${truck.classUnit}`.toLowerCase())}" data-truck-active="${truck.active ? 'true' : 'false'}" ${classFilters.size && !classFilters.has(truck.classUnit) ? 'hidden' : ''}><input type="checkbox" data-truck-id="${esc(truck.id)}" ${selected.has(String(truck.id)) ? 'checked' : ''} ${readonlyAttr(context)}><span><b>${esc(truck.code)}</b><small>${esc(truck.classUnit)} · ${esc(truck.type)}${truck.active ? '' : ' · Nonaktif'}</small></span></label>`).join('')}</div></details><div class="ppw-setting-kpis"><div><span>Loader</span><b>${result.loaderProductivity > 0 ? result.loaderProductivity.toFixed(2) : '—'}</b></div><div><span>Truck Fleet</span><b>${result.truckFleetProductivity > 0 ? result.truckFleetProductivity.toFixed(2) : '—'}</b></div><div><span>Fleet Match</span><b>${result.fleetMatch > 0 ? result.fleetMatch.toFixed(2) : '—'}</b></div><div class="${result.complete ? 'is-ready' : ''}"><span>Fleet Productivity</span><b>${result.fleetProductivity > 0 ? result.fleetProductivity.toFixed(2) : '—'} ${unit}</b></div></div><small class="ppw-setting-note">Target Input Ritase dan JPEG Lapor memakai Fleet Productivity pada Setting Fleet periode efektif.</small></article>`;
+      return `<article class="ppw-setting-card" data-setting-id="${esc(setting.id)}">
+        <header><div><small>SIMULASI FLEET</small><strong>${esc(scenario?.loaderCode || 'Excavator tidak ditemukan')} · ${esc(scenario?.material || 'Material tidak ditemukan')} · ${esc(setting.jobCode)}</strong></div><button type="button" data-delete-setting>Hapus</button></header>
+        <div class="ppw-setting-meta"><label>Jarak acuan<select data-setting-field="benchmarkDistanceMeters">${distanceHeaders(context).map(distance => `<option value="${distance}" ${Number(setting.benchmarkDistanceMeters) === distance ? 'selected' : ''}>${(distance / 1000).toFixed(1)} km</option>`).join('')}</select></label><span>${selected.size} Dump Truck dipilih</span></div>
+        <details class="ppw-truck-picker"><summary>Pilih Dump Truck (${selected.size} unit)</summary><label>Filter Class<select multiple data-setting-class-slicer size="${Math.min(4, Math.max(2, classes.length))}">${classes.map(value => `<option value="${esc(value)}" ${classFilters.has(value) ? 'selected' : ''}>${esc(value)}</option>`).join('')}</select></label><div class="ppw-truck-tools"><input type="search" data-truck-search placeholder="Cari kode atau model"><button type="button" data-select-filtered>Pilih Semua Hasil</button><button type="button" data-clear-trucks>Kosongkan</button></div><div data-truck-options>${dumpTrucks.filter(truck => truck.active || selected.has(String(truck.id))).map(truck => `<label data-truck-class="${esc(truck.classUnit)}" data-truck-search-text="${esc(`${truck.code} ${truck.type} ${truck.classUnit}`.toLowerCase())}" data-truck-active="${truck.active ? 'true' : 'false'}" ${classFilters.size && !classFilters.has(truck.classUnit) ? 'hidden' : ''}><input type="checkbox" data-truck-id="${esc(truck.id)}" ${selected.has(String(truck.id)) ? 'checked' : ''}><span><b>${esc(truck.code)}</b><small>${esc(truck.classUnit)} · ${esc(truck.type)}${truck.active ? '' : ' · Nonaktif'}</small></span></label>`).join('')}</div></details>
+        <div class="ppw-setting-kpis"><div><span>Loader</span><b>${result.loaderProductivity > 0 ? result.loaderProductivity.toFixed(2) : '—'}</b></div><div><span>Truck Fleet</span><b>${result.truckFleetProductivity > 0 ? result.truckFleetProductivity.toFixed(2) : '—'}</b></div><div><span>Fleet Match</span><b>${result.fleetMatch > 0 ? result.fleetMatch.toFixed(2) : '—'}</b></div><div class="${result.complete ? 'is-ready' : ''}"><span>Hasil Simulasi</span><b>${result.fleetProductivity > 0 ? result.fleetProductivity.toFixed(2) : '—'} ${unit}</b></div></div>
+        <small class="ppw-setting-note">Hanya simulasi. Target operasional seluruh modul membaca Loader Productivity secara langsung.</small>
+      </article>`;
     }).join('');
-    return `<section class="ppw-setting"><div class="ppw-setting-create"><div><h3>Setting Fleet</h3><p>Hubungkan Loader record dengan JOB SPO, jarak acuan, dan Dump Truck. Target akhir = minimum produktivitas Loader dan total Dump Truck.</p></div><label>Excavator · Material<select data-setting-loader-choice><option value="">Pilih Loader</option>${context.scenarios.map(item => `<option value="${esc(item.id)}" ${item.id === context.settingLoaderChoice ? 'selected' : ''}>${esc(item.loaderCode)} · ${esc(item.material)}</option>`).join('')}</select></label><label>JOB<select data-setting-job-choice><option value="">Pilih JOB</option>${jobs.map(code => `<option value="${esc(code)}" ${code === context.settingJobChoice ? 'selected' : ''}>${esc(code)}</option>`).join('')}</select></label><button type="button" data-add-setting class="tombol tombol--utama" ${readonlyAttr(context)}>+ Tambah Setting Fleet</button></div><div class="ppw-setting-grid">${cards || '<div class="ppw-empty-state">Belum ada Setting Fleet untuk periode ini.</div>'}</div></section>`;
+    return `<section class="ppw-setting"><div class="ppw-setting-create"><div><h3>Setting Fleet Simulation</h3><p>Simulasi sesi aktif: bandingkan Loader dengan kombinasi Dump Truck tanpa menyimpan hasil, tanpa periode efektif, dan tanpa menjadi sumber halaman operasional.</p></div><label>Excavator · Material<select data-setting-loader-choice><option value="">Pilih Loader</option>${context.scenarios.map(item => `<option value="${esc(item.id)}" ${item.id === context.settingLoaderChoice ? 'selected' : ''}>${esc(item.loaderCode)} · ${esc(item.material)}</option>`).join('')}</select></label><label>JOB<select data-setting-job-choice><option value="">Pilih JOB</option>${jobs.map(code => `<option value="${esc(code)}" ${code === context.settingJobChoice ? 'selected' : ''}>${esc(code)}</option>`).join('')}</select></label><button type="button" data-add-setting class="tombol tombol--utama">+ Tambah Simulasi</button></div><div class="ppw-setting-grid">${cards || '<div class="ppw-empty-state">Belum ada simulasi pada sesi ini.</div>'}</div></section>`;
   }
 
   function render(context) {
     const status = context.sourceEffectiveFrom
       ? `Data periode ini update dari ${context.sourceEffectiveFrom}` : 'Belum ada setup periode';
     const expired = Boolean(context.periodEnd && context.effectiveFrom > context.periodEnd);
-    context.container.innerHTML = `<div class="ppw-root"><div class="ppw-period"><label>Tanggal Berlaku<input type="date" data-effective-date value="${esc(context.effectiveFrom)}" ${context.periodEnd ? `max="${esc(context.periodEnd)}"` : ''}></label><span class="${context.inherited ? 'is-inherited' : ''}">${esc(status)}${context.revision ? ` · revisi ${context.revision}` : ''}${context.periodEnd ? ` · berlaku sampai ${esc(context.periodEnd)}` : ''}</span><div><button type="button" class="tombol tombol--ghost" data-open-note>Note</button>${context.dirty && !expired ? '<button type="button" class="tombol tombol--utama" data-save-period>Simpan Setup Periode</button>' : ''}</div></div><div class="ppw-tabs"><button type="button" data-view="fleet" class="${context.view === 'fleet' ? 'is-active' : ''}">Loader Productivity</button><button type="button" data-view="hauler" class="${context.view === 'hauler' ? 'is-active' : ''}">Hauler Productivity</button><button type="button" data-view="setting" class="${context.view === 'setting' ? 'is-active' : ''}">Setting Fleet</button></div>${expired ? '<div class="ppw-empty-state is-error">Tanggal berada di luar periode SPO. Pilih tanggal dalam periode yang tersedia.</div>' : context.view === 'hauler' ? renderHaulerDatabase(context) : context.view === 'setting' ? renderSettingFleet(context) : `${renderHighlight(context)}${renderParameterTable(context)}<div class="ppw-fleet-list">${renderLoaderWorkspace(context)}</div>`}</div>`;
+    const periodBar = context.view === 'setting'
+      ? '<div class="ppw-period"><strong>SIMULASI NON-PERIODE</strong><span>Tidak tersimpan · tidak menjadi source target modul lain</span></div>'
+      : `<div class="ppw-period"><label>Tanggal Berlaku<input type="date" data-effective-date value="${esc(context.effectiveFrom)}" ${context.periodEnd ? `max="${esc(context.periodEnd)}"` : ''}></label><span class="${context.inherited ? 'is-inherited' : ''}">${esc(status)}${context.revision ? ` · revisi ${context.revision}` : ''}${context.periodEnd ? ` · berlaku sampai ${esc(context.periodEnd)}` : ''}</span><div><button type="button" class="tombol tombol--ghost" data-open-note>Note</button>${context.dirty && !expired ? '<button type="button" class="tombol tombol--utama" data-save-period>Simpan Setup Periode</button>' : ''}</div></div>`;
+    context.container.innerHTML = `<div class="ppw-root">${periodBar}<div class="ppw-tabs"><button type="button" data-view="fleet" class="${context.view === 'fleet' ? 'is-active' : ''}">Loader Productivity</button><button type="button" data-view="hauler" class="${context.view === 'hauler' ? 'is-active' : ''}">Hauler Productivity</button><button type="button" data-view="setting" class="${context.view === 'setting' ? 'is-active' : ''}">Setting Fleet Simulation</button></div>${context.view === 'setting' ? renderSettingFleet(context) : expired ? '<div class="ppw-empty-state is-error">Tanggal berada di luar periode SPO. Pilih tanggal dalam periode yang tersedia.</div>' : context.view === 'hauler' ? renderHaulerDatabase(context) : `${renderHighlight(context)}${renderParameterTable(context)}<div class="ppw-fleet-list">${renderLoaderWorkspace(context)}</div>`}</div>`;
   }
 
   async function loadContext(context, effectiveFrom) {
@@ -592,7 +651,7 @@
       periodEnd: payload.periodEnd || null
     });
     normalizeHaulerUnits(context);
-    context.jobs = await fetchJobs();
+    context.jobs = await fetchJobs(context.effectiveFrom);
     if (!context.fleets.length && context.scenarios.length) context.fleets = [...new Map(context.scenarios.map(item => [item.loaderId, { loaderId: item.loaderId, loaderCode: item.loaderCode }])).values()];
     render(context);
   }
@@ -654,8 +713,8 @@
       if (event.target.closest('[data-open-note]')) return showPeriodNote();
       if (event.target.closest('[data-add-distance]')) {
         const distance = Number(container.querySelector('[data-new-distance]')?.value);
-        if (!Number.isInteger(distance) || distance < 500 || distance > 50000 || distance % 100 !== 0)
-          return alert('Jarak harus 500–50.000 meter dalam kelipatan 100 meter.');
+        if (!Number.isInteger(distance) || distance < 100 || distance > 50000 || distance % 100 !== 0)
+          return alert('Jarak harus 100–50.000 meter dalam kelipatan 100 meter.');
         if (distanceHeaders(context).includes(distance)) return alert('Header jarak tersebut sudah ada.');
         if (distanceHeaders(context).length >= 80) return alert('Maksimal 80 header jarak dalam satu setup.');
         context.distanceHeadersMeters = [...distanceHeaders(context), distance].sort((a, b) => a - b);
@@ -665,8 +724,6 @@
       if (removeDistance) {
         const distance = Number(removeDistance.dataset.removeDistance);
         if (distanceHeaders(context).length <= 1) return alert('Minimal satu header jarak harus tersedia.');
-        if (context.fleetSetups.some(item => Number(item.benchmarkDistanceMeters) === distance))
-          return alert('Jarak sedang dipakai Setting Fleet. Ubah jarak acuan Setting Fleet sebelum menghapus header.');
         context.distanceHeadersMeters = distanceHeaders(context).filter(item => item !== distance);
         markDirty(context); return render(context);
       }
@@ -697,7 +754,21 @@
           ['capacity', 'capacityUom', 'loadedSpeed', 'emptySpeed', 'spotDumpTime', 'workEfficiency']
             .forEach(field => { target[field] = source[field]; });
         });
-        markDirty(context); return render(context);
+        // Normalisasi langsung: BCM yang density-nya tersedia terkonversi ke
+        // Ton saat itu juga (tidak menunggu edit density berikutnya).
+        normalizeHaulerUnits(context);
+        markDirty(context); render(context);
+        const bermasalah = [];
+        valid.forEach(source => {
+          const target = haulerRow(context, context.haulerLoaderId, { id: source.truckId }, source.material);
+          const bad = haulerRowInvalidFields(target, context.type);
+          if (bad.length) {
+            const truck = dumpTrucks.find(item => String(item.id) === String(source.truckId));
+            bermasalah.push(`${truck?.code || source.truckId} / ${source.material}: ${bad.map(item => item.note).join('; ')}`);
+          }
+        });
+        if (bermasalah.length) alert('Tempel selesai, tetapi baris berikut belum valid dan akan menggagalkan Simpan:\n' + bermasalah.slice(0, 8).join('\n') + (bermasalah.length > 8 ? `\n...dan ${bermasalah.length - 8} baris lainnya.` : '') + '\nPerbaiki sel bertanda merah (mis. isi density agar satuan Ton otomatis).');
+        return;
       }
       if (event.target.closest('[data-close-hauler-detail]')) { context.haulerDetail = null; return render(context); }
       const loaderButton = event.target.closest('[data-hauler-loader]');
@@ -721,7 +792,7 @@
         if (!affected.length) return alert('Tidak ada kolom kosong pada filter aktif.');
         if (!confirm(`Terapkan ${field} = ${value} ke ${affected.length} baris pada excavator aktif?`)) return;
         affected.forEach(({ truck, material }) => { const row = ensureHaulerRow(context, context.haulerLoaderId, truck, material);
-          row[field] = value; });
+          assignHaulerField(context, row, field, value); });
         markDirty(context); return render(context);
       }
       const haulerCell = event.target.closest('[data-hauler-detail]');
@@ -739,29 +810,29 @@
         const jobCode = context.settingJobChoice;
         if (!scenario || !jobCode || !(scenario.jobCodes || []).includes(jobCode))
           return alert('Pilih Loader record dan JOB SPO pada kartu Loader terlebih dahulu.');
-        if (context.fleetSetups.some(item => item.loaderScenarioId === scenario.id && item.jobCode === jobCode))
-          return alert('Setting Fleet untuk excavator, material, dan JOB ini sudah ada.');
-        context.fleetSetups.push({ id: uid(`${context.type}-setting`), loaderScenarioId: scenario.id,
+        if (context.simulationSetups.some(item => item.loaderScenarioId === scenario.id && item.jobCode === jobCode))
+          return alert('Simulasi untuk excavator, material, dan JOB ini sudah ada.');
+        context.simulationSetups.push({ id: uid(`${context.type}-simulation`), loaderScenarioId: scenario.id,
           jobCode, dumpTruckIds: [], benchmarkDistanceMeters: 1000, classFilters: [] });
-        markDirty(context); return render(context);
+        return render(context);
       }
       const settingRoot = event.target.closest('[data-setting-id]');
       if (settingRoot) {
-        const setting = context.fleetSetups.find(item => item.id === settingRoot.dataset.settingId);
+        const setting = context.simulationSetups.find(item => item.id === settingRoot.dataset.settingId);
         if (!setting) return;
         if (event.target.closest('[data-delete-setting]')) {
-          if (!confirm(`Hapus Setting Fleet ${setting.jobCode} pada versi periode ini?`)) return;
-          context.fleetSetups = context.fleetSetups.filter(item => item.id !== setting.id);
-          markDirty(context); return render(context);
+          if (!confirm(`Hapus simulasi ${setting.jobCode} dari sesi ini?`)) return;
+          context.simulationSetups = context.simulationSetups.filter(item => item.id !== setting.id);
+          return render(context);
         }
         if (event.target.closest('[data-select-filtered]')) {
           const selected = new Set((setting.dumpTruckIds || []).map(String));
           settingRoot.querySelectorAll('[data-truck-options] label:not([hidden])[data-truck-active="true"] input[data-truck-id]')
             .forEach(input => selected.add(String(input.dataset.truckId)));
-          setting.dumpTruckIds = [...selected]; markDirty(context); return render(context);
+          setting.dumpTruckIds = [...selected]; return render(context);
         }
         if (event.target.closest('[data-clear-trucks]')) {
-          setting.dumpTruckIds = []; markDirty(context); return render(context);
+          setting.dumpTruckIds = []; return render(context);
         }
       }
       const fleetRoot = event.target.closest('[data-fleet-id]');
@@ -770,7 +841,7 @@
         if (!confirm('Hapus fleet dan seluruh scenario pada versi periode ini?')) return;
         context.fleets = context.fleets.filter(item => String(item.loaderId) !== fleetRoot.dataset.fleetId);
         const removed = new Set(context.scenarios.filter(item => String(item.loaderId) === fleetRoot.dataset.fleetId).map(item => item.id));
-        context.fleetSetups = context.fleetSetups.filter(item => !removed.has(item.loaderScenarioId));
+        context.simulationSetups = context.simulationSetups.filter(item => !removed.has(item.loaderScenarioId));
         context.scenarios = context.scenarios.filter(item => String(item.loaderId) !== fleetRoot.dataset.fleetId);
         markDirty(context); return render(context);
       }
@@ -797,9 +868,7 @@
         scenario.dumpTruckIds = []; markDirty(context); return render(context);
       }
       if (event.target.closest('[data-delete-scenario]') && scenarioRoot) {
-        const linked = context.fleetSetups.filter(item => item.loaderScenarioId === scenarioRoot.dataset.scenarioId);
-        if (linked.length && !confirm(`Hapus Loader record dan ${linked.length} Setting Fleet terkait pada versi periode ini?`)) return;
-        context.fleetSetups = context.fleetSetups.filter(item => item.loaderScenarioId !== scenarioRoot.dataset.scenarioId);
+        context.simulationSetups = context.simulationSetups.filter(item => item.loaderScenarioId !== scenarioRoot.dataset.scenarioId);
         context.scenarios = context.scenarios.filter(item => item.id !== scenarioRoot.dataset.scenarioId); markDirty(context); return render(context);
       }
       if (event.target.closest('[data-add-parameter]')) {
@@ -821,7 +890,7 @@
     container.addEventListener('input', event => {
       if (!event.target.matches('[data-truck-search]')) return;
       const scenarioRoot = event.target.closest('[data-setting-id]');
-      const setting = context.fleetSetups.find(item => item.id === scenarioRoot?.dataset.settingId);
+      const setting = context.simulationSetups.find(item => item.id === scenarioRoot?.dataset.settingId);
       const query = event.target.value.trim().toLowerCase();
       const classes = new Set((setting?.classFilters || []).map(String));
       scenarioRoot?.querySelectorAll('[data-truck-options] label').forEach(label => {
@@ -851,7 +920,7 @@
         const truck = dumpTrucks.find(item => String(item.id) === haulerRoot.dataset.haulerTruckId);
         if (!truck) return;
         const row = ensureHaulerRow(context, context.haulerLoaderId, truck, haulerRoot.dataset.haulerMaterial);
-        row[event.target.dataset.haulerRowField] = event.target.value;
+        assignHaulerField(context, row, event.target.dataset.haulerRowField, event.target.value);
         markDirty(context); return render(context);
       }
       if (event.target.matches('[data-hauler-filter]')) {
@@ -866,15 +935,15 @@
       }
       const settingRoot = event.target.closest('[data-setting-id]');
       if (settingRoot) {
-        const setting = context.fleetSetups.find(item => item.id === settingRoot.dataset.settingId);
+        const setting = context.simulationSetups.find(item => item.id === settingRoot.dataset.settingId);
         if (!setting) return;
         if (event.target.dataset.settingField === 'benchmarkDistanceMeters') {
-          setting.benchmarkDistanceMeters = Number(event.target.value); markDirty(context); return render(context);
+          setting.benchmarkDistanceMeters = Number(event.target.value); return render(context);
         }
         if (event.target.dataset.truckId) {
           const selected = new Set((setting.dumpTruckIds || []).map(String));
           event.target.checked ? selected.add(String(event.target.dataset.truckId)) : selected.delete(String(event.target.dataset.truckId));
-          setting.dumpTruckIds = [...selected]; markDirty(context); return render(context);
+          setting.dumpTruckIds = [...selected]; return render(context);
         }
         if (event.target.matches('[data-setting-class-slicer]')) {
           const classes = new Set([...event.target.selectedOptions].map(item => item.value));
@@ -888,11 +957,9 @@
         const scenario = context.scenarios.find(item => item.id === scenarioRoot.dataset.scenarioId);
         if (event.target.dataset.loaderJob) {
           const selected = new Set(scenario.jobCodes || []);
-          if (!event.target.checked && context.fleetSetups.some(item => item.loaderScenarioId === scenario.id && item.jobCode === event.target.dataset.loaderJob)) {
-            event.target.checked = true;
-            return alert('Hapus Setting Fleet untuk JOB ini sebelum melepas kaitan JOB dari Loader.');
-          }
           event.target.checked ? selected.add(event.target.dataset.loaderJob) : selected.delete(event.target.dataset.loaderJob);
+          if (!event.target.checked) context.simulationSetups = context.simulationSetups.filter(item =>
+            item.loaderScenarioId !== scenario.id || item.jobCode !== event.target.dataset.loaderJob);
           scenario.jobCodes = [...selected]; markDirty(context); return render(context);
         }
         if (event.target.dataset.scenarioField) {
@@ -944,7 +1011,7 @@
     container.dataset.workspaceInitialized = 'true';
     const type = container.dataset.planProductivityContainer === 'coal' ? 'coal' : 'ob';
     const context = { type, container, effectiveFrom: today(), sourceEffectiveFrom: null, revision: null,
-      inherited: false, dirty: false, draftNew: false, parameters: defaultParameters(type), fleets: [], scenarios: [], fleetSetups: [], haulerProfiles: [], haulerRows: [], jobs: [], view: 'fleet', activeFleetId: null, haulerLoaderId: null, settingLoaderChoice: '', settingJobChoice: '', quickOpen: false,
+      inherited: false, dirty: false, draftNew: false, parameters: defaultParameters(type), fleets: [], scenarios: [], simulationSetups: [], haulerProfiles: [], haulerRows: [], jobs: [], view: 'fleet', activeFleetId: null, haulerLoaderId: null, settingLoaderChoice: '', settingJobChoice: '', quickOpen: false,
       distanceHeadersMeters: [...DISTANCES], periodEnd: null,
       haulerFilters: { search: '', classUnit: '', model: '', status: 'all', benchmarkDistance: 1000 }, haulerCompare: [], haulerDetail: null };
     contexts.set(type, context);

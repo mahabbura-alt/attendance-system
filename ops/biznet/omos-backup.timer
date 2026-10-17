@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly OMOS local data backup
+
+[Timer]
+OnCalendar=*-*-* 19:30:00 Asia/Jakarta
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

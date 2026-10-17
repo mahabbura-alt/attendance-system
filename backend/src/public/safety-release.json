@@ -1,0 +1,17 @@
+{
+  "version_code": 2,
+  "version_name": "1.0.1",
+  "minimum_supported_version": 2,
+  "mandatory": true,
+  "apk_path": "/api/app/omos-safety.apk",
+  "sha256": "6b5c8855cc95a4978b9b6c8d941af4bf7bd3d8b6cd9584360dd3ed519a30b06a",
+  "release_notes": [
+    "Form hazard: kolom Konsekuensi / potensi dampak dan Rekomendasi perbaikan kini wajib diisi.",
+    "Rekomendasi perbaikan otomatis menjadi tugas (CAPA) setiap PIC.",
+    "Status laporan mengikuti progres PIC: Proses → Menunggu verifikasi → Ditutup otomatis saat semua PIC selesai.",
+    "Detail laporan & tugas PIC menampilkan konsekuensi, rekomendasi, dan progres tindak lanjut.",
+    "Peserta P5M & Safety Talk: daftar dari Seleksi Karyawan Setup P5M / Safety Talk yang berstatus WAJIB.",
+    "Statistik: target per individu dari Setup Master (harian / mingguan / bulanan) untuk Hazard, Inspeksi per jenis, P5M, Safety Talk.",
+    "Perbaikan: P5M & Safety Talk dari aplikasi kini terkirim ke server."
+  ]
+}

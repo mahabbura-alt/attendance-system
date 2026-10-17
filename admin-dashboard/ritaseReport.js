@@ -145,7 +145,7 @@
     if (shiftIds.length !== 1) throw new Error('Pilih satu Shift pada filter Input Ritase sebelum membuat laporan.');
 
     const invalidPlan = scope.fleets.filter(fleet => fleet.plan_status !== 'synced' || !(number(fleet.plan_productivity) > 0));
-    if (invalidPlan.length) throw new Error(`Target Fleet Productivity belum valid untuk: ${invalidPlan.map(fleet => fleet.excavator_kode || fleet.nama_fleet).join(', ')}.`);
+    if (invalidPlan.length) throw new Error(`Target Loader Productivity belum valid untuk: ${invalidPlan.map(fleet => fleet.excavator_kode || fleet.nama_fleet).join(', ')}.`);
 
     const fleets = scope.fleets.map((fleet, fleetIndex) => {
       const slots = elapsedSlotsBeforeCutoff(fleet, cutoffHour);
@@ -157,19 +157,28 @@
 
       const hourly = slots.map(hour => {
         let ritase = 0;
+        let grossRitase = 0;
+        let nonprodRitase = 0;
         let actual = 0;
         const incompleteTrucks = [];
         const nonProductive = plannedNonProductiveReason(fleet, hour);
         trucks.forEach(truck => {
           const hasValue = Object.prototype.hasOwnProperty.call(truck.hours || {}, hour);
           if (!hasValue && !nonProductive) incompleteTrucks.push(truck.kode_alat);
-          const count = hasValue ? Math.max(0, number(truck.hours[hour]) || 0) : 0;
+          const gross = hasValue ? Math.max(0, number(truck.hours[hour]) || 0) : 0;
+          const nonprod = hasValue ? Math.max(0, number(truck.nonprod_hours?.[hour]) || 0) : 0;
+          if (nonprod > gross) throw new Error(`Non Prod fleet ${fleet.excavator_kode || fleet.nama_fleet}, ${truck.kode_alat}, jam ${String(hour).padStart(2, '0')}:00 melebihi ritase bruto.`);
+          const count = gross - nonprod;
+          grossRitase += gross;
+          nonprodRitase += nonprod;
           ritase += count;
           actual += count * factorFor(snapshot, fleet, truck);
         });
         return {
           hour,
           ritase,
+          grossRitase,
+          nonprodRitase,
           actual,
           target: nonProductive ? 0 : number(fleet.plan_productivity),
           nonProductiveReason: nonProductive?.label || null,
@@ -185,6 +194,8 @@
       const target = planRate * productiveHours;
       const actual = hourly.reduce((sum, item) => sum + item.actual, 0);
       const ritase = hourly.reduce((sum, item) => sum + item.ritase, 0);
+      const grossRitase = hourly.reduce((sum, item) => sum + item.grossRitase, 0);
+      const nonprodRitase = hourly.reduce((sum, item) => sum + item.nonprodRitase, 0);
       const achievement = target > 0 ? actual / target * 100 : null;
       const averageProductivity = productiveHours > 0 ? actual / productiveHours : null;
       const reportedHour = slots[slots.length - 1];
@@ -192,7 +203,9 @@
         code: truck.kode_alat,
         // Panel rincian DT adalah snapshot jam laporan, bukan akumulasi
         // sejak awal shift. Cutoff 16:00 berarti slot 15:00-15:59.
-        ritase: Math.max(0, number(truck.hours?.[reportedHour]) || 0)
+        ritase: Math.max(0, (number(truck.hours?.[reportedHour]) || 0) - (number(truck.nonprod_hours?.[reportedHour]) || 0)),
+        grossRitase: Math.max(0, number(truck.hours?.[reportedHour]) || 0),
+        nonprodRitase: Math.max(0, number(truck.nonprod_hours?.[reportedHour]) || 0)
       }));
       const exceptions = (fleet.productivity_exceptions || []).filter(item => slots.includes(Number(item.period_hour)));
       return {
@@ -200,7 +213,7 @@
         color: COLORS[fleetIndex % COLORS.length],
         code: fleet.excavator_kode || fleet.nama_fleet || `Fleet ${fleetIndex + 1}`,
         material: fleet.material_detail || fleet.material_type || '-',
-        planRate, slots, displaySlots: shiftSlots(fleet), hourly, productiveHours, target, actual, ritase, achievement, averageProductivity, reportedHour,
+        planRate, slots, displaySlots: shiftSlots(fleet), hourly, productiveHours, target, actual, ritase, grossRitase, nonprodRitase, achievement, averageProductivity, reportedHour,
         status: statusForAchievement(achievement, actual), truckTotals, exceptions,
         finalDistanceKm: fleet.distance_summary?.complete ? number(fleet.distance_summary.finalDistanceKm) : null
       };
@@ -211,6 +224,8 @@
     const target = fleets.reduce((sum, fleet) => sum + fleet.target, 0);
     const actual = fleets.reduce((sum, fleet) => sum + fleet.actual, 0);
     const ritase = fleets.reduce((sum, fleet) => sum + fleet.ritase, 0);
+    const grossRitase = fleets.reduce((sum, fleet) => sum + fleet.grossRitase, 0);
+    const nonprodRitase = fleets.reduce((sum, fleet) => sum + fleet.nonprodRitase, 0);
     const achievement = target > 0 ? actual / target * 100 : null;
     const deviation = target - actual;
     const hours = fleets[0].slots;
@@ -218,6 +233,8 @@
       hour,
       actual: fleets.reduce((sum, fleet) => sum + (fleet.hourly.find(item => item.hour === hour)?.actual || 0), 0),
       ritase: fleets.reduce((sum, fleet) => sum + (fleet.hourly.find(item => item.hour === hour)?.ritase || 0), 0),
+      grossRitase: fleets.reduce((sum, fleet) => sum + (fleet.hourly.find(item => item.hour === hour)?.grossRitase || 0), 0),
+      nonprodRitase: fleets.reduce((sum, fleet) => sum + (fleet.hourly.find(item => item.hour === hour)?.nonprodRitase || 0), 0),
       target: fleets.reduce((sum, fleet) => sum + (fleet.hourly.find(item => item.hour === hour)?.target || 0), 0),
       nonProductiveReason: fleets.map(fleet => fleet.hourly.find(item => item.hour === hour)?.nonProductiveReason).find(Boolean) || null
     }));
@@ -235,7 +252,7 @@
       reportedHour: fleets[0].reportedHour,
       reportedHourLabel: `${String(fleets[0].reportedHour).padStart(2, '0')}:00-${String(fleets[0].reportedHour).padStart(2, '0')}:59`,
       shiftName: fleets[0].raw.nama_shift || 'Shift',
-      scope, fleets, elapsedHours, productiveHours, target, actual, ritase, achievement, deviation,
+      scope, fleets, elapsedHours, productiveHours, target, actual, ritase, grossRitase, nonprodRitase, achievement, deviation,
       activeFleet: fleets.filter(fleet => fleet.actual > 0).length,
       displaySlots: fleets[0].displaySlots, hourlyTotals, problems
     };
@@ -356,7 +373,7 @@
       .rr-bottom{display:grid;grid-template-columns:.95fr 1.05fr;gap:10px;margin-top:10px}.rr-bottom .rr-panel{min-height:140px}.rr-problems{padding:10px 14px}.rr-problem{display:grid;grid-template-columns:145px 1fr 55px;gap:8px;align-items:center;margin:8px 0;font-size:10px}.rr-problem b{height:12px;background:#eef2f7}.rr-problem b i{display:block;height:100%}.rr-problem strong{text-align:right}.rr-empty{font-size:11px;color:#64748b;text-align:center;margin:30px 0}.rr-trucks{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px}.rr-truck-col{background:#f5f9ff;border:1px solid #d3e0ef;border-radius:6px;padding:5px}.rr-truck-col h4{text-align:center;font-size:11px;margin:0 0 4px;color:#0b4fa8}.rr-truck-col div{display:flex;justify-content:space-between;gap:5px;background:#fff;border:1px solid #d8e2ee;border-radius:4px;padding:4px 6px;margin-top:3px;font-size:9px}.rr-footer{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid #b8cae3;border-radius:7px;margin-top:10px;padding:8px 14px;font-size:11px;color:#123f75}.rr-footer span:nth-child(2){text-align:center}.rr-footer span:last-child{text-align:right}
     </style>
     ${sectionOnly ? `<section class="rr-job-section"><h2 class="rr-job-title">${escapeHtml(model.scope.jobCode)}${model.scope.jobDescription ? ' &middot; ' + escapeHtml(model.scope.jobDescription) : ''}<small>${escapeHtml(model.scope.unit)} &bull; ${model.fleets.length} fleet</small></h2>` : `<div class="rr-header"><img class="rr-brand-main" src="assets/reports/omos-one-path.png" alt="OMOS"><div class="rr-title"><h1>${model.fleets.length > 1 ? 'MULTI-FLEET ' : ''}PRODUCTION &amp; PRODUCTIVITY REPORT</h1><p>${escapeHtml(formatDateId(model.tanggal))} &bull; ${escapeHtml(model.shiftName)} &bull; Cutoff ${model.cutoffLabel}</p></div><div class="rr-client"><img src="assets/reports/prima-logo.png" alt="Prima"><strong>PT PRIMA INDOJAYA MANDIRI</strong></div></div><div class="rr-meta"><span><b>PIT / AREA:</b>${escapeHtml(model.scope.pitArea)}</span><span><b>JOB:</b>${escapeHtml(model.scope.jobCode)}${model.scope.jobDescription ? ' &middot; ' + escapeHtml(model.scope.jobDescription) : ''}</span><span><b>UNIT:</b>${model.scope.unit}</span><span><b>STATUS:</b>FINAL</span></div>`}
-    <div class="rr-kpis">${kpiCard('TARGET JAM BERJALAN',formatNumber(model.target,0),model.scope.unit,'blue',`${model.productiveHours} jam produktif &bull; s.d. ${model.cutoffLabel}`)}${kpiCard('AKTUAL JAM BERJALAN',formatNumber(model.actual,0),model.scope.unit,'blue',`s.d. ${model.cutoffLabel}`)}${kpiCard('ACHIEVEMENT',formatNumber(model.achievement,2)+'%','',achievementTone)}${kpiCard('TOTAL RITASE',formatNumber(model.ritase,0),'rit','amber')}${kpiCard('ACTIVE FLEET',model.activeFleet,`dari ${model.fleets.length}`,'blue')}${kpiCard('DEVIASI',formatNumber(Math.abs(model.deviation),0),model.scope.unit,model.deviation > 0 ? 'red' : 'green',deviationNote)}</div>
+    <div class="rr-kpis">${kpiCard('TARGET JAM BERJALAN',formatNumber(model.target,0),model.scope.unit,'blue',`${model.productiveHours} jam produktif &bull; s.d. ${model.cutoffLabel}`)}${kpiCard('AKTUAL JAM BERJALAN',formatNumber(model.actual,0),model.scope.unit,'blue',`s.d. ${model.cutoffLabel}`)}${kpiCard('ACHIEVEMENT',formatNumber(model.achievement,2)+'%','',achievementTone)}${kpiCard('RITASE PRODUKTIF',formatNumber(model.ritase,0),'rit','amber',`Bruto ${formatNumber(model.grossRitase,0)} &bull; Non Prod ${formatNumber(model.nonprodRitase,0)}`)}${kpiCard('ACTIVE FLEET',model.activeFleet,`dari ${model.fleets.length}`,'blue')}${kpiCard('DEVIASI',formatNumber(Math.abs(model.deviation),0),model.scope.unit,model.deviation > 0 ? 'red' : 'green',deviationNote)}</div>
     <div class="rr-fleets">${fleetCards}</div>
     <div class="rr-visuals"><div class="rr-panel"><h2>Hourly Production Trend (${model.scope.unit})</h2><div class="rr-chart"><canvas data-ritase-report-chart></canvas></div></div><div class="rr-panel"><h2>Fleet Achievement Ranking</h2><div class="rr-ranking">${[...model.fleets].sort((a,b)=>b.achievement-a.achievement).map((fleet,index)=>`<div class="rr-rank"><span>${index+1}. ${escapeHtml(fleet.code)}</span><b><i style="width:${Math.min(100,fleet.achievement)}%;background:${fleet.color}"></i></b><strong>${formatNumber(fleet.achievement,2)}%</strong></div>`).join('')}</div></div></div>
     <div class="rr-panel rr-matrix"><h2>Hourly Fleet Performance (${model.scope.unit}/Hr)</h2><table><colgroup><col style="width:195px">${displaySlots.map(() => '<col>').join('')}<col style="width:105px"></colgroup><thead><tr><th>Fleet / Hour</th>${hourHeaders}<th>TOTAL</th></tr></thead><tbody>${fleetRows}<tr><th>TOTAL PRODUCTION (${model.scope.unit})</th>${productionRow}<td>${formatNumber(model.actual,2)}</td></tr></tbody></table><div class="rr-matrix-legend"><span><i style="background:#dcfce7"></i>Tercapai &ge;100%</span><span><i style="background:#fef3c7"></i>Mendekati 80&ndash;&lt;100%</span><span><i style="background:#fee2e2"></i>Di bawah 80%</span></div></div>

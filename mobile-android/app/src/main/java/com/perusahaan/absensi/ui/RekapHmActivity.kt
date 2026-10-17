@@ -1,5 +1,6 @@
 package com.perusahaan.absensi.ui
 
+import android.app.DatePickerDialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -9,16 +10,17 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.button.MaterialButton
 import com.perusahaan.absensi.R
 import com.perusahaan.absensi.network.RetrofitClient
 import com.perusahaan.absensi.network.dto.ItemHmHarian
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class RekapHmActivity : AppCompatActivity() {
@@ -30,6 +32,12 @@ class RekapHmActivity : AppCompatActivity() {
     private lateinit var tvKosong: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var btnBack: ImageView
+    private lateinit var btnTanggalMulai: MaterialButton
+    private lateinit var btnTanggalAkhir: MaterialButton
+    private lateinit var btnTerapkan: MaterialButton
+    private var tanggalMulai: LocalDate = LocalDate.now().withDayOfMonth(1)
+    private var tanggalAkhir: LocalDate = LocalDate.now()
+    private val displayDateFormat = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale("id", "ID"))
 
     private val adapter = HmHarianAdapter()
 
@@ -44,49 +52,83 @@ class RekapHmActivity : AppCompatActivity() {
         rvHarian = findViewById(R.id.rvHarian)
         tvKosong = findViewById(R.id.tvKosong)
         progressBar = findViewById(R.id.progressBar)
+        btnTanggalMulai = findViewById(R.id.btnTanggalMulaiHm)
+        btnTanggalAkhir = findViewById(R.id.btnTanggalAkhirHm)
+        btnTerapkan = findViewById(R.id.btnTerapkanPeriodeHm)
 
         btnBack.setOnClickListener { finish() }
+        btnTanggalMulai.setOnClickListener {
+            pilihTanggal(tanggalMulai) { selected ->
+                tanggalMulai = selected
+                if (tanggalAkhir.isBefore(selected)) tanggalAkhir = selected
+                perbaruiLabelPeriode()
+            }
+        }
+        btnTanggalAkhir.setOnClickListener {
+            pilihTanggal(tanggalAkhir) { selected ->
+                tanggalAkhir = selected
+                if (tanggalMulai.isAfter(selected)) tanggalMulai = selected
+                perbaruiLabelPeriode()
+            }
+        }
+        btnTerapkan.setOnClickListener { muatDataRekapHm() }
 
         rvHarian.layoutManager = LinearLayoutManager(this)
         rvHarian.adapter = adapter
 
+        perbaruiLabelPeriode()
         muatDataRekapHm()
     }
 
     private fun muatDataRekapHm() {
         progressBar.visibility = View.VISIBLE
+        btnTerapkan.isEnabled = false
 
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch {
             try {
-                val response = RetrofitClient.api.getRekapHm()
+                val response = RetrofitClient.api.getRekapHm(tanggalMulai.toString(), tanggalAkhir.toString())
+                if (response.isSuccessful && response.body() != null) {
+                    val data = response.body()!!
+                    tvPeriode.text = "Periode: ${data.bulanTahun}"
+                    tvTotalHmBulanIni.text = String.format(Locale.getDefault(), "%.2f Jam", data.totalHmBulanIni)
+                    tvTotalHariOperasi.text = "${data.totalHariOperasi} Hari"
 
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    if (response.isSuccessful && response.body() != null) {
-                        val data = response.body()!!
-                        tvPeriode.text = "Periode: ${data.bulanTahun}"
-                        tvTotalHmBulanIni.text = String.format(Locale.getDefault(), "%.2f Jam", data.totalHmBulanIni)
-                        tvTotalHariOperasi.text = "${data.totalHariOperasi} Hari"
-
-                        if (data.listHarian.isEmpty()) {
-                            tvKosong.visibility = View.VISIBLE
-                            rvHarian.visibility = View.GONE
-                        } else {
-                            tvKosong.visibility = View.GONE
-                            rvHarian.visibility = View.VISIBLE
-                            adapter.submitList(data.listHarian)
-                        }
+                    if (data.listHarian.isEmpty()) {
+                        tvKosong.visibility = View.VISIBLE
+                        rvHarian.visibility = View.GONE
                     } else {
-                        Toast.makeText(this@RekapHmActivity, "Gagal memuat rekap HM", Toast.LENGTH_SHORT).show()
+                        tvKosong.visibility = View.GONE
+                        rvHarian.visibility = View.VISIBLE
+                        adapter.submitList(data.listHarian)
                     }
+                } else {
+                    Toast.makeText(this@RekapHmActivity, "Gagal memuat rekap HM (${response.code()})", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    Toast.makeText(this@RekapHmActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(this@RekapHmActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                progressBar.visibility = View.GONE
+                btnTerapkan.isEnabled = true
             }
         }
+    }
+
+    private fun perbaruiLabelPeriode() {
+        btnTanggalMulai.text = tanggalMulai.format(displayDateFormat)
+        btnTanggalAkhir.text = tanggalAkhir.format(displayDateFormat)
+        if (::tvPeriode.isInitialized) {
+            tvPeriode.text = "Periode: ${tanggalMulai.format(displayDateFormat)} – ${tanggalAkhir.format(displayDateFormat)}"
+        }
+    }
+
+    private fun pilihTanggal(initial: LocalDate, onSelected: (LocalDate) -> Unit) {
+        DatePickerDialog(
+            this,
+            { _, year, month, day -> onSelected(LocalDate.of(year, month + 1, day)) },
+            initial.year,
+            initial.monthValue - 1,
+            initial.dayOfMonth
+        ).show()
     }
 
     private class HmHarianAdapter : RecyclerView.Adapter<HmHarianAdapter.ViewHolder>() {

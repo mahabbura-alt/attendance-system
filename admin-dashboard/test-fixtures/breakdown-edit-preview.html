@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Preview Edit Breakdown</title>
+  <link rel="stylesheet" href="../style.css?v=61" />
+  <style>body{margin:0;padding:24px;background:#f7f6f3;font-family:Arial,sans-serif}.preview-shell{max-width:1480px;margin:auto}.breakdown-table-section{background:#fff;border:1px solid #dbe3ee;border-radius:14px;padding:16px}.breakdown-table-section>header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.breakdown-table-section h3{margin:0;color:#0f172a}.breakdown-table-section p{margin:4px 0 0;color:#64748b}.tabel-wrap{overflow:auto}.tabel{width:100%;border-collapse:collapse}.tabel th,.tabel td{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}.tabel th{font-size:10px;color:#475569;background:#f8fafc}.tabel td{font-size:10px}.tabel td small{display:block;margin-top:4px;color:#64748b}.tombol{padding:7px 10px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;cursor:pointer}.tombol--kecil{padding:5px 8px}.tombol--utama{color:#fff;background:#0f766e;border-color:#0f766e}.tombol--error{color:#fff;background:#dc2626;border-color:#dc2626}#modalOverlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.52)}#modalOverlay[hidden]{display:none}#modalKonten{width:min(980px,94vw);max-height:92vh;overflow:auto;padding:18px;background:#fff;border-radius:14px;box-shadow:0 22px 70px rgba(15,23,42,.3)}</style>
+</head>
+<body>
+<main class="preview-shell">
+  <section class="breakdown-table-section">
+    <header><div><h3>Breakdown Aktif</h3><p>Jenis kerusakan dapat dikoreksi dan disimpan oleh user.</p></div><div><span id="previewRuntimeStatus">Runtime: OK</span> · <span id="breakdownActiveCount">1 BD</span></div></header>
+    <input id="slicerBreakdownCari" type="hidden" /><select id="slicerBreakdownStatus" hidden><option value="open" selected></option></select><span id="counterSlicerBreakdown"></span>
+    <div class="tabel-wrap"><table class="tabel"><thead><tr><th>Unit</th><th>Tanggal/Shift</th><th>Jenis Kerusakan</th><th>Mulai</th><th>Status</th><th>Durasi</th><th>Report By</th><th>PIC</th><th>Part/PO</th><th>Aksi</th></tr></thead><tbody id="tbodyProdBreakdown"></tbody></table></div>
+  </section>
+  <table hidden><tbody id="tbodyProdBreakdownCompleted"></tbody></table><span id="breakdownCompletedCount" hidden></span>
+  <div hidden><span id="metricMtbf"></span><span id="metricMttr"></span><span id="metricBdOpen"></span><span id="metricBdHours"></span><span id="metricBdUnits"></span><span id="metricMa"></span><span id="metricMaBasis"></span></div>
+</main>
+<div id="modalOverlay" hidden><div id="modalKonten"></div></div>
+<script>
+window.state={token:'preview'};window.getApiBaseUrl=()=>'';window.confirm=()=>true;
+window.addEventListener('error',event=>{const el=document.getElementById('previewRuntimeStatus');if(el)el.textContent=`Runtime error: ${event.message}`;});
+window.addEventListener('unhandledrejection',event=>{const el=document.getElementById('previewRuntimeStatus');if(el)el.textContent=`Promise error: ${event.reason?.message||event.reason}`;});
+window.OMOSActionFeedback={run:async(button,task)=>{button.disabled=true;try{return await task();}finally{button.disabled=false;}},submitter:event=>event.submitter};
+let previewLog={id:'bd-1',equipment_id:'eq-1',breakdown_code_id:'bc-1',kode_alat:'EX30 350-14',kelas_alat:'EX 30 T',tanggal:'2026-09-27',nama_shift:'Shift Malam',kode_breakdown:'B01',kategori_breakdown:'Engine',description:'Engine low power',start_time:'2026-09-27T01:00:00Z',status:'open',current_status:'waiting_part',elapsed_breakdown_hours:8.5,report_by_name:'Dispatcher',pic_id:'p1',pic_name:'Andi Maintenance',parts:[{id:'part-1',part_detail:'Fuel filter',quantity:1,po_number:'PO-260927',po_status:'ordered',eta_date:'2026-09-29'}],status_history:[{id:'seg-1',status:'waiting_part',started_at:'2026-09-27T01:00:00Z',ended_at:null,note:'Menunggu filter',changed_by_name:'Andi Maintenance'}]};
+window.fetch=async(url,opts={})=>{const path=String(url);if(path.includes('/damage-code')){previewLog.breakdown_code_id='bc-2';previewLog.kode_breakdown='B02';previewLog.kategori_breakdown='Hydraulic';return{ok:true,status:200,json:async()=>({success:true,breakdown_code_id:'bc-2',kode_breakdown:'B02',kategori_breakdown:'Hydraulic'})};}if(path.includes('/parts/part-1')&&opts.method==='DELETE'){previewLog.parts=[];return{ok:true,status:200,json:async()=>({success:true})};}if(path.includes('/breakdown?'))return{ok:true,status:200,json:async()=>({logs:[previewLog],metrics:{}})};return{ok:true,status:200,json:async()=>({})};};
+</script>
+<script src="../production.js?v=99"></script>
+<script>
+masterProdData={equipment:[{id:'eq-1',kode_alat:'EX30 350-14',kelas_alat:'EX 30 T'}],breakdownCodes:[{id:'bc-1',kode:'B01',kategori:'Engine'},{id:'bc-2',kode:'B02',kategori:'Hydraulic'},{id:'bc-3',kode:'B03',kategori:'Electrical'}],personnel:[{id:'p1',nama:'Andi Maintenance',departemen:'Maintenance'}],shifts:[],pits:[],jobCodes:[],standbyCodes:[]};cachedBreakdownLogs=[previewLog];cachedBreakdownMetrics={};terapkanSlicerBreakdown();
+</script>
+</body></html>

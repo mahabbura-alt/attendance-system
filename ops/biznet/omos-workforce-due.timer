@@ -1,0 +1,11 @@
+[Unit]
+Description=Process due OMOS workforce movements every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:0/5:00 Asia/Jakarta
+Persistent=true
+RandomizedDelaySec=30
+Unit=omos-workforce-due.service
+
+[Install]
+WantedBy=timers.target

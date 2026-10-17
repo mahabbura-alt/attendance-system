@@ -6,6 +6,7 @@
   "scripts": {
     "seed:admin": "node src/scripts/seedAdmin.js",
     "test": "node --test",
+    "fuel-evidence:reconcile": "node src/scripts/fuelEvidenceReconcile.js",
     "retention:dry": "node src/scripts/purgeExpiredPhotos.js",
     "retention:execute": "node src/scripts/purgeExpiredPhotos.js --execute",
     "migration": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/001_tambah_fitur_baru.sql','utf8')).then(()=>{console.log('Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
@@ -42,8 +43,36 @@
     "migration:fleet-operational-context": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/039_fleet_mapping_operational_context_unique.sql','utf8')).then(()=>{console.log('Fleet Operational Context Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
     "migration:hm-worklog-review": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/040_hm_worklog_review.sql','utf8')).then(()=>{console.log('HM Worklog Review Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
     "migration:hm-worklog-existing-data-cutover": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/041_hm_worklog_existing_data_cutover.sql','utf8')).then(()=>{console.log('HM Worklog Existing Data Cutover Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    "migration:fleet-deployment-planner": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/044_fleet_deployment_planner.sql','utf8')).then(()=>{console.log('Fleet Deployment Planner Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    "migration:fleet-deployment-incomplete-drafts": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/045_fleet_deployment_incomplete_drafts.sql','utf8')).then(()=>{console.log('Fleet Deployment Incomplete Drafts Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    "migration:retire-breakdown-ready-verification": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/046_retire_breakdown_ready_verification.sql','utf8')).then(()=>{console.log('Breakdown Ready Verification Retirement Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    "migration:periodic-service": "node src/scripts/run_migration_058_periodic_service.js",
+    "migration:periodic-service-model-setup": "node src/scripts/run_migration_059_periodic_service_model_setup.js",
+    "migration:periodic-service-schedule-items": "node src/scripts/run_migration_060_periodic_service_schedule_items.js",
+    "migration:periodic-service-forecast-pa": "node src/scripts/run_migration_061_periodic_service_forecast_pa.js",
+    "migration:logistics": "node src/scripts/run_migration_062_logistics.js",
+    "migration:spo-material-type": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/063_spo_material_type.sql','utf8')).then(()=>{console.log('SPO Material Type Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    "migration:workforce": "node src/scripts/run_migration_064_workforce.js",
+    "migration:workforce-mpp-enterprise": "node src/scripts/run_migration_067_workforce_mpp_enterprise.js",
+    "migration:workforce-manpower-pipeline": "node src/scripts/run_migration_068_workforce_manpower_pipeline.js",
+    "migration:workforce-mpp-scenarios": "node src/scripts/run_migration_069_workforce_mpp_scenarios.js",
+    "migration:leave-cuti-database": "node src/scripts/run_migration_070_leave_cuti_database.js",
+    "migration:leave-policy-weekly-employee-scope": "node src/scripts/run_migration_071_leave_policy_weekly_employee_scope.js",
+    "migration:leave-cycle-applications": "node src/scripts/run_migration_072_leave_cycle_applications.js",
+    "migration:hse": "node src/scripts/run_migration_073_hse.js",
+    "migration:hse-fase2": "node src/scripts/run_migration_074_hse_fase2.js",
+    "migration:hse-fase3": "node src/scripts/run_migration_075_hse_fase3.js",
+    "migration:hse-fase4": "node src/scripts/run_migration_076_hse_fase4.js",
+    "migration:hse-fase5": "node src/scripts/run_migration_077_hse_fase5.js",
+    "migration:hse-fase6": "node src/scripts/run_migration_078_hse_fase6.js",
+    "migration:hse-fase7": "node src/scripts/run_migration_079_hse_fase7.js",
+    "migration:hse-fase8": "node src/scripts/run_migration_080_hse_fase8.js",
+    "migration:hm-meter-lifecycle": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/065_equipment_hm_meter_lifecycle.sql','utf8')).then(()=>{console.log('HM Meter Lifecycle Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    "migration:fuel-hm-lifecycle": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/066_fuel_hm_lifecycle.sql','utf8')).then(()=>{console.log('Fuel HM Lifecycle Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    "workforce:process-due": "node src/scripts/process_due_workforce_movements.js",
     "migrate:supabase": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./sql/002_supabase_migration.sql','utf8')).then(()=>{console.log('Supabase Migration OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
-    "verify:supabase": "node src/scripts/verifySupabase.js"
+    "verify:supabase": "node src/scripts/verifySupabase.js",
+    "migration:hse-mobile-safety": "node -r dotenv/config -e \"require('./src/config/db').pool.query(require('fs').readFileSync('./migrations/101_hse_mobile_safety.sql','utf8').replace(/^﻿/,'')).then(()=>{console.log('Migration 101 OMOS Safety OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -52,6 +81,7 @@
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.21.1",
     "form-data": "^4.0.1",
     "jsonwebtoken": "^9.0.2",
@@ -60,6 +90,11 @@
     "pdf-lib": "^1.17.1",
     "pdfkit": "^0.19.1",
     "pg": "^8.13.1",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.35.5",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.2.17"
   }
 }
