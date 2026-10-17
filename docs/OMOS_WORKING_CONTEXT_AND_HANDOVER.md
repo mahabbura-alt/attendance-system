@@ -60,7 +60,14 @@ Layer pointers:
 
 ## Verified Current Implementation Snapshot
 
-### 2026-10-17 — Redesign Database Fuel: satu workspace 4 alur: VERIFIED_REPO (belum deploy, belum commit)
+### 2026-10-17 — Redesign Database Fuel: satu workspace 4 alur: VERIFIED_DEPLOYED (commit `bfd219a`)
+- **Deploy Biznet:**
+  - Release overlay `/opt/omos/releases/20261017-fuel-workspace` (image `omos-app:20261017-fuel-workspace`) dari release fuel-hotfix-105, plus 3 file backend (`fuelInventory.js`, controller, routes) dan 6 file dashboard (`fuelWorkspace.js/.css`, `fuelAccess.ui.js`, `index.html`, `production.js`, `production.loader.js`). Diff terhadap live sebelumnya = perubahan ini saja. Container sebelumnya: `omos-app-prev-20261017-fuel-workspace`. Tanpa migrasi.
+  - Verifikasi:
+    - `/health` 200; endpoint baru 401 tanpa token.
+    - nginx (`/opt/omos/current/admin-dashboard`) menyajikan `fuelWorkspace.js` dengan sha256 sama dengan lokal; loader memuat `fuelWorkspace.js?v=1`, `production.js?v=106`; `index.html` memuat CSS.
+    - `getPeriodReconciliation`, `getConsumptionBreakdown`, dan `getLedger` (kolom baru) berjalan tanpa error di DB produksi.
+  - Belum ada transaksi inventori Fuel di produksi, sehingga isi tabel masih kosong. Belum diuji login UI oleh user.
 - **Keputusan owner:**
   - Satu workspace dengan alur Ringkasan, Stok masuk, Alokasi & distribusi, Validasi & rekonsiliasi, Tren konsumsi, dan Pengaturan.
   - Role hanya membatasi aksi; route fuel-inventory tetap admin-only.
